@@ -46,6 +46,9 @@ struct OnboardingView: View {
     @State private var searchResults: [MKMapItem] = []
     @State private var rankedSpots: [RankedSpot] = []
     @State private var isSearchActive = false
+    /// The tapped/selected search result — drives the highlighted map pin and the
+    /// compact floating detail card (Apple-Maps style).
+    @State private var selectedResult: MKMapItem?
     @State private var selectedCategory: CategoryPreset?
     @State private var searchTask: Task<Void, Never>?
 
@@ -113,7 +116,7 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        Map(position: $position) {
+        Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
                 Annotation("You", coordinate: coord) {
                     TweenPin(role: isUserIn ? .selfActive : .selfDot)
@@ -129,9 +132,21 @@ struct OnboardingView: View {
                     TweenPin(role: .midpoint)
                 }
             }
+            // A selectable pin for every visible search result; the selected one
+            // takes the brand tint. Tapping the empty map clears the selection.
+            ForEach(displayedItems, id: \.self) { item in
+                Marker(item.name ?? "Place", coordinate: item.placemark.coordinate)
+                    .tint(item == selectedResult ? Tokens.Palette.brand : Tokens.Palette.pinFriend)
+                    .tag(item)
+            }
         }
         .ignoresSafeArea()
         .overlay(alignment: .topTrailing) { infoButton }
+        .overlay(alignment: .bottom) { compactCard }
+        .animation(Tokens.Motion.snappy, value: selectedResult)
+        .onChange(of: selectedResult) { _, item in
+            if let item { focusMap(on: item) }
+        }
         .sheet(isPresented: .constant(true)) {
             sheetContent
                 .presentationDetents(
@@ -155,7 +170,7 @@ struct OnboardingView: View {
                             activeSheet = nil
                         }
                     case .invite:
-                        ActivityView(items: [Self.inviteText])
+                        ActivityView(items: [Self.inviteText]) { activeSheet = nil }
                     case .message(let pending):
                         MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
                             activeSheet = nil
@@ -374,6 +389,8 @@ struct OnboardingView: View {
                 .onSubmit(commitSearch)
                 .onChange(of: searchText) { _, query in
                     if query != selectedCategory?.searchQuery { selectedCategory = nil }
+                    // A new query invalidates any pin/card from the old result set.
+                    selectedResult = nil
                     searchPlaces(query: query)
                 }
             if !searchText.isEmpty {
@@ -472,10 +489,7 @@ struct OnboardingView: View {
             ForEach(searchResults, id: \.self) { item in
                 ResultRow(name: item.name ?? "Place", address: item.placemark.title)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        focusMap(on: item)
-                        activeSheet = .spot(SpotSelection(item: item, ranked: nil))
-                    }
+                    .onTapGesture { selectedResult = item }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityHint("Opens details for this place")
                 Divider()
@@ -485,6 +499,69 @@ struct OnboardingView: View {
                 .font(Tokens.Typography.footnote)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .padding(.top, Tokens.Spacing.s1)
+        }
+    }
+
+    /// The map items currently shown in the list — ranked when both coordinates
+    /// are known, otherwise the raw search hits. Source of truth for map markers.
+    private var displayedItems: [MKMapItem] {
+        rankedSpots.isEmpty ? searchResults : rankedSpots.compactMap(\.item)
+    }
+
+    /// The ranked entry for a given map item, when one exists (so the card can
+    /// show an ETA chip).
+    private func rankedMatch(for item: MKMapItem) -> RankedSpot? {
+        rankedSpots.first { $0.item == item }
+    }
+
+    /// Apple-Maps-style floating card for the selected pin: name, address, an
+    /// optional ETA chip, and a primary hand-off. Tapping the body expands to the
+    /// full detail sheet; the close button (or tapping the empty map) deselects.
+    @ViewBuilder
+    private var compactCard: some View {
+        if let item = selectedResult {
+            let ranked = rankedMatch(for: item)
+            let selection = SpotSelection(item: item, ranked: ranked)
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+                HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                        Text(item.name ?? "Place")
+                            .font(Tokens.Typography.headline)
+                            .lineLimit(1)
+                        if let address = item.placemark.title, !address.isEmpty {
+                            Text(address)
+                                .font(Tokens.Typography.caption)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if let ranked {
+                        ETAChip(etaFromA: ranked.etaFromA, etaFromB: ranked.etaFromB)
+                    }
+                    Button { selectedResult = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(Tokens.Typography.title2)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Deselect")
+                }
+                Button { sendToChat(selection) } label: {
+                    Label("Send to chat", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(.tweenPrimary())
+            }
+            .padding(Tokens.Spacing.s4)
+            .tweenGlass(radius: Tokens.Radius.card)
+            .tweenElevation(.floating)
+            .padding(.horizontal)
+            // Sit above the bottom sheet's 120pt peek.
+            .padding(.bottom, 120 + Tokens.Spacing.s4)
+            .contentShape(Rectangle())
+            .onTapGesture { activeSheet = .spot(selection) }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityHint("Tap for full details, or send this spot to your chat")
         }
     }
 
@@ -534,12 +611,12 @@ struct OnboardingView: View {
 
     // MARK: - Hand-off
 
-    /// Opens the detail card for a ranked result (when it carries a map item)
-    /// and animates the map to frame the selection.
+    /// Selects a ranked result (when it carries a map item). Selection drives
+    /// the highlighted pin, the compact card, and \-- via `onChange` \-- the
+    /// camera/sheet, so a row tap behaves exactly like tapping the pin.
     private func presentDetail(for spot: RankedSpot) {
         guard let item = spot.item else { return }
-        focusMap(on: item)
-        activeSheet = .spot(SpotSelection(item: item, ranked: spot))
+        selectedResult = item
     }
 
     /// Centers the map on a tapped result and drops the sheet to its peek so the
@@ -715,6 +792,7 @@ struct OnboardingView: View {
         rankedSpots = []
         isSearchActive = false
         selectedCategory = nil
+        selectedResult = nil
     }
 
     /// Toggles a preset chip. Re-tapping the active chip clears the search;
