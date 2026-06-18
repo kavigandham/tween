@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import MapKit
 import CoreLocation
 
@@ -13,8 +14,9 @@ struct MapMarker: Identifiable {
 /// Pure geometry helpers shared by the snapshot view, the bubble renderer, and
 /// the extension. Kept free of UI so both processes can frame the same region.
 enum MapGeometry {
-    /// Default focus when there's nothing to frame.
-    static let sanFrancisco = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+    /// Default focus when there's nothing to frame: the geographic center of the
+    /// continental US — deliberately generic rather than a misleading city.
+    static let defaultCenter = CLLocationCoordinate2D(latitude: 39.8283, longitude: -98.5795)
 
     /// Average of two coordinates.
     static func midpoint(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
@@ -27,7 +29,7 @@ enum MapGeometry {
     /// snapshot never renders the whole globe.
     static func region(
         for coordinates: [CLLocationCoordinate2D],
-        fallback: CLLocationCoordinate2D = sanFrancisco,
+        fallback: CLLocationCoordinate2D = defaultCenter,
         padding: Double = 1.4,
         minSpan: CLLocationDegrees = 0.02
     ) -> MKCoordinateRegion {

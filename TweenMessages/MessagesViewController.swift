@@ -27,7 +27,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     private var sendTask: Task<Void, Never>?
 
     private let locationProvider = LocationProvider()
-    private var sentMessageCount = 0
+    private let networkMonitor = NetworkMonitor()
 
     private var hosting: UIHostingController<AnyView>?
 
@@ -42,7 +42,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        decodeAndCache(conversation.selectedMessage)
+        decodeAndCache(conversation.selectedMessage, in: conversation)
         // The host app may have staged a spot for us; if so, jump to expanded so
         // the user can confirm and send it.
         draft = OutgoingDraftStore.load()
@@ -64,7 +64,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
-        decodeAndCache(message)
+        decodeAndCache(message, in: conversation)
         // Stamp the inbound bubble so the host app can surface a "they replied"
         // banner across its sheet.
         PingLog.lastIncomingReplyAt = Date()
@@ -84,9 +84,12 @@ final class MessagesViewController: MSMessagesAppViewController {
     // MARK: - Decoding
 
     /// Decodes a bubble's payload into `received` and caches the peer coordinate
-    /// for later ranking. A message that isn't ours is ignored.
-    private func decodeAndCache(_ message: MSMessage?) {
-        guard let url = message?.url, let state = TweenState(url: url) else { return }
+    /// for later ranking. A bubble that isn't a Tween payload is ignored — and so
+    /// is one we sent ourselves, since caching our own coordinate as the peer's
+    /// would corrupt the midpoint and ranking.
+    private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) {
+        guard let message, let url = message.url, let state = TweenState(url: url) else { return }
+        guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return }
         received = state
         LocationCache.savePeer(state.coordinate)
     }
@@ -105,6 +108,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     selfCoord: LocationCache.loadSelf()?.coordinate,
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
+                    isOnline: networkMonitor.isOnline,
                     draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) },
@@ -259,7 +263,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard !Task.isCancelled else { return }
         do {
             try await conversation.insert(message)
-            sentMessageCount += 1
         } catch {
             // Swallow errors in the extension context; insertion can fail if the
             // conversation is no longer active or the extension is backgrounding.

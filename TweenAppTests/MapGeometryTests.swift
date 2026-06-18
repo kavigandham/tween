@@ -20,7 +20,7 @@ final class MapGeometryTests: XCTestCase {
     // 2. An empty coordinate list falls back to a bounded neighborhood region.
     func testRegionFallsBackOnEmptyInput() {
         let region = MapGeometry.region(for: [])
-        XCTAssertEqual(region.center.latitude, MapGeometry.sanFrancisco.latitude, accuracy: 1e-9)
+        XCTAssertEqual(region.center.latitude, MapGeometry.defaultCenter.latitude, accuracy: 1e-9)
         XCTAssertEqual(region.span.latitudeDelta, 0.05, accuracy: 1e-9)
         XCTAssertEqual(region.span.longitudeDelta, 0.05, accuracy: 1e-9)
     }

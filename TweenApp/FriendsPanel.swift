@@ -146,7 +146,9 @@ struct ContactSearchView: View {
     }
 
     private var requestState: some View {
-        ProgressView().onAppear(perform: requestIfNeeded)
+        // Permission is requested from the enclosing view's `.onAppear`; this is
+        // just the in-flight spinner.
+        ProgressView()
     }
 
     private var deniedState: some View {
