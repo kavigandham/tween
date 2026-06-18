@@ -49,6 +49,8 @@ struct OnboardingView: View {
     /// The tapped/selected search result — drives the highlighted map pin and the
     /// compact floating detail card (Apple-Maps style).
     @State private var selectedResult: MKMapItem?
+    /// Whether results show as a scrollable list or as pins on the full map.
+    @State private var searchViewMode: SearchViewMode = .list
     @State private var selectedCategory: CategoryPreset?
     @State private var searchTask: Task<Void, Never>?
 
@@ -108,6 +110,14 @@ struct OnboardingView: View {
         }
     }
 
+    /// How search results are browsed: a scrollable list, or pins on the map.
+    enum SearchViewMode: String, CaseIterable, Identifiable {
+        case list
+        case map
+        var id: String { rawValue }
+        var title: String { self == .list ? "List" : "Map" }
+    }
+
     init() {
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
@@ -132,20 +142,51 @@ struct OnboardingView: View {
                     TweenPin(role: .midpoint)
                 }
             }
-            // A selectable pin for every visible search result; the selected one
-            // takes the brand tint. Tapping the empty map clears the selection.
+            // A selectable pin for every visible search result. The selected one
+            // becomes a custom annotation carrying the A/B distance label above a
+            // larger brand icon; the rest are category markers. Tapping the empty
+            // map clears the selection.
             ForEach(displayedItems, id: \.self) { item in
-                Marker(item.name ?? "Place", coordinate: item.placemark.coordinate)
-                    .tint(item == selectedResult ? Tokens.Palette.brand : Tokens.Palette.pinFriend)
+                if item == selectedResult {
+                    Annotation(item.name ?? "Place", coordinate: item.placemark.coordinate, anchor: .bottom) {
+                        VStack(spacing: Tokens.Spacing.s1) {
+                            ABDistanceLabel(
+                                selfCoord: savedCoordinate,
+                                peerCoord: peerCoordinate,
+                                target: item.placemark.coordinate,
+                                ranked: rankedMatch(for: item))
+                            Image(systemName: resultIcon)
+                                .font(Tokens.Typography.title2)
+                                .foregroundStyle(.white)
+                                .padding(Tokens.Spacing.s3)
+                                .background(Tokens.Palette.brand, in: Circle())
+                                .tweenElevation(.pin)
+                        }
+                    }
                     .tag(item)
+                } else {
+                    Marker(item.name ?? "Place", systemImage: resultIcon, coordinate: item.placemark.coordinate)
+                        .tint(Tokens.Palette.pinFriend)
+                        .tag(item)
+                }
             }
         }
         .ignoresSafeArea()
         .overlay(alignment: .topTrailing) { infoButton }
+        .overlay(alignment: .top) { viewModeToggle }
         .overlay(alignment: .bottom) { compactCard }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
             if let item { focusMap(on: item) }
+        }
+        .onChange(of: searchViewMode) { _, mode in
+            switch mode {
+            case .map:
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(120) }
+                frameResults()
+            case .list:
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+            }
         }
         .sheet(isPresented: .constant(true)) {
             sheetContent
@@ -273,6 +314,26 @@ struct OnboardingView: View {
         .padding(.trailing, Tokens.Spacing.s4)
         .accessibilityLabel("Help")
         .accessibilityHint("Shows the welcome walkthrough")
+    }
+
+    /// Floating List/Map switch over the map, shown only when there are results
+    /// so it stays reachable even when the sheet is collapsed to its peek.
+    @ViewBuilder
+    private var viewModeToggle: some View {
+        if isSearchActive && !searchResults.isEmpty {
+            Picker("Results view", selection: $searchViewMode) {
+                ForEach(SearchViewMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 200)
+            .padding(Tokens.Spacing.s1)
+            .background(.ultraThinMaterial, in: Capsule())
+            .tweenElevation(.floating)
+            .padding(.top, Tokens.Spacing.s2)
+            .accessibilityHint("Switches between a list of results and pins on the map")
+        }
     }
 
     /// Top-of-sheet banner when the network drops; search is gated while offline.
@@ -514,9 +575,16 @@ struct OnboardingView: View {
         rankedSpots.first { $0.item == item }
     }
 
-    /// Apple-Maps-style floating card for the selected pin: name, address, an
-    /// optional ETA chip, and a primary hand-off. Tapping the body expands to the
-    /// full detail sheet; the close button (or tapping the empty map) deselects.
+    /// Glyph for result pins — the active category's icon when a preset drove the
+    /// search, otherwise a generic map pin.
+    private var resultIcon: String {
+        selectedCategory?.icon ?? "mappin.circle.fill"
+    }
+
+    /// Apple-Maps-style floating card for the selected pin: name, address, the
+    /// A/B distance label, and Send-to-chat / Directions actions. Tapping the body
+    /// expands to the full detail sheet; the close button (or tapping the empty
+    /// map) deselects.
     @ViewBuilder
     private var compactCard: some View {
         if let item = selectedResult {
@@ -536,9 +604,6 @@ struct OnboardingView: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    if let ranked {
-                        ETAChip(etaFromA: ranked.etaFromA, etaFromB: ranked.etaFromB)
-                    }
                     Button { selectedResult = nil } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(Tokens.Typography.title2)
@@ -547,10 +612,21 @@ struct OnboardingView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Deselect")
                 }
-                Button { sendToChat(selection) } label: {
-                    Label("Send to chat", systemImage: "paperplane.fill")
+                ABDistanceLabel(
+                    selfCoord: savedCoordinate,
+                    peerCoord: peerCoordinate,
+                    target: item.placemark.coordinate,
+                    ranked: ranked)
+                HStack(spacing: Tokens.Spacing.s2) {
+                    Button { sendToChat(selection) } label: {
+                        Label("Send to chat", systemImage: "paperplane.fill")
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    Button { openDirections(to: item) } label: {
+                        Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
                 }
-                .buttonStyle(.tweenPrimary())
             }
             .padding(Tokens.Spacing.s4)
             .tweenGlass(radius: Tokens.Radius.card)
@@ -636,6 +712,13 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(120) }
     }
 
+    /// Frames the camera to fit every visible result pin (Map mode).
+    private func frameResults() {
+        let coords = displayedItems.map(\.placemark.coordinate)
+        guard !coords.isEmpty else { return }
+        withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+    }
+
     /// Stages the chosen spot for the extension and bounces to Messages, where
     /// the user taps Tween to pick the draft up.
     private func sendToChat(_ selection: SpotSelection) {
@@ -646,6 +729,13 @@ struct OnboardingView: View {
         if let url = URL(string: "sms:") {
             UIApplication.shared.open(url)
         }
+    }
+
+    /// Opens Apple Maps with driving directions to the chosen spot.
+    private func openDirections(to item: MKMapItem) {
+        item.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
     }
 
     private func dismissTutorial() {
@@ -779,9 +869,15 @@ struct OnboardingView: View {
         }
 
         isSearchActive = true
-        // Lift the sheet off its peek so results are visible.
-        if selectedSheetDetent == .height(120) {
-            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+        switch searchViewMode {
+        case .list:
+            // Lift the sheet off its peek so the result rows are visible.
+            if selectedSheetDetent == .height(120) {
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+            }
+        case .map:
+            // Keep the sheet at peek and reframe the camera to the new pins.
+            frameResults()
         }
     }
 
@@ -793,6 +889,7 @@ struct OnboardingView: View {
         isSearchActive = false
         selectedCategory = nil
         selectedResult = nil
+        searchViewMode = .list
     }
 
     /// Toggles a preset chip. Re-tapping the active chip clears the search;

@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import CoreLocation
 
 /// A plain place row: category-style icon, name, and address. Used for search
 /// hits before two coordinates exist (no ETAs to show yet).
@@ -69,6 +70,60 @@ struct ETAChip: View {
     }
 
     private func mins(_ eta: TimeInterval) -> Int { Int((eta / 60).rounded()) }
+}
+
+/// A compact "A … · B …" capsule comparing the two participants' trips to a
+/// spot. A is the current user, B is the friend. Shows real drive times when the
+/// spot has been fairness-ranked, otherwise straight-line distance; either side
+/// reads "--" when that coordinate is unknown.
+struct ABDistanceLabel: View {
+    let selfCoord: CLLocationCoordinate2D?
+    let peerCoord: CLLocationCoordinate2D?
+    let target: CLLocationCoordinate2D
+    var ranked: RankedSpot?
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Text("A \(aValue)")
+            Text("·").foregroundStyle(Tokens.Palette.textSecondary)
+            Text("B \(bValue)")
+        }
+        .font(Tokens.Typography.captionBold.monospacedDigit())
+        .padding(.horizontal, Tokens.Spacing.s2)
+        .padding(.vertical, Tokens.Spacing.s1)
+        .background(.ultraThinMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("You \(aValue), your friend \(bValue)")
+    }
+
+    private var aValue: String {
+        if let ranked { return Self.formatETA(ranked.etaFromA) }
+        return Self.formatDistance(from: selfCoord, to: target)
+    }
+
+    private var bValue: String {
+        if let ranked { return Self.formatETA(ranked.etaFromB) }
+        return Self.formatDistance(from: peerCoord, to: target)
+    }
+
+    /// Straight-line miles between two coordinates; "--" when the origin is
+    /// unknown, "nearby" under a tenth of a mile.
+    static func formatDistance(from: CLLocationCoordinate2D?, to: CLLocationCoordinate2D) -> String {
+        guard let from else { return "--" }
+        let a = CLLocation(latitude: from.latitude, longitude: from.longitude)
+        let b = CLLocation(latitude: to.latitude, longitude: to.longitude)
+        let miles = a.distance(from: b) / 1609.34
+        if miles < 0.1 { return "nearby" }
+        return String(format: "%.1f mi", miles)
+    }
+
+    /// A driving ETA in seconds as a short string: "<1 min" / "N min" / "Nh Mm".
+    static func formatETA(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 1 { return "<1 min" }
+        if minutes < 60 { return "\(minutes) min" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
 }
 
 /// A ranked place row: the place's name and address with its dual-ETA chip on
