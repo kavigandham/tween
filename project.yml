@@ -18,6 +18,9 @@ targets:
     sources:
       - path: TweenApp
       - path: Shared
+      # Pure UIKit/MapKit renderer (no Messages APIs) — compiled into the app too
+      # so TweenAppTests can cover it via `@testable import TweenApp`.
+      - path: TweenMessages/BubbleImageRenderer.swift
     entitlements:
       path: TweenApp.entitlements
     settings:
