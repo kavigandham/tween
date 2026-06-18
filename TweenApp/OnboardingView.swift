@@ -12,8 +12,10 @@ import UIKit
 /// The bottom sheet's peek exposes place search and category chips; pulling it
 /// up reveals the presence controls and the fairness-ranked results.
 struct OnboardingView: View {
-    /// Default camera focus when there's no cached location yet.
-    private static let sanFrancisco = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+    /// Default camera focus when there's no cached location and none can be
+    /// resolved (e.g. location denied). The geographic center of the
+    /// continental US — deliberately generic rather than a misleading city.
+    private static let defaultCenter = CLLocationCoordinate2D(latitude: 39.8283, longitude: -98.5795)
 
     /// How many candidates the fairness engine resolves routes for in the app.
     private static let rankCap = 8
@@ -30,6 +32,10 @@ struct OnboardingView: View {
     @State private var savedCoordinate: CLLocationCoordinate2D?
     @State private var peerCoordinate: CLLocationCoordinate2D?
     @State private var isUserIn = false
+    /// True while we're waiting on the location fix the user explicitly asked
+    /// for via "I'm in"; distinguishes that from the silent launch-time fix that
+    /// only centers the map without flipping presence on.
+    @State private var awaitingImIn = false
     @State private var provider = LocationProvider()
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
@@ -47,17 +53,19 @@ struct OnboardingView: View {
     @State private var panelTab: HomePanelTab = .map
     @State private var friends: [TweenFriend] = FriendRoster.load()
     @State private var editorMode: FriendEditor?
-    @State private var showContactSearch = false
     @State private var lastReplyAt: Date? = PingLog.lastIncomingReplyAt
     @State private var pingTick = 0
     @State private var renameText = ""
-    @State private var pendingMessage: PendingMessage?
     @State private var toast: String?
 
     // Hand-off / onboarding
-    @State private var selectedSpot: SpotSelection?
     @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
-    @State private var showInvite = false
+
+    /// The single secondary sheet currently presented. Consolidated into one
+    /// enum-driven `.sheet(item:)` because stacking multiple `.sheet` modifiers
+    /// on the same view as the always-on bottom sheet caused presentations to
+    /// silently no-op (Add Friend / Invite never appeared).
+    @State private var activeSheet: ActiveSheet?
 
     /// Identifiable wrapper so the SMS composer can be presented via `sheet(item:)`.
     struct PendingMessage: Identifiable {
@@ -79,11 +87,29 @@ struct OnboardingView: View {
         var coordinate: CLLocationCoordinate2D { item.placemark.coordinate }
     }
 
+    /// Every secondary sheet the home surface can present, multiplexed through a
+    /// single `.sheet(item:)`.
+    enum ActiveSheet: Identifiable {
+        case contacts
+        case invite
+        case message(PendingMessage)
+        case spot(SpotSelection)
+
+        var id: String {
+            switch self {
+            case .contacts:          return "contacts"
+            case .invite:            return "invite"
+            case .message(let m):    return "message-\(m.id)"
+            case .spot(let s):       return "spot-\(s.id)"
+            }
+        }
+    }
+
     init() {
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
         _isUserIn = State(initialValue: cached != nil && LocationCache.isActive)
-        _position = State(initialValue: Self.cameraPosition(for: [cached?.coordinate ?? Self.sanFrancisco]))
+        _position = State(initialValue: Self.cameraPosition(for: [cached?.coordinate ?? Self.defaultCenter]))
     }
 
     var body: some View {
@@ -116,29 +142,29 @@ struct OnboardingView: View {
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
         }
-        .sheet(isPresented: $showContactSearch) {
-            ContactSearchView { friend in
-                FriendRoster.add(friend)
-                friends = FriendRoster.load()
-                showContactSearch = false
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .contacts:
+                ContactSearchView { friend in
+                    FriendRoster.add(friend)
+                    friends = FriendRoster.load()
+                    activeSheet = nil
+                }
+            case .invite:
+                ActivityView(items: [Self.inviteText])
+            case .message(let pending):
+                MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
+                    activeSheet = nil
+                }
+            case .spot(let selection):
+                SpotDetailCard(
+                    name: selection.name,
+                    address: selection.address,
+                    coordinate: selection.coordinate,
+                    ranked: selection.ranked,
+                    onSendToChat: { sendToChat(selection) }
+                )
             }
-        }
-        .sheet(item: $pendingMessage) { pending in
-            MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
-                pendingMessage = nil
-            }
-        }
-        .sheet(item: $selectedSpot) { selection in
-            SpotDetailCard(
-                name: selection.name,
-                address: selection.address,
-                coordinate: selection.coordinate,
-                ranked: selection.ranked,
-                onSendToChat: { sendToChat(selection) }
-            )
-        }
-        .sheet(isPresented: $showInvite) {
-            ActivityView(items: [Self.inviteText])
         }
         .fullScreenCover(isPresented: $showTutorial) {
             OnboardingTutorialView(onDone: dismissTutorial)
@@ -152,11 +178,17 @@ struct OnboardingView: View {
         }
         .onChange(of: provider.status) { _, status in
             if case let .got(coord) = status {
-                LocationCache.save(coord)
                 withAnimation(Tokens.Motion.spring) {
                     savedCoordinate = coord
-                    isUserIn = true
+                    // Only the explicit "I'm in" gesture flips presence on and
+                    // persists the coordinate for the peer hand-off. The silent
+                    // launch fix just recenters the map on a self dot.
+                    if awaitingImIn {
+                        LocationCache.save(coord)
+                        isUserIn = true
+                    }
                 }
+                awaitingImIn = false
                 reframe()
             }
         }
@@ -166,6 +198,7 @@ struct OnboardingView: View {
             if phase != .active { searchTask?.cancel() }
         }
         .task { await pollPeer() }
+        .task { requestInitialLocation() }
     }
 
     // MARK: - Bottom sheet
@@ -263,14 +296,14 @@ struct OnboardingView: View {
     @ViewBuilder
     private var friendsPanel: some View {
         VStack(spacing: Tokens.Spacing.s3) {
-            Button { showContactSearch = true } label: {
+            Button { activeSheet = .contacts } label: {
                 Label("Add Friend", systemImage: "person.badge.plus")
             }
             .buttonStyle(.tweenPrimary())
             .padding(.horizontal)
             .accessibilityHint("Picks someone from your contacts")
 
-            Button { showInvite = true } label: {
+            Button { activeSheet = .invite } label: {
                 Label("Invite a Friend", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.tweenPrimary(.subtle))
@@ -434,7 +467,10 @@ struct OnboardingView: View {
             ForEach(searchResults, id: \.self) { item in
                 ResultRow(name: item.name ?? "Place", address: item.placemark.title)
                     .contentShape(Rectangle())
-                    .onTapGesture { selectedSpot = SpotSelection(item: item, ranked: nil) }
+                    .onTapGesture {
+                        focusMap(on: item)
+                        activeSheet = .spot(SpotSelection(item: item, ranked: nil))
+                    }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityHint("Opens details for this place")
                 Divider()
@@ -468,6 +504,17 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func imIn() {
+        awaitingImIn = true
+        provider.requestOnce()
+    }
+
+    /// Auto-requests location on launch so the map opens on the user's real
+    /// location instead of a generic default. Prompts on first launch
+    /// (`requestOnce` handles the authorization branch internally); silent on
+    /// subsequent launches once granted. Skipped when we already have a fresh
+    /// shared coordinate, so an active "I'm in" session isn't disturbed.
+    private func requestInitialLocation() {
+        guard !(savedCoordinate != nil && LocationCache.isActive) else { return }
         provider.requestOnce()
     }
 
@@ -482,10 +529,29 @@ struct OnboardingView: View {
 
     // MARK: - Hand-off
 
-    /// Opens the detail card for a ranked result (when it carries a map item).
+    /// Opens the detail card for a ranked result (when it carries a map item)
+    /// and animates the map to frame the selection.
     private func presentDetail(for spot: RankedSpot) {
         guard let item = spot.item else { return }
-        selectedSpot = SpotSelection(item: item, ranked: spot)
+        focusMap(on: item)
+        activeSheet = .spot(SpotSelection(item: item, ranked: spot))
+    }
+
+    /// Centers the map on a tapped result and drops the sheet to its peek so the
+    /// map is visible. Frames self, peer, and the spot together when both
+    /// participants are known; otherwise zooms tight on the spot.
+    private func focusMap(on item: MKMapItem) {
+        if savedCoordinate != nil, peerCoordinate != nil {
+            let coords = [savedCoordinate, peerCoordinate, item.placemark.coordinate].compactMap { $0 }
+            withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+        } else {
+            withAnimation(Tokens.Motion.gentle) {
+                position = .region(MKCoordinateRegion(
+                    center: item.placemark.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
+            }
+        }
+        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(120) }
     }
 
     /// Stages the chosen spot for the extension and bounces to Messages, where
@@ -514,7 +580,7 @@ struct OnboardingView: View {
         pingTick += 1
 
         if let handle = friend.handle, MFMessageComposeViewController.canSendText() {
-            pendingMessage = PendingMessage(recipients: [handle], body: Self.inviteText)
+            activeSheet = .message(PendingMessage(recipients: [handle], body: Self.inviteText))
         } else {
             UIPasteboard.general.string = Self.inviteText
             showToast("Invite copied for \(friend.name)")
@@ -561,68 +627,80 @@ struct OnboardingView: View {
     /// known, otherwise whichever single point we have. A wide 1.6° span keeps
     /// results relevant without pinning them to one neighborhood.
     private var searchRegion: MKCoordinateRegion {
-        let center = midpoint ?? savedCoordinate ?? peerCoordinate ?? Self.sanFrancisco
+        let center = midpoint ?? savedCoordinate ?? peerCoordinate ?? Self.defaultCenter
         return MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(latitudeDelta: 1.6, longitudeDelta: 1.6))
     }
 
-    /// Debounced place search. Cancels any in-flight query, waits 300ms, then
-    /// runs `MKLocalSearch`. When both coordinates are known the hits are run
-    /// through the fairness engine; otherwise the raw results are shown.
+    /// Debounced live search driven by typing. Cancels any in-flight query,
+    /// waits 300ms (so we don't fire on every keystroke), then runs the search.
     private func searchPlaces(query: String) {
         searchTask?.cancel()
-
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            searchResults = []
-            rankedSpots = []
-            isSearchActive = false
-            return
-        }
-
-        // No network means no MKLocalSearch — the offline banner gates the field.
-        guard monitor.isOnline else {
-            searchResults = []
-            rankedSpots = []
-            isSearchActive = false
-            return
-        }
+        guard canSearch(trimmed) else { return }
 
         searchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = trimmed
-            request.region = searchRegion
-
-            guard let response = try? await MKLocalSearch(request: request).start(),
-                  !Task.isCancelled else { return }
-            let items = response.mapItems
-
-            if let me = savedCoordinate, let peer = peerCoordinate {
-                let ranked = await FairnessRanker.rank(
-                    candidates: items, from: me, and: peer, cap: Self.rankCap)
-                guard !Task.isCancelled else { return }
-                rankedSpots = ranked
-                searchResults = items
-            } else {
-                rankedSpots = []
-                searchResults = items
-            }
-
-            isSearchActive = true
-            // Lift the sheet off its peek so results are visible.
-            if selectedSheetDetent == .height(120) {
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
-            }
+            await runSearch(trimmed: trimmed)
         }
     }
 
-    /// Runs the search for whatever is currently typed (keyboard "Search").
+    /// Runs the search immediately for whatever is typed (keyboard "Search").
+    /// Enter means "search now", so this skips the typing debounce entirely.
     private func commitSearch() {
-        searchPlaces(query: searchText)
+        searchTask?.cancel()
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSearch(trimmed) else { return }
+
+        searchTask = Task { @MainActor in
+            await runSearch(trimmed: trimmed)
+        }
+    }
+
+    /// Clears results and returns `false` when there's nothing to search — an
+    /// empty query, or offline (the offline banner gates the field). Returns
+    /// `true` when a search should proceed.
+    private func canSearch(_ trimmed: String) -> Bool {
+        guard !trimmed.isEmpty, monitor.isOnline else {
+            searchResults = []
+            rankedSpots = []
+            isSearchActive = false
+            return false
+        }
+        return true
+    }
+
+    /// Shared body for both the debounced and immediate paths: runs
+    /// `MKLocalSearch`, ranks the hits through the fairness engine when both
+    /// coordinates are known, and surfaces the results.
+    @MainActor
+    private func runSearch(trimmed: String) async {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = trimmed
+        request.region = searchRegion
+
+        guard let response = try? await MKLocalSearch(request: request).start(),
+              !Task.isCancelled else { return }
+        let items = response.mapItems
+
+        if let me = savedCoordinate, let peer = peerCoordinate {
+            let ranked = await FairnessRanker.rank(
+                candidates: items, from: me, and: peer, cap: Self.rankCap)
+            guard !Task.isCancelled else { return }
+            rankedSpots = ranked
+            searchResults = items
+        } else {
+            rankedSpots = []
+            searchResults = items
+        }
+
+        isSearchActive = true
+        // Lift the sheet off its peek so results are visible.
+        if selectedSheetDetent == .height(120) {
+            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+        }
     }
 
     private func clearSearch() {
@@ -688,7 +766,7 @@ struct OnboardingView: View {
     static func cameraPosition(for coordinates: [CLLocationCoordinate2D]) -> MapCameraPosition {
         guard let first = coordinates.first else {
             return .region(MKCoordinateRegion(
-                center: sanFrancisco,
+                center: defaultCenter,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)))
         }
 

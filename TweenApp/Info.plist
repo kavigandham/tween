@@ -20,6 +20,8 @@
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Tween uses your contacts so you can pick a friend to invite to a meetup.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Tween uses your location once to find fair meetup spots.</string>
 	<key>UILaunchScreen</key>

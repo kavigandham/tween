@@ -27,6 +27,9 @@ targets:
       - path: TweenMessages/BubbleImageRenderer.swift
     entitlements:
       path: TweenApp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.kavigandham.tween
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp
@@ -42,6 +45,7 @@ targets:
         CFBundleVersion: "1"
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: "Tween uses your location once to find fair meetup spots."
+        NSContactsUsageDescription: "Tween uses your contacts so you can pick a friend to invite to a meetup."
 
   TweenMessages:
     type: app-extension.messages
@@ -53,6 +57,9 @@ targets:
       - path: Shared
     entitlements:
       path: TweenMessages.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.kavigandham.tween
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenMessages
