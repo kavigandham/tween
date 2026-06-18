@@ -1,0 +1,81 @@
+name: TweenApp
+options:
+  bundleIdPrefix: com.kavigandham
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  TweenApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: TweenApp
+      - path: Shared
+    entitlements:
+      path: TweenApp.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp
+        INFOPLIST_FILE: TweenApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: TweenApp.entitlements
+    dependencies:
+      - target: TweenMessages
+    info:
+      path: TweenApp/Info.plist
+      properties:
+        CFBundleDisplayName: Tween
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSLocationWhenInUseUsageDescription: "Tween uses your location once to find fair meetup spots."
+
+  TweenMessages:
+    type: messages-extension
+    platform: iOS
+    sources:
+      - path: TweenMessages
+      - path: Shared
+    entitlements:
+      path: TweenMessages.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenMessages
+        INFOPLIST_FILE: TweenMessages/Info.plist
+        CODE_SIGN_ENTITLEMENTS: TweenMessages.entitlements
+    info:
+      path: TweenMessages/Info.plist
+      properties:
+        CFBundleDisplayName: Tween
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.message-payload-provider
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController
+        NSLocationWhenInUseUsageDescription: "Tween uses your location once to share where you are for a meetup."
+
+  TweenAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TweenAppTests
+    dependencies:
+      - target: TweenApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppTests
+
+  TweenAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: TweenAppUITests
+    dependencies:
+      - target: TweenApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppUITests
