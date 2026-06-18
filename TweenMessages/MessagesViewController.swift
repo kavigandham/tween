@@ -18,6 +18,8 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     /// The spot a peer most recently shared with us.
     private var received: TweenState?
+    /// A spot the host app staged for us to send, picked up on activation.
+    private var draft: OutgoingDraft?
     /// Fairness-ranked candidates, populated only while expanded.
     private var rankedSpots: [RankedSpot] = []
 
@@ -41,6 +43,12 @@ final class MessagesViewController: MSMessagesAppViewController {
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
         decodeAndCache(conversation.selectedMessage)
+        // The host app may have staged a spot for us; if so, jump to expanded so
+        // the user can confirm and send it.
+        draft = OutgoingDraftStore.load()
+        if draft != nil {
+            requestPresentationStyle(.expanded)
+        }
         presentUI(for: presentationStyle)
     }
 
@@ -97,8 +105,10 @@ final class MessagesViewController: MSMessagesAppViewController {
                     selfCoord: LocationCache.loadSelf()?.coordinate,
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
+                    draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
-                    onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) }
+                    onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) },
+                    onSendDraft: { [weak self] in self?.sendDraft() }
                 )
             )
         default:
@@ -200,6 +210,20 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude)
         sendBubble(state: state)
+    }
+
+    /// Confirms a host-app hand-off: composes the bubble for the staged draft,
+    /// clears it so it isn't offered again, and re-renders.
+    private func sendDraft() {
+        guard let draft else { return }
+        let state = TweenState(
+            text: draft.spotName,
+            latitude: draft.latitude,
+            longitude: draft.longitude)
+        OutgoingDraftStore.clear()
+        self.draft = nil
+        sendBubble(state: state)
+        presentUI(for: presentationStyle)
     }
 
     private func sendBubble(state: TweenState) {

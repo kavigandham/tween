@@ -54,11 +54,29 @@ struct OnboardingView: View {
     @State private var pendingMessage: PendingMessage?
     @State private var toast: String?
 
+    // Hand-off / onboarding
+    @State private var selectedSpot: SpotSelection?
+    @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
+    @State private var showInvite = false
+
     /// Identifiable wrapper so the SMS composer can be presented via `sheet(item:)`.
     struct PendingMessage: Identifiable {
         let id = UUID()
         let recipients: [String]
         let body: String
+    }
+
+    /// A tapped search result staged for the detail card. Carries the map item
+    /// plus its ranking (when both coordinates are known) so the card can show
+    /// an ETA chip.
+    struct SpotSelection: Identifiable {
+        let id = UUID()
+        let item: MKMapItem
+        let ranked: RankedSpot?
+
+        var name: String { item.name ?? "Spot" }
+        var address: String? { item.placemark.title }
+        var coordinate: CLLocationCoordinate2D { item.placemark.coordinate }
     }
 
     init() {
@@ -87,6 +105,7 @@ struct OnboardingView: View {
             }
         }
         .ignoresSafeArea()
+        .overlay(alignment: .topTrailing) { infoButton }
         .sheet(isPresented: .constant(true)) {
             sheetContent
                 .presentationDetents(
@@ -108,6 +127,21 @@ struct OnboardingView: View {
             MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
                 pendingMessage = nil
             }
+        }
+        .sheet(item: $selectedSpot) { selection in
+            SpotDetailCard(
+                name: selection.name,
+                address: selection.address,
+                coordinate: selection.coordinate,
+                ranked: selection.ranked,
+                onSendToChat: { sendToChat(selection) }
+            )
+        }
+        .sheet(isPresented: $showInvite) {
+            ActivityView(items: [Self.inviteText])
+        }
+        .fullScreenCover(isPresented: $showTutorial) {
+            OnboardingTutorialView(onDone: dismissTutorial)
         }
         .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
             TextField("Name", text: $renameText)
@@ -139,6 +173,7 @@ struct OnboardingView: View {
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: 12) {
+            if !monitor.isOnline { offlineBanner }
             replyBanner
             Picker("Panel", selection: $panelTab) {
                 ForEach(HomePanelTab.allCases) { tab in
@@ -169,6 +204,36 @@ struct OnboardingView: View {
         resultsScroll
     }
 
+    /// Floating control to re-show the first-run walkthrough.
+    private var infoButton: some View {
+        Button { showTutorial = true } label: {
+            Image(systemName: "info.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .padding(10)
+                .background(.thinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 8)
+        .padding(.trailing, 16)
+    }
+
+    /// Top-of-sheet banner when the network drops; search is gated while offline.
+    private var offlineBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+            Text("You're offline. Reconnect to find meetup spots.")
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.white)
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(Color.orange, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+    }
+
     /// A nudge that the other side just shared a spot, shown across both tabs
     /// while the inbound bubble is still fresh.
     @ViewBuilder
@@ -197,6 +262,14 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal)
+
+            Button { showInvite = true } label: {
+                Label("Invite a Friend", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
             .controlSize(.large)
             .padding(.horizontal)
 
@@ -335,11 +408,15 @@ struct OnboardingView: View {
         if !rankedSpots.isEmpty {
             ForEach(rankedSpots) { spot in
                 RankedResultRow(spot: spot)
+                    .contentShape(Rectangle())
+                    .onTapGesture { presentDetail(for: spot) }
                 Divider()
             }
         } else if !searchResults.isEmpty {
             ForEach(searchResults, id: \.self) { item in
                 ResultRow(name: item.name ?? "Place", address: item.placemark.title)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedSpot = SpotSelection(item: item, ranked: nil) }
                 Divider()
             }
         } else {
@@ -381,6 +458,31 @@ struct OnboardingView: View {
         if let coord = savedCoordinate {
             LocationCache.save(coord)
         }
+    }
+
+    // MARK: - Hand-off
+
+    /// Opens the detail card for a ranked result (when it carries a map item).
+    private func presentDetail(for spot: RankedSpot) {
+        guard let item = spot.item else { return }
+        selectedSpot = SpotSelection(item: item, ranked: spot)
+    }
+
+    /// Stages the chosen spot for the extension and bounces to Messages, where
+    /// the user taps Tween to pick the draft up.
+    private func sendToChat(_ selection: SpotSelection) {
+        OutgoingDraftStore.save(OutgoingDraft(
+            spotName: selection.name,
+            latitude: selection.coordinate.latitude,
+            longitude: selection.coordinate.longitude))
+        if let url = URL(string: "sms:") {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func dismissTutorial() {
+        OnboardingFlags.hasSeenOnboarding = true
+        showTutorial = false
     }
 
     // MARK: - Friends
@@ -453,6 +555,14 @@ struct OnboardingView: View {
 
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            searchResults = []
+            rankedSpots = []
+            isSearchActive = false
+            return
+        }
+
+        // No network means no MKLocalSearch — the offline banner gates the field.
+        guard monitor.isOnline else {
             searchResults = []
             rankedSpots = []
             isSearchActive = false

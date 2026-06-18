@@ -250,8 +250,11 @@ struct ExpandedView: View {
     let isUserIn: Bool
     /// Additive to the spec's parameter list so the offline banner has a source.
     var isOnline: Bool = true
+    /// A spot handed off from the host app, awaiting confirmation before send.
+    var draft: OutgoingDraft? = nil
     var onImIn: () -> Void
     var onSelectSpot: (RankedSpot) -> Void
+    var onSendDraft: () -> Void = {}
 
     @State private var selectedSpotID: RankedSpot.ID?
 
@@ -262,6 +265,7 @@ struct ExpandedView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     map
+                    if let draft { draftPanel(draft) }
                     if let received { receivedPanel(received) }
                     if !rankedSpots.isEmpty { spotRail }
                 }
@@ -286,6 +290,9 @@ struct ExpandedView: View {
         }
         if let selfCoord, let received {
             result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, received.coordinate), role: .midpoint))
+        }
+        if let draft {
+            result.append(MapMarker(coordinate: draft.coordinate, role: .midpoint))
         }
         return result
     }
@@ -327,6 +334,28 @@ struct ExpandedView: View {
         }
         .padding(14)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: Draft panel
+
+    /// Confirmation card for a spot the host app handed off. The `primaryCTA`
+    /// becomes "Send [name]" while this is showing.
+    private func draftPanel(_ draft: OutgoingDraft) -> some View {
+        HStack(spacing: 12) {
+            TweenPin(role: .midpoint).scaleEffect(0.7)
+                .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ready to send")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(draft.spotName)
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
     }
 
     // MARK: Spot rail
@@ -385,7 +414,15 @@ struct ExpandedView: View {
 
     @ViewBuilder
     private var primaryCTA: some View {
-        if !isUserIn {
+        if let draft {
+            Button(action: onSendDraft) {
+                Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        } else if !isUserIn {
             Button(action: onImIn) {
                 Label("I'm in", systemImage: "location.fill")
                     .frame(maxWidth: .infinity)
