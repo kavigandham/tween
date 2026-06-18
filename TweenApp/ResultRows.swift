@@ -9,19 +9,19 @@ struct ResultRow: View {
     var icon: String = "mappin.circle.fill"
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: Tokens.Spacing.s7)
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text(name)
-                    .font(.headline)
+                    .font(Tokens.Typography.headline)
                     .lineLimit(1)
                 if let address, !address.isEmpty {
                     Text(address)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -40,9 +40,9 @@ struct ETAChip: View {
 
     private var tint: Color {
         switch gapMinutes {
-        case ..<3:  return .green
-        case 3...8: return .yellow
-        default:    return .orange
+        case ..<3:  return Tokens.Palette.fairnessGood
+        case 3...8: return Tokens.Palette.fairnessOkay
+        default:    return Tokens.Palette.fairnessPoor
         }
     }
 
@@ -50,20 +50,25 @@ struct ETAChip: View {
         HStack(spacing: 0) {
             minutes(etaFromA)
             Text("|")
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .padding(.horizontal, Tokens.Spacing.s2)
             minutes(etaFromB)
         }
-        .font(.caption.weight(.semibold).monospacedDigit())
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .font(Tokens.Typography.captionBold.monospacedDigit())
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .padding(.vertical, Tokens.Spacing.s2)
         .background(tint.opacity(0.18), in: Capsule())
         .foregroundStyle(tint)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Drive times")
+        .accessibilityValue("\(mins(etaFromA)) minutes for you, \(mins(etaFromB)) minutes for your friend")
     }
 
     private func minutes(_ eta: TimeInterval) -> some View {
-        Text("\(Int((eta / 60).rounded())) min")
+        Text("\(mins(eta)) min")
     }
+
+    private func mins(_ eta: TimeInterval) -> Int { Int((eta / 60).rounded()) }
 }
 
 /// A ranked place row: the place's name and address with its dual-ETA chip on
@@ -72,10 +77,10 @@ struct RankedResultRow: View {
     let spot: RankedSpot
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             ResultRow(name: spot.item?.name ?? "Spot",
                       address: spot.item?.placemark.title)
-            Spacer(minLength: 8)
+            Spacer(minLength: Tokens.Spacing.s2)
             ETAChip(etaFromA: spot.etaFromA, etaFromB: spot.etaFromB)
         }
     }

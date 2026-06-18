@@ -3,8 +3,9 @@ import SwiftUI
 /// A map marker for a participant or computed spot.
 ///
 /// Four roles, each a colored fill behind a white SF Symbol wrapped in a faint
-/// halo ring. The active-self and midpoint roles pulse to draw the eye. Styling
-/// here is intentionally literal — design tokens arrive in a later phase.
+/// halo ring. The active-self and midpoint roles pulse to draw the eye. Color
+/// and elevation flow from `Tokens`; each role also carries a distinct glyph so
+/// color is never the sole differentiator (accessibility).
 struct TweenPin: View {
     enum Role {
         case selfDot
@@ -14,10 +15,10 @@ struct TweenPin: View {
 
         var fill: Color {
             switch self {
-            case .selfDot:    return .blue
-            case .selfActive: return .green
-            case .friend:     return .orange
-            case .midpoint:   return .teal
+            case .selfDot:    return Tokens.Palette.pinSelf
+            case .selfActive: return Tokens.Palette.pinSelfActive
+            case .friend:     return Tokens.Palette.pinFriend
+            case .midpoint:   return Tokens.Palette.pinMidpoint
             }
         }
 
@@ -27,6 +28,16 @@ struct TweenPin: View {
             case .selfActive: return "checkmark"
             case .friend:     return "square.fill"
             case .midpoint:   return "star.fill"
+            }
+        }
+
+        /// VoiceOver name for the marker.
+        var accessibilityName: String {
+            switch self {
+            case .selfDot:    return "Your location"
+            case .selfActive: return "Your shared location"
+            case .friend:     return "Your friend's location"
+            case .midpoint:   return "Fair midpoint"
             }
         }
 
@@ -50,18 +61,23 @@ struct TweenPin: View {
             Circle()
                 .fill(role.fill)
                 .frame(width: role.diameter, height: role.diameter)
-                .shadow(radius: 2, y: 1)
+                .tweenElevation(.pin)
             icon
         }
+        .transition(.scale.combined(with: .opacity))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(role.accessibilityName)
     }
 
     @ViewBuilder
     private var icon: some View {
+        // Glyph size is intrinsically proportional to the pin diameter, so it
+        // tracks the geometry token rather than a fixed typography token.
         let glyph = Image(systemName: role.symbol)
             .font(.system(size: role.diameter * 0.42, weight: .bold))
             .foregroundStyle(.white)
         if role.pulses {
-            glyph.symbolEffect(.pulse)
+            glyph.symbolEffect(.pulse, isActive: true)
         } else {
             glyph
         }
@@ -69,7 +85,7 @@ struct TweenPin: View {
 }
 
 #Preview {
-    HStack(spacing: 24) {
+    HStack(spacing: Tokens.Spacing.s6) {
         TweenPin(role: .selfDot)
         TweenPin(role: .selfActive)
         TweenPin(role: .friend)

@@ -59,7 +59,7 @@ enum MapGeometry {
 /// re-layout doesn't re-snapshot the same region.
 struct TweenMapSnapshotView: View {
     let markers: [MapMarker]
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = Tokens.Radius.card
 
     @State private var image: UIImage?
 
@@ -87,11 +87,12 @@ struct TweenMapSnapshotView: View {
 
     private var placeholder: some View {
         ZStack {
-            Rectangle().fill(Color(.secondarySystemBackground))
+            Rectangle().fill(Tokens.Palette.surfaceSecondary)
             Image(systemName: "map")
-                .font(.title2)
-                .foregroundStyle(.tertiary)
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.textTertiary)
         }
+        .accessibilityHidden(true)
     }
 
     /// A stable identity for the current request: rounding the coordinates keeps
@@ -160,37 +161,40 @@ struct CompactView: View {
     var onExpand: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             thumbnail
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
                     .lineLimit(2)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Tokens.Spacing.s2)
             imInControl
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Tokens.Spacing.s4)
+        .padding(.vertical, Tokens.Spacing.s3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // The whole surface expands; the real Button below intercepts its own taps.
         .contentShape(Rectangle())
         .onTapGesture(perform: onExpand)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens Tween to find a fair place to meet")
     }
 
     @ViewBuilder
     private var thumbnail: some View {
         if let received {
-            TweenMapSnapshotView(markers: markers(for: received), cornerRadius: 12)
+            TweenMapSnapshotView(markers: markers(for: received), cornerRadius: Tokens.Radius.card)
                 .frame(width: 84, height: 84)
         } else {
             ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground))
-                Image(systemName: "map.fill").foregroundStyle(.tertiary)
+                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
+                Image(systemName: "map.fill").foregroundStyle(Tokens.Palette.textTertiary)
             }
             .frame(width: 84, height: 84)
         }
@@ -219,21 +223,29 @@ struct CompactView: View {
 
     @ViewBuilder
     private var imInControl: some View {
-        if isUserIn {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.green)
-        } else {
-            Button(action: onImIn) {
-                Text("I'm in")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.tint, in: Capsule())
-                    .foregroundStyle(.white)
+        Group {
+            if isUserIn {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(Tokens.Typography.title2)
+                    .foregroundStyle(Tokens.Palette.success)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: isUserIn)
+                    .accessibilityLabel("You're in")
+            } else {
+                Button(action: onImIn) {
+                    Text("I'm in")
+                        .font(Tokens.Typography.subheadline.weight(.semibold))
+                        .padding(.horizontal, Tokens.Spacing.s4)
+                        .padding(.vertical, Tokens.Spacing.s2)
+                        .background(Tokens.Palette.brand, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("I'm in")
+                .accessibilityHint("Shares where you are with your friend")
             }
-            .buttonStyle(.plain)
         }
+        .sensoryFeedback(.success, trigger: isUserIn)
     }
 }
 
@@ -257,23 +269,25 @@ struct ExpandedView: View {
     var onSendDraft: () -> Void = {}
 
     @State private var selectedSpotID: RankedSpot.ID?
+    /// Bumped on every send so the CTA can fire an impact haptic.
+    @State private var sendTick = 0
 
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
 
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: Tokens.Spacing.s4) {
                     map
                     if let draft { draftPanel(draft) }
                     if let received { receivedPanel(received) }
                     if !rankedSpots.isEmpty { spotRail }
                 }
-                .padding(16)
+                .padding(Tokens.Spacing.s4)
             }
 
             primaryCTA
-                .padding(16)
+                .padding(Tokens.Spacing.s4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -301,39 +315,42 @@ struct ExpandedView: View {
     private var map: some View {
         if markers.isEmpty {
             ZStack {
-                RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground))
-                VStack(spacing: 8) {
-                    Image(systemName: "location.slash").font(.title)
+                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
+                VStack(spacing: Tokens.Spacing.s2) {
+                    Image(systemName: "location.slash").font(Tokens.Typography.title)
                     Text("Share your location to see the map")
-                        .font(.footnote)
+                        .font(Tokens.Typography.footnote)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.Palette.textSecondary)
             }
             .frame(height: 220)
         } else {
-            TweenMapSnapshotView(markers: markers, cornerRadius: 18)
+            TweenMapSnapshotView(markers: markers, cornerRadius: Tokens.Radius.card)
                 .frame(height: 220)
+                .accessibilityLabel("Map of you, your friend, and the fair midpoint")
         }
     }
 
     // MARK: Received panel
 
     private func receivedPanel(_ state: TweenState) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             TweenPin(role: .friend).scaleEffect(0.7)
                 .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text("Your friend shared")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
                 Text(state.text)
-                    .font(.headline)
+                    .font(Tokens.Typography.headline)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .padding(Tokens.Spacing.s4)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Your friend shared \(state.text)")
     }
 
     // MARK: Draft panel
@@ -341,66 +358,73 @@ struct ExpandedView: View {
     /// Confirmation card for a spot the host app handed off. The `primaryCTA`
     /// becomes "Send [name]" while this is showing.
     private func draftPanel(_ draft: OutgoingDraft) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             TweenPin(role: .midpoint).scaleEffect(0.7)
                 .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text("Ready to send")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
                 Text(draft.spotName)
-                    .font(.headline)
+                    .font(Tokens.Typography.headline)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+        .padding(Tokens.Spacing.s4)
+        .background(Tokens.Palette.brand.opacity(0.14), in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Ready to send \(draft.spotName)")
     }
 
     // MARK: Spot rail
 
     private var spotRail: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             Text("Fair spots")
-                .font(.subheadline.weight(.semibold))
+                .font(Tokens.Typography.subheadline.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: Tokens.Spacing.s3) {
                     ForEach(rankedSpots) { spot in
                         spotChip(spot)
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, Tokens.Spacing.s1)
             }
         }
     }
 
     private func spotChip(_ spot: RankedSpot) -> some View {
         let isSelected = (selectedSpotID ?? rankedSpots.first?.id) == spot.id
+        let name = spot.item?.name ?? "Spot"
         return Button {
             selectedSpotID = spot.id
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(spot.item?.name ?? "Spot")
-                    .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+                Text(name)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Label("\(minutes(spot.worseETA)) min", systemImage: "car.fill")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.captionBold.monospacedDigit())
+                    .foregroundStyle(Tokens.Palette.textSecondary)
             }
             .frame(width: 150, alignment: .leading)
-            .padding(12)
+            .padding(Tokens.Spacing.s3)
             .background(
-                isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.16))
-                           : AnyShapeStyle(Color(.secondarySystemBackground)),
-                in: RoundedRectangle(cornerRadius: 14)
+                isSelected ? AnyShapeStyle(Tokens.Palette.brand.opacity(0.16))
+                           : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
+                in: RoundedRectangle(cornerRadius: Tokens.Radius.card)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: Tokens.Radius.card)
+                    .stroke(isSelected ? Tokens.Palette.brand : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: selectedSpotID)
+        .accessibilityLabel("\(name), longest drive \(minutes(spot.worseETA)) minutes")
+        .accessibilityHint("Selects this spot to send")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: CTA
@@ -414,49 +438,50 @@ struct ExpandedView: View {
 
     @ViewBuilder
     private var primaryCTA: some View {
-        if let draft {
-            Button(action: onSendDraft) {
-                Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
-                    .lineLimit(1)
+        Group {
+            if let draft {
+                Button { sendTick += 1; onSendDraft() } label: {
+                    Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityHint("Drops \(draft.spotName) into your conversation")
+            } else if !isUserIn {
+                Button(action: onImIn) {
+                    Label("I'm in", systemImage: "location.fill")
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityHint("Shares where you are with your friend")
+            } else if let spot = selectedSpot {
+                Button { sendTick += 1; onSelectSpot(spot) } label: {
+                    Label("Send \(spot.item?.name ?? "Spot")", systemImage: "paperplane.fill")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityHint("Drops this spot into your conversation")
+            } else {
+                Text("Finding fair spots…")
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, Tokens.Spacing.s2)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        } else if !isUserIn {
-            Button(action: onImIn) {
-                Label("I'm in", systemImage: "location.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        } else if let spot = selectedSpot {
-            Button { onSelectSpot(spot) } label: {
-                Label("Send \(spot.item?.name ?? "Spot")", systemImage: "paperplane.fill")
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        } else {
-            Text("Finding fair spots…")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
         }
+        .sensoryFeedback(.impact, trigger: sendTick)
     }
 
     private var offlineBanner: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "wifi.slash")
             Text("You're offline. Reconnect to find fair spots.")
             Spacer(minLength: 0)
         }
-        .font(.caption.weight(.medium))
+        .font(Tokens.Typography.caption.weight(.medium))
         .foregroundStyle(.white)
-        .padding(10)
+        .padding(Tokens.Spacing.s3)
         .frame(maxWidth: .infinity)
-        .background(Color.orange)
+        .background(Tokens.Palette.warning)
+        .accessibilityElement(children: .combine)
     }
 
     private func minutes(_ eta: TimeInterval) -> Int { Int((eta / 60).rounded()) }

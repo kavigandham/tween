@@ -52,31 +52,34 @@ struct OnboardingTutorialView: View {
 
             Button(action: onDone) {
                 Text(selection == Self.cards.count - 1 ? "Get Started" : "Skip")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(24)
+            .buttonStyle(.tweenPrimary())
+            .padding(Tokens.Spacing.s6)
+            .accessibilityHint(selection == Self.cards.count - 1
+                               ? "Dismisses the walkthrough and opens Tween"
+                               : "Skips the rest of the walkthrough")
         }
     }
 
     private func cardView(_ card: TutorialCard) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: Tokens.Spacing.s6) {
             Spacer()
             Image(systemName: card.icon)
-                .font(.system(size: 72))
-                .foregroundStyle(.tint)
+                .font(Tokens.Typography.heroIcon)
+                .foregroundStyle(Tokens.Palette.brand)
                 .frame(height: 120)
+                .accessibilityHidden(true)
             Text(card.headline)
-                .font(.title.weight(.bold))
+                .font(Tokens.Typography.title)
                 .multilineTextAlignment(.center)
             Text(card.body)
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(Tokens.Typography.body)
+                .foregroundStyle(Tokens.Palette.textSecondary)
                 .multilineTextAlignment(.center)
             Spacer()
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, Tokens.Spacing.s7)
+        .accessibilityElement(children: .combine)
     }
 }
 

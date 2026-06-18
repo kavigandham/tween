@@ -153,7 +153,7 @@ struct OnboardingView: View {
         .onChange(of: provider.status) { _, status in
             if case let .got(coord) = status {
                 LocationCache.save(coord)
-                withAnimation(.spring) {
+                withAnimation(Tokens.Motion.spring) {
                     savedCoordinate = coord
                     isUserIn = true
                 }
@@ -172,7 +172,7 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var sheetContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Tokens.Spacing.s3) {
             if !monitor.isOnline { offlineBanner }
             replyBanner
             Picker("Panel", selection: $panelTab) {
@@ -182,13 +182,14 @@ struct OnboardingView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
+            .accessibilityHint("Switches between place search and your friend roster")
 
             switch panelTab {
             case .map:     mapPanel
             case .waiting: friendsPanel
             }
         }
-        .padding(.top, 16)
+        .padding(.top, Tokens.Spacing.s4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
@@ -208,30 +209,34 @@ struct OnboardingView: View {
     private var infoButton: some View {
         Button { showTutorial = true } label: {
             Image(systemName: "info.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .padding(10)
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+                .padding(Tokens.Spacing.s3)
                 .background(.thinMaterial, in: Circle())
+                .tweenElevation(.floating)
         }
         .buttonStyle(.plain)
-        .padding(.top, 8)
-        .padding(.trailing, 16)
+        .padding(.top, Tokens.Spacing.s2)
+        .padding(.trailing, Tokens.Spacing.s4)
+        .accessibilityLabel("Help")
+        .accessibilityHint("Shows the welcome walkthrough")
     }
 
     /// Top-of-sheet banner when the network drops; search is gated while offline.
     private var offlineBanner: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "wifi.slash")
             Text("You're offline. Reconnect to find meetup spots.")
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
-        .font(.footnote.weight(.medium))
+        .font(Tokens.Typography.footnote.weight(.medium))
         .foregroundStyle(.white)
-        .padding(10)
+        .padding(Tokens.Spacing.s3)
         .frame(maxWidth: .infinity)
-        .background(Color.orange, in: RoundedRectangle(cornerRadius: 12))
+        .background(Tokens.Palette.warning, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
         .padding(.horizontal)
+        .accessibilityElement(children: .combine)
     }
 
     /// A nudge that the other side just shared a spot, shown across both tabs
@@ -239,16 +244,17 @@ struct OnboardingView: View {
     @ViewBuilder
     private var replyBanner: some View {
         if let lastReplyAt, Date().timeIntervalSince(lastReplyAt) < Self.replyFreshness {
-            HStack(spacing: 8) {
+            HStack(spacing: Tokens.Spacing.s2) {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                 Text("Your friend replied \(RelativeTime.string(from: lastReplyAt))")
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .font(.footnote.weight(.medium))
-            .padding(10)
-            .background(.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+            .font(Tokens.Typography.footnote.weight(.medium))
+            .padding(Tokens.Spacing.s3)
+            .background(Tokens.Palette.brand.opacity(0.15), in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
             .padding(.horizontal)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -256,22 +262,20 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var friendsPanel: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Tokens.Spacing.s3) {
             Button { showContactSearch = true } label: {
                 Label("Add Friend", systemImage: "person.badge.plus")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(.tweenPrimary())
             .padding(.horizontal)
+            .accessibilityHint("Picks someone from your contacts")
 
             Button { showInvite = true } label: {
                 Label("Invite a Friend", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
+            .buttonStyle(.tweenPrimary(.subtle))
             .padding(.horizontal)
+            .accessibilityHint("Shares an invite link to Tween")
 
             if friends.isEmpty {
                 ContentUnavailableView(
@@ -285,6 +289,8 @@ struct OnboardingView: View {
                         FriendRow(friend: friend, pingTick: pingTick)
                             .contentShape(Rectangle())
                             .onTapGesture { pingFriend(friend) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint("Pings \(friend.name) to meet up")
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     deleteFriend(friend)
@@ -294,7 +300,7 @@ struct OnboardingView: View {
                                 Button { startRename(friend) } label: {
                                     Label("Rename", systemImage: "pencil")
                                 }
-                                .tint(.blue)
+                                .tint(Tokens.Palette.pinSelf)
                             }
                     }
                 }
@@ -307,23 +313,26 @@ struct OnboardingView: View {
     private var toastView: some View {
         if let toast {
             Text(toast)
-                .font(.footnote.weight(.medium))
+                .font(Tokens.Typography.footnote.weight(.medium))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, Tokens.Spacing.s4)
+                .padding(.vertical, Tokens.Spacing.s3)
+                // Toasts read as a dark scrim capsule in both color schemes.
                 .background(.black.opacity(0.8), in: Capsule())
-                .padding(.bottom, 16)
+                .padding(.bottom, Tokens.Spacing.s4)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
         }
     }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.Palette.textSecondary)
             TextField("Search places", text: $searchText)
                 .textFieldStyle(.plain)
                 .submitLabel(.search)
+                .accessibilityLabel("Search places")
                 .onSubmit(commitSearch)
                 .onChange(of: searchText) { _, query in
                     if query != selectedCategory?.searchQuery { selectedCategory = nil }
@@ -332,42 +341,47 @@ struct OnboardingView: View {
             if !searchText.isEmpty {
                 Button(action: clearSearch) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(Tokens.Spacing.s3)
+        .tweenGlass()
         .padding(.horizontal)
     }
 
     private var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Tokens.Spacing.s2) {
                 ForEach(CategoryPreset.allCases) { preset in
                     let selected = preset == selectedCategory
                     Button { selectCategory(preset) } label: {
                         Label(preset.title, systemImage: preset.icon)
-                            .font(.subheadline)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .font(Tokens.Typography.subheadline)
+                            .padding(.horizontal, Tokens.Spacing.s3)
+                            .padding(.vertical, Tokens.Spacing.s2)
                             .background(
-                                selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.thinMaterial),
+                                selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(.thinMaterial),
                                 in: Capsule()
                             )
-                            .foregroundStyle(selected ? Color.white : Color.primary)
+                            .foregroundStyle(selected ? Color.white : Tokens.Palette.textPrimary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(preset.title)
+                    .accessibilityHint("Searches for \(preset.searchQuery.lowercased()) near the midpoint")
+                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 }
             }
             .padding(.horizontal)
         }
+        .sensoryFeedback(.selection, trigger: selectedCategory)
     }
 
     private var resultsScroll: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: Tokens.Spacing.s3) {
                 presenceControls
                 if isSearchActive {
                     resultsList
@@ -387,19 +401,21 @@ struct OnboardingView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .tint(Tokens.Palette.destructive)
+            .accessibilityHint("Stops sharing your location")
         } else {
             Button(action: imIn) {
                 Label("I'm in", systemImage: "location.fill")
-                    .frame(maxWidth: .infinity)
+                    .symbolEffect(.bounce, value: isUserIn)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(.tweenPrimary())
             .disabled(provider.status == .requesting)
+            .accessibilityHint("Shares where you are and finds fair places to meet")
         }
 
         Text(statusText)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            .font(Tokens.Typography.footnote)
+            .foregroundStyle(Tokens.Palette.textSecondary)
             .multilineTextAlignment(.center)
     }
 
@@ -410,6 +426,8 @@ struct OnboardingView: View {
                 RankedResultRow(spot: spot)
                     .contentShape(Rectangle())
                     .onTapGesture { presentDetail(for: spot) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens details and the map for this spot")
                 Divider()
             }
         } else if !searchResults.isEmpty {
@@ -417,13 +435,15 @@ struct OnboardingView: View {
                 ResultRow(name: item.name ?? "Place", address: item.placemark.title)
                     .contentShape(Rectangle())
                     .onTapGesture { selectedSpot = SpotSelection(item: item, ranked: nil) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens details for this place")
                 Divider()
             }
         } else {
             Text("No places found nearby.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
+                .font(Tokens.Typography.footnote)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .padding(.top, Tokens.Spacing.s1)
         }
     }
 
@@ -452,7 +472,7 @@ struct OnboardingView: View {
     }
 
     private func leave() {
-        withAnimation(.spring) { isUserIn = false }
+        withAnimation(Tokens.Motion.spring) { isUserIn = false }
         // Active state lives in the view; refresh the cached coordinate's
         // timestamp so it stays usable while we wait for a peer.
         if let coord = savedCoordinate {
@@ -528,10 +548,10 @@ struct OnboardingView: View {
     }
 
     private func showToast(_ message: String) {
-        withAnimation { toast = message }
+        withAnimation(Tokens.Motion.snappy) { toast = message }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
-            withAnimation { toast = nil }
+            withAnimation(Tokens.Motion.snappy) { toast = nil }
         }
     }
 
@@ -595,7 +615,7 @@ struct OnboardingView: View {
             isSearchActive = true
             // Lift the sheet off its peek so results are visible.
             if selectedSheetDetent == .height(120) {
-                withAnimation { selectedSheetDetent = .fraction(0.48) }
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
             }
         }
     }
@@ -649,7 +669,7 @@ struct OnboardingView: View {
     private func reframe() {
         let coords = [savedCoordinate, peerCoordinate, midpoint].compactMap { $0 }
         guard !coords.isEmpty else { return }
-        withAnimation { position = Self.cameraPosition(for: coords) }
+        withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
     }
 
     private func same(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D) -> Bool {

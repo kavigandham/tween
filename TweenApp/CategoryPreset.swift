@@ -3,8 +3,7 @@ import Foundation
 /// A one-tap search shortcut for a common meetup category.
 ///
 /// Each case maps to the natural-language query handed to `MKLocalSearch` and an
-/// SF Symbol shown in its capsule chip. Styling is literal for now — design
-/// tokens arrive in a later phase.
+/// SF Symbol shown in its capsule chip.
 enum CategoryPreset: String, CaseIterable, Identifiable {
     case coffee
     case food

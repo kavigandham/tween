@@ -46,25 +46,26 @@ struct FriendRow: View {
     let pingTick: Int
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: "person.crop.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: Tokens.Spacing.s7)
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text(friend.name)
-                    .font(.headline)
+                    .font(Tokens.Typography.headline)
                     .lineLimit(1)
                 Text(pingSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
             Image(systemName: "paperplane.fill")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.Palette.textSecondary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Tokens.Spacing.s1)
+        .accessibilityElement(children: .combine)
     }
 
     private var pingSubtitle: String {
@@ -121,14 +122,15 @@ struct ContactSearchView: View {
                                        contactIdentifier: contact.identifier,
                                        handle: handle))
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(name).font(.headline)
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                        Text(name).font(Tokens.Typography.headline)
                         if let handle {
-                            Text(handle).font(.caption).foregroundStyle(.secondary)
+                            Text(handle).font(Tokens.Typography.caption).foregroundStyle(Tokens.Palette.textSecondary)
                         }
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityHint("Adds \(name) to your friends")
             }
         }
         .listStyle(.plain)
@@ -137,8 +139,8 @@ struct ContactSearchView: View {
         .overlay {
             if !query.isEmpty && matches.isEmpty {
                 Text("No contacts found.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
             }
         }
     }

@@ -73,9 +73,10 @@ enum BubbleImageRenderer {
             }
 
             // Pin halos: people first, then the spot as the emphasized target.
-            if let s = selfCoord { drawHalo(.systemBlue, at: snapshot.point(for: s), in: ctx) }
-            if let p = peerCoord { drawHalo(.systemOrange, at: snapshot.point(for: p), in: ctx) }
-            drawHalo(.systemTeal, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
+            // UIKit token equivalents mirror the SwiftUI pin palette.
+            if let s = selfCoord { drawHalo(Tokens.Palette.UI.pinSelf, at: snapshot.point(for: s), in: ctx) }
+            if let p = peerCoord { drawHalo(Tokens.Palette.UI.pinFriend, at: snapshot.point(for: p), in: ctx) }
+            drawHalo(Tokens.Palette.UI.pinMidpoint, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
 
             drawFooter(spotName: state.text, in: ctx)
         }
@@ -129,9 +130,9 @@ enum BubbleImageRenderer {
             ctx.move(to: a); ctx.addLine(to: b); ctx.strokePath()
             ctx.restoreGState()
 
-            drawHalo(.systemBlue, at: a, in: ctx)
-            drawHalo(.systemOrange, at: b, in: ctx)
-            drawHalo(.systemTeal, at: CGPoint(x: size.width * 0.50, y: size.height * 0.41), in: ctx, emphasized: true)
+            drawHalo(Tokens.Palette.UI.pinSelf, at: a, in: ctx)
+            drawHalo(Tokens.Palette.UI.pinFriend, at: b, in: ctx)
+            drawHalo(Tokens.Palette.UI.pinMidpoint, at: CGPoint(x: size.width * 0.50, y: size.height * 0.41), in: ctx, emphasized: true)
 
             drawFooter(spotName: spotName, in: ctx)
         }
@@ -155,7 +156,7 @@ enum BubbleImageRenderer {
 
     private static func drawFooter(spotName: String, in ctx: CGContext) {
         let rect = CGRect(x: 0, y: size.height - footerHeight, width: size.width, height: footerHeight)
-        ctx.setFillColor(UIColor(red: 0.10, green: 0.45, blue: 0.95, alpha: 0.95).cgColor)
+        ctx.setFillColor(Tokens.Palette.UI.brand.withAlphaComponent(0.95).cgColor)
         ctx.fill(rect)
 
         // Brand wordmark on the leading edge.
