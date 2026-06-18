@@ -1,0 +1,13 @@
+Tween finds the fairest place for two friends to meet — without ever leaving your conversation.
+
+Pick Tween from the iMessage app drawer, tap "I'm in," and Tween shares where you are. When your friend does the same, it ranks real meeting spots by drive time so nobody gets stuck with the long haul. Tap a spot and drop it straight into the chat as a tappable map bubble.
+
+No accounts. No sign-ups. No servers. Tween runs entirely on your device and Apple's maps — your location is used only to compute fair spots and is never uploaded, tracked, or sold. Coordinates are shared only with the friend you're meeting, and only when you choose to.
+
+Fair by design, private by default:
+• Drive-time ranking, not just straight-line distance
+• Works right inside iMessage
+• One-tap location sharing
+• Zero tracking, zero backend
+
+Stop arguing about who drives further. Let Tween settle it.

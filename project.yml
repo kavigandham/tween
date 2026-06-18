@@ -16,6 +16,10 @@ targets:
     type: application
     platform: iOS
     sources:
+      # The TweenApp directory is globbed recursively, so it already includes
+      # HarnessView.swift (DEBUG screenshot harness) and PrivacyInfo.xcprivacy
+      # (bundled as a resource). Listed here for visibility — XcodeGen rejects
+      # an explicit path that also matches a directory glob.
       - path: TweenApp
       - path: Shared
       # Pure UIKit/MapKit renderer (no Messages APIs) — compiled into the app too
@@ -43,6 +47,8 @@ targets:
     type: messages-extension
     platform: iOS
     sources:
+      # Directory glob includes TweenMessages/PrivacyInfo.xcprivacy, bundled as
+      # a resource in the extension.
       - path: TweenMessages
       - path: Shared
     entitlements:

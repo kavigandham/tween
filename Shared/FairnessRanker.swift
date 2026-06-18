@@ -36,10 +36,12 @@ struct RankedSpot: Identifiable {
         self.confidence = confidence
     }
 
-    // Test support
+    #if DEBUG
+    // Test/preview support — never compiled into a release build.
     init(etaFromA: TimeInterval, etaFromB: TimeInterval, confidence: Double) {
         self.init(id: UUID(), item: nil, etaFromA: etaFromA, etaFromB: etaFromB, confidence: confidence)
     }
+    #endif
 }
 
 /// Drive-time fairness engine. Resolves automobile ETAs from both participants
