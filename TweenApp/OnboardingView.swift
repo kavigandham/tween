@@ -141,30 +141,35 @@ struct OnboardingView: View {
                 .presentationBackgroundInteraction(.enabled)
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
-        }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .contacts:
-                ContactSearchView { friend in
-                    FriendRoster.add(friend)
-                    friends = FriendRoster.load()
-                    activeSheet = nil
+                // Secondary sheets are presented from *within* the bottom sheet's
+                // content, not from the Map. The Map already permanently presents
+                // this bottom sheet, and a view can only present one sheet at a
+                // time — attaching these to the Map silently no-ops (Add Friend /
+                // Invite / the detail card never appeared).
+                .sheet(item: $activeSheet) { sheet in
+                    switch sheet {
+                    case .contacts:
+                        ContactSearchView { friend in
+                            FriendRoster.add(friend)
+                            friends = FriendRoster.load()
+                            activeSheet = nil
+                        }
+                    case .invite:
+                        ActivityView(items: [Self.inviteText])
+                    case .message(let pending):
+                        MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
+                            activeSheet = nil
+                        }
+                    case .spot(let selection):
+                        SpotDetailCard(
+                            name: selection.name,
+                            address: selection.address,
+                            coordinate: selection.coordinate,
+                            ranked: selection.ranked,
+                            onSendToChat: { sendToChat(selection) }
+                        )
+                    }
                 }
-            case .invite:
-                ActivityView(items: [Self.inviteText])
-            case .message(let pending):
-                MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
-                    activeSheet = nil
-                }
-            case .spot(let selection):
-                SpotDetailCard(
-                    name: selection.name,
-                    address: selection.address,
-                    coordinate: selection.coordinate,
-                    ranked: selection.ranked,
-                    onSendToChat: { sendToChat(selection) }
-                )
-            }
         }
         .fullScreenCover(isPresented: $showTutorial) {
             OnboardingTutorialView(onDone: dismissTutorial)
