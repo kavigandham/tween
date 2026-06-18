@@ -1,6 +1,8 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import MessageUI
+import UIKit
 
 /// The host app's primary surface: a full-screen map with an "I'm in" flow and
 /// a draggable bottom sheet. Capturing your location drops a self pin; once a
@@ -15,6 +17,13 @@ struct OnboardingView: View {
 
     /// How many candidates the fairness engine resolves routes for in the app.
     private static let rankCap = 8
+
+    /// A reply banner shows only while the last inbound bubble is this fresh.
+    private static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
+
+    /// Prefilled body for an out-of-band SMS nudge to a friend.
+    private static let inviteText =
+        "Where should we meet? Open Tween and tap “I'm in” so we can find a fair spot. 📍"
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -33,6 +42,24 @@ struct OnboardingView: View {
     @State private var isSearchActive = false
     @State private var selectedCategory: CategoryPreset?
     @State private var searchTask: Task<Void, Never>?
+
+    // Friends / social
+    @State private var panelTab: HomePanelTab = .map
+    @State private var friends: [TweenFriend] = FriendRoster.load()
+    @State private var editorMode: FriendEditor?
+    @State private var showContactSearch = false
+    @State private var lastReplyAt: Date? = PingLog.lastIncomingReplyAt
+    @State private var pingTick = 0
+    @State private var renameText = ""
+    @State private var pendingMessage: PendingMessage?
+    @State private var toast: String?
+
+    /// Identifiable wrapper so the SMS composer can be presented via `sheet(item:)`.
+    struct PendingMessage: Identifiable {
+        let id = UUID()
+        let recipients: [String]
+        let body: String
+    }
 
     init() {
         let cached = LocationCache.loadSelf()
@@ -70,6 +97,25 @@ struct OnboardingView: View {
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $showContactSearch) {
+            ContactSearchView { friend in
+                FriendRoster.add(friend)
+                friends = FriendRoster.load()
+                showContactSearch = false
+            }
+        }
+        .sheet(item: $pendingMessage) { pending in
+            MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
+                pendingMessage = nil
+            }
+        }
+        .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
+            TextField("Name", text: $renameText)
+            Button("Save", action: commitRename)
+            Button("Cancel", role: .cancel) { editorMode = nil }
+        } message: { editor in
+            Text("Choose a new name for \(editor.friend.name).")
+        }
         .onChange(of: provider.status) { _, status in
             if case let .got(coord) = status {
                 LocationCache.save(coord)
@@ -93,14 +139,109 @@ struct OnboardingView: View {
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: 12) {
-            searchBar
-            categoryChips
-            Divider()
-            resultsScroll
+            replyBanner
+            Picker("Panel", selection: $panelTab) {
+                ForEach(HomePanelTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+
+            switch panelTab {
+            case .map:     mapPanel
+            case .waiting: friendsPanel
+            }
         }
         .padding(.top, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
+        .sensoryFeedback(.impact, trigger: pingTick)
+    }
+
+    /// Existing place-search surface.
+    @ViewBuilder
+    private var mapPanel: some View {
+        searchBar
+        categoryChips
+        Divider()
+        resultsScroll
+    }
+
+    /// A nudge that the other side just shared a spot, shown across both tabs
+    /// while the inbound bubble is still fresh.
+    @ViewBuilder
+    private var replyBanner: some View {
+        if let lastReplyAt, Date().timeIntervalSince(lastReplyAt) < Self.replyFreshness {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                Text("Your friend replied \(RelativeTime.string(from: lastReplyAt))")
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.footnote.weight(.medium))
+            .padding(10)
+            .background(.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+        }
+    }
+
+    // MARK: - Friends panel
+
+    @ViewBuilder
+    private var friendsPanel: some View {
+        VStack(spacing: 12) {
+            Button { showContactSearch = true } label: {
+                Label("Add Friend", systemImage: "person.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal)
+
+            if friends.isEmpty {
+                ContentUnavailableView(
+                    "No Friends Yet",
+                    systemImage: "person.2",
+                    description: Text("Add someone to ping them when you're ready to meet up."))
+                    .frame(maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(friends) { friend in
+                        FriendRow(friend: friend, pingTick: pingTick)
+                            .contentShape(Rectangle())
+                            .onTapGesture { pingFriend(friend) }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    deleteFriend(friend)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button { startRename(friend) } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var toastView: some View {
+        if let toast {
+            Text(toast)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.black.opacity(0.8), in: Capsule())
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     private var searchBar: some View {
@@ -242,6 +383,56 @@ struct OnboardingView: View {
         }
     }
 
+    // MARK: - Friends
+
+    /// Logs a ping and opens the SMS composer when the friend has a handle the
+    /// device can text; otherwise copies the invite and toasts.
+    private func pingFriend(_ friend: TweenFriend) {
+        PingLog.logPing(for: friend.id)
+        pingTick += 1
+
+        if let handle = friend.handle, MFMessageComposeViewController.canSendText() {
+            pendingMessage = PendingMessage(recipients: [handle], body: Self.inviteText)
+        } else {
+            UIPasteboard.general.string = Self.inviteText
+            showToast("Invite copied for \(friend.name)")
+        }
+    }
+
+    private func deleteFriend(_ friend: TweenFriend) {
+        FriendRoster.delete(id: friend.id)
+        friends = FriendRoster.load()
+    }
+
+    private func startRename(_ friend: TweenFriend) {
+        renameText = friend.name
+        editorMode = .rename(friend)
+    }
+
+    private func commitRename() {
+        guard case let .rename(friend) = editorMode else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            FriendRoster.rename(id: friend.id, to: trimmed)
+            friends = FriendRoster.load()
+        }
+        editorMode = nil
+    }
+
+    /// Bridges optional `editorMode` to the boolean an `alert` needs.
+    private var renameBinding: Binding<Bool> {
+        Binding(get: { editorMode != nil },
+                set: { if !$0 { editorMode = nil } })
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation { toast = message }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { toast = nil }
+        }
+    }
+
     // MARK: - Search
 
     /// The region search is biased toward: the midpoint when both friends are
@@ -332,6 +523,8 @@ struct OnboardingView: View {
                 peerCoordinate = peer
                 reframe()
             }
+            // Surface inbound replies stamped by the extension's `didReceive`.
+            lastReplyAt = PingLog.lastIncomingReplyAt
             try? await Task.sleep(for: .seconds(1))
         }
     }

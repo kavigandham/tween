@@ -57,8 +57,9 @@ final class MessagesViewController: MSMessagesAppViewController {
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
         decodeAndCache(message)
-        // Phase 05 wires `PingLog.lastIncomingReplyAt = Date()` here once
-        // `Shared/PingLog.swift` exists; referencing it now would not compile.
+        // Stamp the inbound bubble so the host app can surface a "they replied"
+        // banner across its sheet.
+        PingLog.lastIncomingReplyAt = Date()
         if presentationStyle == .expanded {
             kickOffRanking()
         }
