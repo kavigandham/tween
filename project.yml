@@ -29,7 +29,7 @@ targets:
       path: TweenApp.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.kavigandham.tween
+          - group.com.hassan.tween
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp
@@ -59,7 +59,7 @@ targets:
       path: TweenMessages.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.kavigandham.tween
+          - group.com.hassan.tween
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenMessages

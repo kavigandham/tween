@@ -10,7 +10,7 @@ import CoreLocation
 /// App Group `UserDefaults` is unencrypted: store coordinates and timestamps
 /// only, never anything sensitive.
 enum LocationCache {
-    static let appGroup = "group.com.kavigandham.tween"
+    static let appGroup = "group.com.hassan.tween"
 
     private static let selfKey = "tween.cache.self"
     private static let peerKey = "tween.cache.peer"

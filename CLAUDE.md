@@ -20,7 +20,7 @@ A serverless, iMessage-native meetup coordinator. Two friends share locations; t
 | TweenAppTests | Unit Test Bundle | `com.kavigandham.TweenApp.TweenAppTests` |
 | TweenAppUITests | UI Test Bundle | `com.kavigandham.TweenApp.TweenAppUITests` |
 
-App Group: `group.com.kavigandham.tween`
+App Group: `group.com.hassan.tween`
 
 ## Directory Structure
 ```
