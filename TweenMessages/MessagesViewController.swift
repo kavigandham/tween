@@ -127,22 +127,25 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     /// Reuses the hosting controller across renders — only the SwiftUI root is
     /// swapped — so re-ranking doesn't tear down and rebuild the view tree.
-    private func embed(_ view: AnyView) {
+    private func embed(_ rootView: AnyView) {
         if let hosting {
-            hosting.rootView = view
+            hosting.rootView = rootView
             return
         }
 
-        let controller = UIHostingController(rootView: view)
+        let controller = UIHostingController(rootView: rootView)
         addChild(controller)
+
         controller.view.translatesAutoresizingMaskIntoConstraints = false
         self.view.addSubview(controller.view)
+
         NSLayoutConstraint.activate([
-            controller.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            controller.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            controller.view.topAnchor.constraint(equalTo: view.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            controller.view.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: self.view.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
         ])
+
         controller.didMove(toParent: self)
         hosting = controller
     }
@@ -253,8 +256,14 @@ final class MessagesViewController: MSMessagesAppViewController {
         message.url = url
         message.layout = layout
 
-        conversation.insert(message) { _ in }
-        sentMessageCount += 1
+        guard !Task.isCancelled else { return }
+        do {
+            try await conversation.insert(message)
+            sentMessageCount += 1
+        } catch {
+            // Swallow errors in the extension context; insertion can fail if the
+            // conversation is no longer active or the extension is backgrounding.
+        }
     }
 
     /// Requests a single fix if already authorized (never prompts inside the

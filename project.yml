@@ -44,7 +44,7 @@ targets:
         NSLocationWhenInUseUsageDescription: "Tween uses your location once to find fair meetup spots."
 
   TweenMessages:
-    type: messages-extension
+    type: app-extension.messages
     platform: iOS
     sources:
       # Directory glob includes TweenMessages/PrivacyInfo.xcprivacy, bundled as

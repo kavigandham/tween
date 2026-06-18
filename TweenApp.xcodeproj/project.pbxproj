@@ -1,0 +1,786 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
+		1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		25EBB1371F60304CB6BD44AB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */; };
+		276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */; };
+		38EBE426E101BAF907787082 /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
+		38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
+		3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
+		3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31774B86CC587B67A1B6CB6A /* ContentView.swift */; };
+		3EFCBDBCB3B45CA0DC5FDD44 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
+		4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */; };
+		40A1AD454FAFF52473DF9F83 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
+		434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */; };
+		49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */; };
+		4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */; };
+		5039441274C0C1DCA4784605 /* TweenMessages.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5368911C228CEC0438E76638 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E33C768FCCDA10A6EEF5142 /* Tokens.swift */; };
+		5C6155D6B1F94DEB6F6A21A2 /* TweenFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */; };
+		6066C7E5A4F0A85FE3A7C834 /* FairnessRankerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */; };
+		62F1F0447441F1F398ED7ED9 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */; };
+		669685640A0A881C3AC790F7 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
+		6C5FF34BE079E32BE1B002DE /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */; };
+		6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C546097077ED186216682C7A /* PingLogTests.swift */; };
+		71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */; };
+		8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */; };
+		81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
+		8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
+		96830D38CD716283B271C963 /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
+		9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */; };
+		9FFC4903BC5E03A2CCB2918F /* TweenViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86835B35A5B33A95000424C /* TweenViews.swift */; };
+		A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */; };
+		A4E56F1F497ECD586C2F82C3 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E33C768FCCDA10A6EEF5142 /* Tokens.swift */; };
+		A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
+		ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
+		AE0CA6C4068224E66E7D32DA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0803F937E9C2F7FB7498C185 /* OnboardingView.swift */; };
+		C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
+		C4964CD5898396955CCB06E5 /* TweenViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86835B35A5B33A95000424C /* TweenViews.swift */; };
+		C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
+		C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */; };
+		D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */; };
+		D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */; };
+		E8A357B79105FA3BB3F88D6C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */; };
+		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
+		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
+		F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B03D220EE99E30C33F9CEE /* ActivityView.swift */; };
+		F8DDDC3765602F9048497F1A /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
+		FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */; };
+		FB82FF593DDAF2AD30DE8730 /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A56212F3BFF1E3F1C4D335E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06377659E0D718909DDA7C81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D9EB206C8867132E882F29B7;
+			remoteInfo = TweenApp;
+		};
+		688091319B7518943C0CB806 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06377659E0D718909DDA7C81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0EEFAA9ACEC17E602E07CF3E;
+			remoteInfo = TweenMessages;
+		};
+		997CD213D12D344268D3B6F8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06377659E0D718909DDA7C81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D9EB206C8867132E882F29B7;
+			remoteInfo = TweenApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		847B01ADBA51CF0EB768183E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5039441274C0C1DCA4784605 /* TweenMessages.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0511AABEF75C39947CC371A4 /* TweenState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenState.swift; sourceTree = "<group>"; };
+		075D9066250C6952934E34C1 /* FairnessRanker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FairnessRanker.swift; sourceTree = "<group>"; };
+		0803F937E9C2F7FB7498C185 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppTests.swift; sourceTree = "<group>"; };
+		126396012D826EDE687B9221 /* LocationCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationCache.swift; sourceTree = "<group>"; };
+		1C050212D1A3E782EE270E56 /* TweenPin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenPin.swift; sourceTree = "<group>"; };
+		1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotDetailCard.swift; sourceTree = "<group>"; };
+		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
+		45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRosterTests.swift; sourceTree = "<group>"; };
+		4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPreset.swift; sourceTree = "<group>"; };
+		5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
+		5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRenderer.swift; sourceTree = "<group>"; };
+		5FE7FC7424C83995540C66D4 /* TweenAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TweenAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		62B03D220EE99E30C33F9CEE /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
+		62FCD4F41CD181ED05A79647 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		65D5E40D144C329C588077FE /* OnboardingFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlags.swift; sourceTree = "<group>"; };
+		74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLog.swift; sourceTree = "<group>"; };
+		7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		83C7747C92C12454D8BCD60B /* TweenApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TweenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FairnessRankerTests.swift; sourceTree = "<group>"; };
+		8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsPanel.swift; sourceTree = "<group>"; };
+		999A32C93B516396B9807953 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		9E33C768FCCDA10A6EEF5142 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
+		9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppUITests.swift; sourceTree = "<group>"; };
+		A51D741A60625DD97D522832 /* OutgoingDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraft.swift; sourceTree = "<group>"; };
+		A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultRows.swift; sourceTree = "<group>"; };
+		B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRendererTests.swift; sourceTree = "<group>"; };
+		B86835B35A5B33A95000424C /* TweenViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenViews.swift; sourceTree = "<group>"; };
+		B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TweenMessages.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C19537D9A01F8873CE576BA6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C546097077ED186216682C7A /* PingLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLogTests.swift; sourceTree = "<group>"; };
+		CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TweenAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
+		DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenFriend.swift; sourceTree = "<group>"; };
+		E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraftTests.swift; sourceTree = "<group>"; };
+		ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorial.swift; sourceTree = "<group>"; };
+		EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometryTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		099E0E96AC0605A280C08F4B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				83C7747C92C12454D8BCD60B /* TweenApp.app */,
+				5FE7FC7424C83995540C66D4 /* TweenAppTests.xctest */,
+				CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */,
+				B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		13694C58487BAF9E877AD6AF = {
+			isa = PBXGroup;
+			children = (
+				6E91F70511DEC5FAE507D598 /* Shared */,
+				7F9571F7CE31C507BB621AAB /* TweenApp */,
+				49817FB5DB93353E39CC6E78 /* TweenAppTests */,
+				A5D1CDF8702B0A33B0025FED /* TweenAppUITests */,
+				4A89083B2110545998EC193F /* TweenMessages */,
+				099E0E96AC0605A280C08F4B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		49817FB5DB93353E39CC6E78 /* TweenAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */,
+				8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */,
+				45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */,
+				FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */,
+				E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */,
+				C546097077ED186216682C7A /* PingLogTests.swift */,
+				0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */,
+			);
+			path = TweenAppTests;
+			sourceTree = "<group>";
+		};
+		4A89083B2110545998EC193F /* TweenMessages */ = {
+			isa = PBXGroup;
+			children = (
+				5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */,
+				C19537D9A01F8873CE576BA6 /* Info.plist */,
+				5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */,
+				7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */,
+			);
+			path = TweenMessages;
+			sourceTree = "<group>";
+		};
+		6E91F70511DEC5FAE507D598 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				075D9066250C6952934E34C1 /* FairnessRanker.swift */,
+				126396012D826EDE687B9221 /* LocationCache.swift */,
+				999A32C93B516396B9807953 /* LocationProvider.swift */,
+				EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */,
+				65D5E40D144C329C588077FE /* OnboardingFlags.swift */,
+				A51D741A60625DD97D522832 /* OutgoingDraft.swift */,
+				74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */,
+				9E33C768FCCDA10A6EEF5142 /* Tokens.swift */,
+				DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */,
+				1C050212D1A3E782EE270E56 /* TweenPin.swift */,
+				0511AABEF75C39947CC371A4 /* TweenState.swift */,
+				B86835B35A5B33A95000424C /* TweenViews.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		7F9571F7CE31C507BB621AAB /* TweenApp */ = {
+			isa = PBXGroup;
+			children = (
+				62B03D220EE99E30C33F9CEE /* ActivityView.swift */,
+				4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */,
+				31774B86CC587B67A1B6CB6A /* ContentView.swift */,
+				8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */,
+				4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */,
+				62FCD4F41CD181ED05A79647 /* Info.plist */,
+				ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */,
+				0803F937E9C2F7FB7498C185 /* OnboardingView.swift */,
+				8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */,
+				A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */,
+				1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */,
+				CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */,
+			);
+			path = TweenApp;
+			sourceTree = "<group>";
+		};
+		A5D1CDF8702B0A33B0025FED /* TweenAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */,
+			);
+			path = TweenAppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0EEFAA9ACEC17E602E07CF3E /* TweenMessages */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ED1E91F4F0E7246A84132D6D /* Build configuration list for PBXNativeTarget "TweenMessages" */;
+			buildPhases = (
+				0963A6796DC7DA9D6C8E5FDC /* Sources */,
+				785011A86ABD62A22A48C286 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TweenMessages;
+			packageProductDependencies = (
+			);
+			productName = TweenMessages;
+			productReference = B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */;
+			productType = "com.apple.product-type.app-extension.messages";
+		};
+		D9EB206C8867132E882F29B7 /* TweenApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 211F047E526D75BA41E09A28 /* Build configuration list for PBXNativeTarget "TweenApp" */;
+			buildPhases = (
+				EF615D3C6FB8AFDB76EAE07E /* Sources */,
+				35AAEC17C13CDEF91E771DF3 /* Resources */,
+				847B01ADBA51CF0EB768183E /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2EDDD12154CACDE80AC03F61 /* PBXTargetDependency */,
+			);
+			name = TweenApp;
+			packageProductDependencies = (
+			);
+			productName = TweenApp;
+			productReference = 83C7747C92C12454D8BCD60B /* TweenApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F7226117C768735FB59F6DA1 /* TweenAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F5B693AAEDAECEC1C95D0209 /* Build configuration list for PBXNativeTarget "TweenAppUITests" */;
+			buildPhases = (
+				8EC18925F4977A5AD9FC57DC /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EDEF21CC48E6A36A2E67EBA6 /* PBXTargetDependency */,
+			);
+			name = TweenAppUITests;
+			packageProductDependencies = (
+			);
+			productName = TweenAppUITests;
+			productReference = CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		FFDDA4D04265F8BC949E6C19 /* TweenAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B59EB43484B16BFB40E5F48 /* Build configuration list for PBXNativeTarget "TweenAppTests" */;
+			buildPhases = (
+				FE10484DBA89BBF349C85803 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0C234EE831D646362436871A /* PBXTargetDependency */,
+			);
+			name = TweenAppTests;
+			packageProductDependencies = (
+			);
+			productName = TweenAppTests;
+			productReference = 5FE7FC7424C83995540C66D4 /* TweenAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		06377659E0D718909DDA7C81 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					0EEFAA9ACEC17E602E07CF3E = {
+						DevelopmentTeam = "";
+					};
+					F7226117C768735FB59F6DA1 = {
+						DevelopmentTeam = "";
+						TestTargetID = D9EB206C8867132E882F29B7;
+					};
+					FFDDA4D04265F8BC949E6C19 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 1D9A713667DC8004F7016AB1 /* Build configuration list for PBXProject "TweenApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 13694C58487BAF9E877AD6AF;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 099E0E96AC0605A280C08F4B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D9EB206C8867132E882F29B7 /* TweenApp */,
+				FFDDA4D04265F8BC949E6C19 /* TweenAppTests */,
+				F7226117C768735FB59F6DA1 /* TweenAppUITests */,
+				0EEFAA9ACEC17E602E07CF3E /* TweenMessages */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		35AAEC17C13CDEF91E771DF3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				25EBB1371F60304CB6BD44AB /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		785011A86ABD62A22A48C286 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8A357B79105FA3BB3F88D6C /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0963A6796DC7DA9D6C8E5FDC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */,
+				3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */,
+				1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */,
+				3EFCBDBCB3B45CA0DC5FDD44 /* LocationProvider.swift in Sources */,
+				FB82FF593DDAF2AD30DE8730 /* MessagesViewController.swift in Sources */,
+				62F1F0447441F1F398ED7ED9 /* NetworkMonitor.swift in Sources */,
+				C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */,
+				40A1AD454FAFF52473DF9F83 /* OutgoingDraft.swift in Sources */,
+				0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */,
+				A4E56F1F497ECD586C2F82C3 /* Tokens.swift in Sources */,
+				5C6155D6B1F94DEB6F6A21A2 /* TweenFriend.swift in Sources */,
+				ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */,
+				38EBE426E101BAF907787082 /* TweenState.swift in Sources */,
+				9FFC4903BC5E03A2CCB2918F /* TweenViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EC18925F4977A5AD9FC57DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF615D3C6FB8AFDB76EAE07E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */,
+				A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */,
+				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
+				3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */,
+				F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */,
+				D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */,
+				F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */,
+				C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */,
+				81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */,
+				6C5FF34BE079E32BE1B002DE /* NetworkMonitor.swift in Sources */,
+				96830D38CD716283B271C963 /* OnboardingFlags.swift in Sources */,
+				8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */,
+				AE0CA6C4068224E66E7D32DA /* OnboardingView.swift in Sources */,
+				8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */,
+				669685640A0A881C3AC790F7 /* PingLog.swift in Sources */,
+				D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */,
+				FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */,
+				5368911C228CEC0438E76638 /* Tokens.swift in Sources */,
+				9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */,
+				71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */,
+				38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */,
+				F8DDDC3765602F9048497F1A /* TweenState.swift in Sources */,
+				C4964CD5898396955CCB06E5 /* TweenViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE10484DBA89BBF349C85803 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */,
+				6066C7E5A4F0A85FE3A7C834 /* FairnessRankerTests.swift in Sources */,
+				49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */,
+				434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */,
+				4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */,
+				6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */,
+				276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0C234EE831D646362436871A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D9EB206C8867132E882F29B7 /* TweenApp */;
+			targetProxy = 3A56212F3BFF1E3F1C4D335E /* PBXContainerItemProxy */;
+		};
+		2EDDD12154CACDE80AC03F61 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0EEFAA9ACEC17E602E07CF3E /* TweenMessages */;
+			targetProxy = 688091319B7518943C0CB806 /* PBXContainerItemProxy */;
+		};
+		EDEF21CC48E6A36A2E67EBA6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D9EB206C8867132E882F29B7 /* TweenApp */;
+			targetProxy = 997CD213D12D344268D3B6F8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		38C8BEE453CB249AF3FE9A20 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TweenApp.app/TweenApp";
+			};
+			name = Debug;
+		};
+		3D3A129E4FA168D0C6B7512E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TweenApp.app/TweenApp";
+			};
+			name = Release;
+		};
+		7ACC48A84C9B7C481497E49B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		82117A8B33A9835F9E473FED /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		A8E00D5F3EF0ADA63C23F2F5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
+				CODE_SIGN_ENTITLEMENTS = TweenMessages.entitlements;
+				INFOPLIST_FILE = TweenMessages/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp.TweenMessages;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B34E06DB55C8B85F38BA2482 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TweenApp;
+			};
+			name = Debug;
+		};
+		B5A223B3D0008BA9E2334335 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = TweenApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = K2H8P48K2D;
+				INFOPLIST_FILE = TweenApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C41931C8033355481E1E966E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TweenApp;
+			};
+			name = Release;
+		};
+		EAAA243EB40CF1D8D60A1F93 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = TweenApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = K2H8P48K2D;
+				INFOPLIST_FILE = TweenApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F1FC3F7BE3540F76E3D2D371 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
+				CODE_SIGN_ENTITLEMENTS = TweenMessages.entitlements;
+				INFOPLIST_FILE = TweenMessages/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp.TweenMessages;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1D9A713667DC8004F7016AB1 /* Build configuration list for PBXProject "TweenApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7ACC48A84C9B7C481497E49B /* Debug */,
+				82117A8B33A9835F9E473FED /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		211F047E526D75BA41E09A28 /* Build configuration list for PBXNativeTarget "TweenApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B5A223B3D0008BA9E2334335 /* Debug */,
+				EAAA243EB40CF1D8D60A1F93 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2B59EB43484B16BFB40E5F48 /* Build configuration list for PBXNativeTarget "TweenAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				38C8BEE453CB249AF3FE9A20 /* Debug */,
+				3D3A129E4FA168D0C6B7512E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		ED1E91F4F0E7246A84132D6D /* Build configuration list for PBXNativeTarget "TweenMessages" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8E00D5F3EF0ADA63C23F2F5 /* Debug */,
+				F1FC3F7BE3540F76E3D2D371 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F5B693AAEDAECEC1C95D0209 /* Build configuration list for PBXNativeTarget "TweenAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B34E06DB55C8B85F38BA2482 /* Debug */,
+				C41931C8033355481E1E966E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 06377659E0D718909DDA7C81 /* Project object */;
+}

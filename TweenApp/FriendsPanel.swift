@@ -1,5 +1,5 @@
 import SwiftUI
-import Contacts
+@preconcurrency import Contacts
 import MessageUI
 
 /// Which face of the bottom sheet is showing: place search, or the friend
@@ -170,13 +170,25 @@ struct ContactSearchView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { matches = []; return }
 
-        Task.detached(priority: .userInitiated) {
-            let predicate = CNContact.predicateForContacts(matchingName: trimmed)
-            let keys = [
-                CNContactGivenNameKey, CNContactFamilyNameKey,
-                CNContactPhoneNumbersKey, CNContactEmailAddressesKey
-            ] as [CNKeyDescriptor]
-            let found = (try? store.unifiedContacts(matching: predicate, keysToFetch: keys)) ?? []
+        // Capture values on the main actor
+        let localStore = store
+        let name = trimmed
+
+        Task(priority: .userInitiated) {
+            // Perform the fetch off the main actor
+            let found: [CNContact] = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let predicate = CNContact.predicateForContacts(matchingName: name)
+                    let keys = [
+                        CNContactGivenNameKey, CNContactFamilyNameKey,
+                        CNContactPhoneNumbersKey, CNContactEmailAddressesKey
+                    ] as [CNKeyDescriptor]
+                    let result = (try? localStore.unifiedContacts(matching: predicate, keysToFetch: keys)) ?? []
+                    continuation.resume(returning: result)
+                }
+            }
+
+            // Update state on the main actor
             await MainActor.run { matches = found }
         }
     }
