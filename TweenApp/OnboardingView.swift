@@ -39,13 +39,24 @@ struct OnboardingView: View {
     @State private var provider = LocationProvider()
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
-    @State private var selectedSheetDetent: PresentationDetent = .height(120)
+    @State private var selectedSheetDetent: PresentationDetent = .height(70)
 
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var rankedSpots: [RankedSpot] = []
     @State private var isSearchActive = false
+    /// Whether the user is mid-typing (showing completer suggestions) or has
+    /// committed a search (showing rich result cards). Drives which surface the
+    /// sheet renders so suggestions and results never look alike.
+    @State private var searchState: SearchState = .idle
+    @State private var completer = SearchCompleter()
+    /// Set when we mutate `searchText` programmatically (committing a suggestion
+    /// or a category) so the field's `onChange` doesn't treat it as fresh typing
+    /// and cancel the very search we just kicked off.
+    @State private var suppressNextQueryChange = false
+    /// Tracks the search field's focus so tapping it lifts the sheet to medium.
+    @FocusState private var searchFocused: Bool
     /// The tapped/selected search result — drives the highlighted map pin and the
     /// compact floating detail card (Apple-Maps style).
     @State private var selectedResult: MKMapItem?
@@ -115,6 +126,18 @@ struct OnboardingView: View {
             case .spot(let s):       return "spot-\(s.id)"
             }
         }
+    }
+
+    /// The three phases of the search surface. Keeps "while typing" (completer
+    /// suggestions) visually and structurally separate from "after committing"
+    /// (full result cards), with a clean home in between.
+    enum SearchState {
+        /// Nothing searched — the sheet shows category chips and presence.
+        case idle
+        /// User is typing — show `MKLocalSearchCompleter` suggestion rows.
+        case suggesting
+        /// User committed a search — show full `ResultCard`s / map pins.
+        case results
     }
 
     /// How search results are browsed: a scrollable list, or pins on the map.
@@ -189,16 +212,16 @@ struct OnboardingView: View {
         .onChange(of: searchViewMode) { _, mode in
             switch mode {
             case .map:
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(120) }
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(70) }
                 frameResults()
             case .list:
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
             }
         }
         .sheet(isPresented: .constant(true)) {
             sheetContent
                 .presentationDetents(
-                    [.height(120), .fraction(0.48), .fraction(0.80)],
+                    [.height(70), .fraction(0.45), .fraction(0.85)],
                     selection: $selectedSheetDetent
                 )
                 .presentationBackgroundInteraction(.enabled)
@@ -271,27 +294,47 @@ struct OnboardingView: View {
 
     // MARK: - Bottom sheet
 
+    /// True when the sheet is collapsed to its search-bar-only peek.
+    private var isMinimalDetent: Bool { selectedSheetDetent == .height(70) }
+    /// True when the sheet is pulled to full height (reveals tabs + friends).
+    private var isFullDetent: Bool { selectedSheetDetent == .fraction(0.85) }
+
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: Tokens.Spacing.s3) {
-            if !monitor.isOnline { offlineBanner }
-            replyBanner
-            Picker("Panel", selection: $panelTab) {
-                ForEach(HomePanelTab.allCases) { tab in
-                    Text(tab.title).tag(tab)
+            // Always visible — at the minimal detent this is the entire sheet, an
+            // Apple-Maps-style search bar floating over a full-screen map.
+            searchBar
+
+            // Everything else is revealed only once the sheet is pulled up.
+            if !isMinimalDetent {
+                if !monitor.isOnline { offlineBanner }
+                replyBanner
+
+                // The Search/Friends switch — and the friend roster behind it —
+                // surface only at full height to keep the medium detent focused
+                // on finding a spot.
+                if isFullDetent {
+                    Picker("Panel", selection: $panelTab) {
+                        ForEach(HomePanelTab.allCases) { tab in
+                            Text(tab.title).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .accessibilityHint("Switches between place search and your friend roster")
+                }
+
+                if isFullDetent && panelTab == .waiting {
+                    friendsPanel
+                } else {
+                    mapPanel
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .accessibilityHint("Switches between place search and your friend roster")
-
-            switch panelTab {
-            case .map:     mapPanel
-            case .waiting: friendsPanel
-            }
         }
-        .padding(.top, Tokens.Spacing.s4)
+        .padding(.top, Tokens.Spacing.s2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)
@@ -304,13 +347,37 @@ struct OnboardingView: View {
         }
     }
 
-    /// Existing place-search surface.
+    /// The place-search surface below the search bar. What it shows depends on
+    /// where the search flow is: suggestions while typing, otherwise chips +
+    /// presence (+ result cards once a search is committed).
     @ViewBuilder
     private var mapPanel: some View {
-        searchBar
-        categoryChips
-        Divider()
-        resultsScroll
+        switch searchState {
+        case .suggesting:
+            suggestionsList
+        case .idle, .results:
+            categoryChips
+            Divider()
+            resultsScroll
+        }
+    }
+
+    /// Compact completer-driven suggestion rows shown while the user types.
+    /// Tapping a row commits that suggestion as a full search.
+    private var suggestionsList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(completer.results, id: \.self) { completion in
+                    Button { selectSuggestion(completion) } label: {
+                        SuggestionRow(completion: completion)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Searches for \(completion.title)")
+                    Divider()
+                }
+            }
+            .padding(.horizontal)
+        }
     }
 
     /// Floating control to re-show the first-run walkthrough.
@@ -472,16 +539,17 @@ struct OnboardingView: View {
         HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Tokens.Palette.textSecondary)
-            TextField("Search places", text: $searchText)
+            TextField("Search for a spot...", text: $searchText)
                 .textFieldStyle(.plain)
+                .focused($searchFocused)
                 .submitLabel(.search)
-                .accessibilityLabel("Search places")
+                .accessibilityLabel("Search for a spot")
                 .onSubmit(commitSearch)
                 .onChange(of: searchText) { _, query in
                     if query != selectedCategory?.searchQuery { selectedCategory = nil }
                     // A new query invalidates any pin/card from the old result set.
                     selectedResult = nil
-                    searchPlaces(query: query)
+                    handleQueryChange(query)
                 }
             if !searchText.isEmpty {
                 Button(action: clearSearch) {
@@ -495,6 +563,13 @@ struct OnboardingView: View {
         .padding(Tokens.Spacing.s3)
         .tweenGlass()
         .padding(.horizontal)
+        // Tapping into the field lifts the collapsed sheet to medium so the chips
+        // and suggestions have room to appear.
+        .onChange(of: searchFocused) { _, focused in
+            if focused && isMinimalDetent {
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
+            }
+        }
     }
 
     private var categoryChips: some View {
@@ -528,7 +603,7 @@ struct OnboardingView: View {
         ScrollView {
             VStack(spacing: Tokens.Spacing.s3) {
                 presenceControls
-                if isSearchActive {
+                if searchState == .results {
                     resultsList
                 }
             }
@@ -566,29 +641,26 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var resultsList: some View {
-        if !rankedSpots.isEmpty {
-            ForEach(rankedSpots) { spot in
-                RankedResultRow(spot: spot)
-                    .contentShape(Rectangle())
-                    .onTapGesture { presentDetail(for: spot) }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityHint("Opens details and the map for this spot")
-                Divider()
-            }
-        } else if !searchResults.isEmpty {
-            ForEach(searchResults, id: \.self) { item in
-                ResultRow(name: item.name ?? "Place", address: item.placemark.title)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedResult = item }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityHint("Opens details for this place")
-                Divider()
-            }
-        } else {
+        if displayedItems.isEmpty {
             Text("No places found nearby.")
                 .font(Tokens.Typography.footnote)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .padding(.top, Tokens.Spacing.s1)
+        } else {
+            ForEach(displayedItems, id: \.self) { item in
+                ResultCard(
+                    item: item,
+                    rankedSpot: rankedMatch(for: item),
+                    userCoord: savedCoordinate,
+                    onDirections: { openDirections(to: item) },
+                    onSendToChat: {
+                        sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+                    })
+                    .contentShape(Rectangle())
+                    // Tapping the card body (outside its buttons) highlights the
+                    // pin and focuses the map, matching a pin tap.
+                    .onTapGesture { selectedResult = item }
+            }
         }
     }
 
@@ -661,8 +733,8 @@ struct OnboardingView: View {
             .tweenGlass(radius: Tokens.Radius.card)
             .tweenElevation(.floating)
             .padding(.horizontal)
-            // Sit above the bottom sheet's 120pt peek.
-            .padding(.bottom, 120 + Tokens.Spacing.s4)
+            // Sit above the bottom sheet's search-bar peek.
+            .padding(.bottom, 70 + Tokens.Spacing.s4)
             .contentShape(Rectangle())
             .onTapGesture { activeSheet = .spot(selection) }
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -748,14 +820,6 @@ struct OnboardingView: View {
 
     // MARK: - Hand-off
 
-    /// Selects a ranked result (when it carries a map item). Selection drives
-    /// the highlighted pin, the compact card, and \-- via `onChange` \-- the
-    /// camera/sheet, so a row tap behaves exactly like tapping the pin.
-    private func presentDetail(for spot: RankedSpot) {
-        guard let item = spot.item else { return }
-        selectedResult = item
-    }
-
     /// Centers the map on a tapped result and drops the sheet to its peek so the
     /// map is visible. Frames self, peer, and the spot together when both
     /// participants are known; otherwise zooms tight on the spot.
@@ -770,7 +834,7 @@ struct OnboardingView: View {
                     span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
             }
         }
-        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(120) }
+        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(70) }
     }
 
     /// Frames the camera to fit every visible result pin (Map mode).
@@ -888,26 +952,54 @@ struct OnboardingView: View {
             span: MKCoordinateSpan(latitudeDelta: 1.6, longitudeDelta: 1.6))
     }
 
-    /// Debounced live search driven by typing. Cancels any in-flight query,
-    /// waits 300ms (so we don't fire on every keystroke), then runs the search.
-    private func searchPlaces(query: String) {
+    /// Reacts to each keystroke. An empty field returns to the clean home
+    /// (`.idle`); anything else feeds the completer and shows suggestions. The
+    /// committed search only happens on Enter / tapping a suggestion, so typing
+    /// never fires an `MKLocalSearch`.
+    private func handleQueryChange(_ query: String) {
+        // A programmatic commit (suggestion/category) already started its search;
+        // don't let the resulting onChange cancel it or revert to suggestions.
+        if suppressNextQueryChange {
+            suppressNextQueryChange = false
+            return
+        }
         searchTask?.cancel()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSearch(trimmed) else { return }
-
-        searchTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            await runSearch(trimmed: trimmed)
+        guard !trimmed.isEmpty else {
+            searchResults = []
+            rankedSpots = []
+            isSearchActive = false
+            searchState = .idle
+            completer.update(query: "")
+            return
+        }
+        // New query — drop stale committed results so the map clears while typing.
+        searchResults = []
+        rankedSpots = []
+        isSearchActive = false
+        searchState = .suggesting
+        completer.update(query: trimmed, region: searchRegion)
+        // Make sure the suggestions have room even if the field's focus change
+        // didn't lift the collapsed sheet on its own.
+        if isMinimalDetent {
+            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
         }
     }
 
-    /// Runs the search immediately for whatever is typed (keyboard "Search").
-    /// Enter means "search now", so this skips the typing debounce entirely.
+    /// Commits a suggestion as a full search.
+    private func selectSuggestion(_ completion: MKLocalSearchCompletion) {
+        suppressNextQueryChange = true
+        searchText = completion.title
+        commitSearch()
+    }
+
+    /// Runs the committed search (keyboard "Search", or a tapped suggestion).
+    /// Resigns the keyboard so the result cards / pins are visible.
     private func commitSearch() {
         searchTask?.cancel()
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSearch(trimmed) else { return }
+        searchFocused = false
 
         searchTask = Task { @MainActor in
             await runSearch(trimmed: trimmed)
@@ -922,14 +1014,15 @@ struct OnboardingView: View {
             searchResults = []
             rankedSpots = []
             isSearchActive = false
+            searchState = .idle
             return false
         }
         return true
     }
 
-    /// Shared body for both the debounced and immediate paths: runs
-    /// `MKLocalSearch`, ranks the hits through the fairness engine when both
-    /// coordinates are known, and surfaces the results.
+    /// Runs the committed `MKLocalSearch`, ranks the hits through the fairness
+    /// engine when both coordinates are known, and surfaces them as result cards
+    /// (or map pins). Sets `searchState` to `.results`.
     @MainActor
     private func runSearch(trimmed: String) async {
         let request = MKLocalSearch.Request()
@@ -952,11 +1045,12 @@ struct OnboardingView: View {
         }
 
         isSearchActive = true
+        searchState = .results
         switch searchViewMode {
         case .list:
-            // Lift the sheet off its peek so the result rows are visible.
-            if selectedSheetDetent == .height(120) {
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.48) }
+            // Lift the sheet off its peek so the result cards are visible.
+            if selectedSheetDetent == .height(70) {
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
             }
         case .map:
             // Keep the sheet at peek and reframe the camera to the new pins.
@@ -970,19 +1064,25 @@ struct OnboardingView: View {
         searchResults = []
         rankedSpots = []
         isSearchActive = false
+        searchState = .idle
+        completer.update(query: "")
         selectedCategory = nil
         selectedResult = nil
         searchViewMode = .list
+        searchFocused = false
     }
 
     /// Toggles a preset chip. Re-tapping the active chip clears the search;
-    /// setting `searchText` drives the search through the field's `onChange`.
+    /// otherwise the preset commits straight to results (skipping suggestions,
+    /// since a category is already a complete query).
     private func selectCategory(_ preset: CategoryPreset) {
         if selectedCategory == preset {
             clearSearch()
         } else {
+            suppressNextQueryChange = true
             selectedCategory = preset
             searchText = preset.searchQuery
+            commitSearch()
         }
     }
 

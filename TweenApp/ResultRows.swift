@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import UIKit
 
 /// A plain place row: category-style icon, name, and address. Used for search
 /// hits before two coordinates exist (no ETAs to show yet).
@@ -137,6 +138,146 @@ struct RankedResultRow: View {
                       address: spot.item?.placemark.title)
             Spacer(minLength: Tokens.Spacing.s2)
             ETAChip(etaFromA: spot.etaFromA, etaFromB: spot.etaFromB)
+        }
+    }
+}
+
+/// A compact suggestion row shown *while the user is still typing*, backed by
+/// `MKLocalSearchCompleter`. Deliberately lighter than `ResultCard` so search
+/// suggestions read as a different surface from committed results.
+struct SuggestionRow: View {
+    let completion: MKLocalSearchCompletion
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: "mappin.circle.fill")
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .frame(width: Tokens.Spacing.s8)
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                Text(completion.title)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                if !completion.subtitle.isEmpty {
+                    Text(completion.subtitle)
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "arrow.up.left")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
+        }
+        .padding(.vertical, Tokens.Spacing.s2)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A rich result card shown in the *committed* search results list (after the
+/// user presses Enter or taps a suggestion) — visually distinct from the compact
+/// `SuggestionRow`. Surfaces the place name, category, distance, address, an
+/// optional fairness ETA chip, and the primary actions: Directions, Call (when a
+/// number is on file), and Send to chat.
+struct ResultCard: View {
+    let item: MKMapItem
+    let rankedSpot: RankedSpot?
+    let userCoord: CLLocationCoordinate2D?
+    let onDirections: () -> Void
+    let onSendToChat: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text(item.name ?? "Unknown")
+                .font(Tokens.Typography.title2.weight(.semibold))
+                .lineLimit(1)
+
+            if let category = item.pointOfInterestCategory?.displayName {
+                Text(category)
+                    .font(Tokens.Typography.callout)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+
+            HStack(spacing: Tokens.Spacing.s2) {
+                if let distanceString {
+                    Text(distanceString)
+                        .font(Tokens.Typography.callout)
+                        .foregroundStyle(Tokens.Palette.brand)
+                }
+                if let address = item.placemark.title, !address.isEmpty {
+                    Text(address)
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if let rankedSpot {
+                ETAChip(etaFromA: rankedSpot.etaFromA, etaFromB: rankedSpot.etaFromB)
+            }
+
+            HStack(spacing: Tokens.Spacing.s2) {
+                Button(action: onDirections) {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+                .accessibilityHint("Opens \(item.name ?? "this place") in Apple Maps")
+
+                if let phone = item.phoneNumber, !phone.isEmpty {
+                    Button {
+                        let digits = phone.filter { !$0.isWhitespace }
+                        if let url = URL(string: "tel:\(digits)") {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("Call", systemImage: "phone.fill")
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
+                    .accessibilityHint("Calls \(item.name ?? "this place")")
+                }
+
+                Button(action: onSendToChat) {
+                    Label("Send", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityHint("Sends this spot to your chat")
+            }
+        }
+        .padding(Tokens.Spacing.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Tokens.Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
+        .tweenElevation(.floating)
+    }
+
+    /// Straight-line miles from the user to the spot; nil when we don't yet know
+    /// where the user is.
+    private var distanceString: String? {
+        guard let userCoord else { return nil }
+        let from = CLLocation(latitude: userCoord.latitude, longitude: userCoord.longitude)
+        let to = CLLocation(latitude: item.placemark.coordinate.latitude,
+                            longitude: item.placemark.coordinate.longitude)
+        return String(format: "%.1f mi", from.distance(from: to) / 1609.34)
+    }
+}
+
+/// Human-readable label for the common point-of-interest categories Tween shows;
+/// nil for anything we don't have a friendly name for (the card then omits the
+/// category line entirely).
+extension MKPointOfInterestCategory {
+    var displayName: String? {
+        switch self {
+        case .restaurant:    return "Restaurant"
+        case .cafe:          return "Cafe"
+        case .bakery:        return "Bakery"
+        case .store:         return "Store"
+        case .gasStation:    return "Gas Station"
+        case .park:          return "Park"
+        case .nightlife:     return "Nightlife"
+        case .theater:       return "Theater"
+        case .fitnessCenter: return "Fitness"
+        default:             return nil
         }
     }
 }

@@ -76,24 +76,47 @@ struct FriendRow: View {
     }
 }
 
-/// Modal contact picker. Requests Contacts access, searches by name, and hands
-/// the chosen person back as a `TweenFriend` (name + first phone/email handle).
+/// Modal contact picker. Requests Contacts access, pre-loads the full address
+/// book on open (so the list is never blank), filters it locally as you type,
+/// and hands the chosen person back as a `TweenFriend` (name + first phone/email
+/// handle).
 struct ContactSearchView: View {
     let onPick: (TweenFriend) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var status = CNContactStore.authorizationStatus(for: .contacts)
-    @State private var matches: [CNContact] = []
+    @State private var allContacts: [CNContact] = []
+    @State private var isLoading = false
 
     private let store = CNContactStore()
+
+    /// The pre-loaded list, narrowed to the typed query (case-insensitive name
+    /// match). An empty query shows everyone.
+    private var filtered: [CNContact] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return allContacts }
+        return allContacts.filter { Self.fullName($0).localizedCaseInsensitiveContains(trimmed) }
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 switch status {
                 case .authorized:
-                    contactList
+                    if allContacts.isEmpty {
+                        if isLoading {
+                            ProgressView("Loading contacts…")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ContentUnavailableView(
+                                "No Contacts",
+                                systemImage: "person.crop.circle",
+                                description: Text("There are no named contacts to add."))
+                        }
+                    } else {
+                        contactList
+                    }
                 case .denied, .restricted:
                     deniedState
                 default:
@@ -108,36 +131,44 @@ struct ContactSearchView: View {
                 }
             }
         }
-        .onAppear(perform: requestIfNeeded)
+        .task { await loadAllContacts() }
     }
 
-    @ViewBuilder
     private var contactList: some View {
-        List {
-            ForEach(matches, id: \.identifier) { contact in
-                let name = Self.fullName(contact)
-                let handle = Self.handle(contact)
-                Button {
-                    onPick(TweenFriend(name: name,
-                                       contactIdentifier: contact.identifier,
-                                       handle: handle))
-                } label: {
+        List(filtered, id: \.identifier) { contact in
+            let name = Self.fullName(contact)
+            let handle = Self.handle(contact)
+            Button {
+                onPick(TweenFriend(name: name,
+                                   contactIdentifier: contact.identifier,
+                                   handle: handle))
+            } label: {
+                HStack(spacing: Tokens.Spacing.s3) {
+                    ZStack {
+                        Circle()
+                            .fill(Tokens.Palette.brand.opacity(0.15))
+                            .frame(width: 40, height: 40)
+                        Text(Self.initials(contact))
+                            .font(Tokens.Typography.callout)
+                            .foregroundStyle(Tokens.Palette.brand)
+                    }
                     VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                         Text(name).font(Tokens.Typography.headline)
                         if let handle {
-                            Text(handle).font(Tokens.Typography.caption).foregroundStyle(Tokens.Palette.textSecondary)
+                            Text(handle)
+                                .font(Tokens.Typography.caption)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
                         }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Adds \(name) to your friends")
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("Adds \(name) to your friends")
         }
         .listStyle(.plain)
         .searchable(text: $query, prompt: "Search contacts")
-        .onChange(of: query) { _, _ in runSearch() }
         .overlay {
-            if !query.isEmpty && matches.isEmpty {
+            if !query.isEmpty && filtered.isEmpty {
                 Text("No contacts found.")
                     .font(Tokens.Typography.footnote)
                     .foregroundStyle(Tokens.Palette.textSecondary)
@@ -146,8 +177,8 @@ struct ContactSearchView: View {
     }
 
     private var requestState: some View {
-        // Permission is requested from the enclosing view's `.onAppear`; this is
-        // just the in-flight spinner.
+        // Permission is requested from `loadAllContacts`; this is the in-flight
+        // spinner shown while the system prompt is up.
         ProgressView()
     }
 
@@ -158,41 +189,49 @@ struct ContactSearchView: View {
             description: Text("Enable Contacts access in Settings to add friends from your address book."))
     }
 
-    private func requestIfNeeded() {
-        guard status == .notDetermined else { return }
-        store.requestAccess(for: .contacts) { _, _ in
-            DispatchQueue.main.async {
-                status = CNContactStore.authorizationStatus(for: .contacts)
+    /// Requests access if needed, then enumerates the whole address book once on
+    /// the background queue and publishes named contacts (sorted by given name)
+    /// back to the list.
+    private func loadAllContacts() async {
+        if status == .notDetermined {
+            let granted = (try? await store.requestAccess(for: .contacts)) ?? false
+            status = CNContactStore.authorizationStatus(for: .contacts)
+            guard granted else { return }
+        } else if status != .authorized {
+            return
+        }
+        guard allContacts.isEmpty else { return }
+
+        isLoading = true
+        let localStore = store
+        let loaded: [CNContact] = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let keys = [
+                    CNContactGivenNameKey, CNContactFamilyNameKey,
+                    CNContactPhoneNumbersKey, CNContactEmailAddressesKey
+                ] as [CNKeyDescriptor]
+                let request = CNContactFetchRequest(keysToFetch: keys)
+                request.sortOrder = .givenName
+                var result: [CNContact] = []
+                do {
+                    try localStore.enumerateContacts(with: request) { contact, _ in
+                        let hasName = !contact.givenName.isEmpty || !contact.familyName.isEmpty
+                        if hasName { result.append(contact) }
+                    }
+                } catch {}
+                continuation.resume(returning: result)
             }
         }
+        allContacts = loaded
+        isLoading = false
     }
 
-    /// Name-predicate fetch off the main thread; results land back on main.
-    private func runSearch() {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { matches = []; return }
-
-        // Capture values on the main actor
-        let localStore = store
-        let name = trimmed
-
-        Task(priority: .userInitiated) {
-            // Perform the fetch off the main actor
-            let found: [CNContact] = await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let predicate = CNContact.predicateForContacts(matchingName: name)
-                    let keys = [
-                        CNContactGivenNameKey, CNContactFamilyNameKey,
-                        CNContactPhoneNumbersKey, CNContactEmailAddressesKey
-                    ] as [CNKeyDescriptor]
-                    let result = (try? localStore.unifiedContacts(matching: predicate, keysToFetch: keys)) ?? []
-                    continuation.resume(returning: result)
-                }
-            }
-
-            // Update state on the main actor
-            await MainActor.run { matches = found }
-        }
+    /// Two-letter initials from the given/family name; "?" when neither exists.
+    private static func initials(_ contact: CNContact) -> String {
+        let first = contact.givenName.first.map(String.init) ?? ""
+        let last = contact.familyName.first.map(String.init) ?? ""
+        let combined = (first + last).uppercased()
+        return combined.isEmpty ? "?" : combined
     }
 
     private static func fullName(_ contact: CNContact) -> String {
