@@ -36,6 +36,7 @@ Files in `Shared/` must be listed under BOTH `TweenApp` and `TweenMessages` sour
 ## HARD CONSTRAINTS — DO NOT VIOLATE
 
 1. **Extension memory ceiling ~120 MB.** `MKMapSnapshotter` only — NEVER `MKMapView`. Cap ranking at 5 in extension, 8 in app. Cancel all Tasks in `willResignActive`.
+   - *Sanctioned exception:* `ExpandedView` uses an interactive SwiftUI `Map` (which is an `MKMapView`) so users can pan/zoom. Held under the ceiling by flat elevation, no annotation materials/pulse, capped camera zoom, and a `didReceiveMemoryWarning` fallback that swaps in `TweenMapSnapshotView`. Needs on-device profiling. `CompactView` + `BubbleImageRenderer` stay snapshotter-only.
 
 2. **`MSMessage.url` ≤ 5000 chars, `https`/`file` scheme only.** Coordinates + spot name only. Never route geometry.
 

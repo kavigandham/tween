@@ -52,6 +52,10 @@ struct TweenPin: View {
     }
 
     let role: Role
+    /// When false, the `.pulse` symbol effect is suppressed. The extension's live
+    /// `Map` passes `false` so a continuously animating glyph doesn't keep
+    /// `MKMapView`'s render loop hot (memory/GPU pressure under the ~120 MB ceiling).
+    var animated: Bool = true
 
     var body: some View {
         ZStack {
@@ -76,7 +80,7 @@ struct TweenPin: View {
         let glyph = Image(systemName: role.symbol)
             .font(.system(size: role.diameter * 0.42, weight: .bold))
             .foregroundStyle(.white)
-        if role.pulses {
+        if role.pulses && animated {
             glyph.symbolEffect(.pulse, isActive: true)
         } else {
             glyph

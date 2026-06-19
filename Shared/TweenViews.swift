@@ -266,10 +266,14 @@ func formatETA(_ seconds: TimeInterval) -> String {
     return "\(minutes / 60)h \(minutes % 60)m"
 }
 
-// NOTE: Using SwiftUI Map instead of MKMapSnapshotter in expanded view
-// for interactive browsing. SwiftUI Map is lighter than MKMapView.
-// If memory issues arise on older devices, revert to snapshotter.
-// CompactView and BubbleImageRenderer still use MKMapSnapshotter.
+// NOTE: ExpandedView uses an interactive SwiftUI `Map`, which IS an `MKMapView`
+// under the hood — there is no lighter variant. This is a *deliberate* exception
+// to CLAUDE.md HARD CONSTRAINT #1 ("MKMapSnapshotter only") for this view only,
+// because expanded browsing needs pan/zoom. The ~120 MB extension ceiling is real,
+// so the footprint is held down by: flat elevation (no 3D meshes), no material
+// blur or pulse on annotations, a capped camera zoom, and a memory-warning
+// fallback (`useStaticMap`) that swaps in the cheap `TweenMapSnapshotView`.
+// CompactView and BubbleImageRenderer still use MKMapSnapshotter unconditionally.
 //
 /// Full-screen presentation for the Messages extension.
 ///
@@ -286,6 +290,10 @@ struct ExpandedView: View {
     let isUserIn: Bool
     /// Additive to the spec's parameter list so the offline banner has a source.
     var isOnline: Bool = true
+    /// When true, the live `Map` is replaced by the static `MKMapSnapshotter`-backed
+    /// `TweenMapSnapshotView`. The extension flips this on a memory warning to shed
+    /// the `MKMapView` before the process is jettisoned. Defaults to the live map.
+    var useStaticMap: Bool = false
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
     var onImIn: () -> Void
@@ -362,7 +370,12 @@ struct ExpandedView: View {
     @ViewBuilder
     private var mapSection: some View {
         if hasMapContent {
-            interactiveMap
+            if useStaticMap {
+                // Memory-pressure fallback: the cheap snapshot path, no MKMapView.
+                TweenMapSnapshotView(markers: staticMarkers, cornerRadius: 0)
+            } else {
+                interactiveMap
+            }
         } else {
             ZStack {
                 Rectangle().fill(Tokens.Palette.surfaceSecondary)
@@ -376,33 +389,58 @@ struct ExpandedView: View {
         }
     }
 
+    /// Markers for the static fallback snapshot: the two friends, the fair
+    /// midpoint, any host-app draft, and every ranked spot (drawn as midpoint dots
+    /// since the snapshotter has no spot-specific glyph).
+    private var staticMarkers: [MapMarker] {
+        var result: [MapMarker] = []
+        if let selfCoord {
+            result.append(MapMarker(coordinate: selfCoord, role: isUserIn ? .selfActive : .selfDot))
+        }
+        if let peerCoord {
+            result.append(MapMarker(coordinate: peerCoord, role: .friend))
+        }
+        if let selfCoord, let peerCoord {
+            result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, peerCoord), role: .midpoint))
+        }
+        if let draft {
+            result.append(MapMarker(coordinate: draft.coordinate, role: .midpoint))
+        }
+        for spot in rankedSpots {
+            if let coordinate = spot.item?.placemark.coordinate {
+                result.append(MapMarker(coordinate: coordinate, role: .midpoint))
+            }
+        }
+        return result
+    }
+
     private var interactiveMap: some View {
-        Map(position: $mapPosition) {
+        Map(position: $mapPosition, bounds: cameraBounds) {
             // Your location pin
             if let selfCoord {
                 Annotation("You", coordinate: selfCoord) {
-                    TweenPin(role: isUserIn ? .selfActive : .selfDot)
+                    TweenPin(role: isUserIn ? .selfActive : .selfDot, animated: false)
                 }
             }
 
             // Friend's location pin
             if let peerCoord {
                 Annotation("Friend", coordinate: peerCoord) {
-                    TweenPin(role: .friend)
+                    TweenPin(role: .friend, animated: false)
                 }
             }
 
             // Midpoint pin
             if let selfCoord, let peerCoord {
                 Annotation("Midpoint", coordinate: MapGeometry.midpoint(selfCoord, peerCoord)) {
-                    TweenPin(role: .midpoint)
+                    TweenPin(role: .midpoint, animated: false)
                 }
             }
 
             // A spot the host app staged for hand-off
             if let draft {
                 Annotation(draft.spotName, coordinate: draft.coordinate) {
-                    TweenPin(role: .midpoint)
+                    TweenPin(role: .midpoint, animated: false)
                 }
             }
 
@@ -415,12 +453,20 @@ struct ExpandedView: View {
                 }
             }
         }
-        .mapStyle(.standard(elevation: .realistic))
+        // Flat, not .realistic: 3D terrain/building meshes are a large memory + GPU
+        // cost we can't afford in the extension, and a meetup map doesn't need them.
+        .mapStyle(.standard(elevation: .flat))
         .mapControls {
             MapCompass()
             MapScaleView()
         }
         .accessibilityLabel("Interactive map of you, your friend, the fair midpoint, and ranked spots")
+    }
+
+    /// Caps how far out the camera can zoom so it can't pull in a continent's worth
+    /// of tiles, while still letting users zoom in to street level.
+    private var cameraBounds: MapCameraBounds {
+        MapCameraBounds(minimumDistance: 400, maximumDistance: 200_000)
     }
 
     /// A ranked-spot map pin: an A/B drive-time chip floating above a category
@@ -435,10 +481,14 @@ struct ExpandedView: View {
                 Text("B \(formatETA(spot.etaFromB))")
             }
             .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Tokens.Palette.textPrimary)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(.ultraThinMaterial)
+            // Solid fill rather than .ultraThinMaterial: a per-annotation GPU blur
+            // layer ×N is memory we can't spare in the extension.
+            .background(Tokens.Palette.surface)
             .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 0.5))
 
             Image(systemName: "fork.knife")
                 .font(.system(size: isSelected ? 16 : 14))

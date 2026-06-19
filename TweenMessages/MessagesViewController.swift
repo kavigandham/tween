@@ -31,6 +31,11 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private var hosting: UIHostingController<AnyView>?
 
+    /// Set when a memory warning fires while expanded: it tells `ExpandedView` to
+    /// shed its live `MKMapView` and fall back to the static snapshot, our last line
+    /// of defense against the ~120 MB extension jetsam ceiling. Reset on collapse.
+    private var mapDegraded = false
+
     /// Default place query for the extension's fair-spot search. There's no
     /// category UI here, so we bias toward common, universal meetup spots.
     private static let defaultQuery = "cafe restaurant food"
@@ -59,6 +64,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             kickOffRanking()
         } else {
             rankingTask?.cancel()
+            // Collapsing already frees the map (CompactView has none); clear the
+            // degrade flag so the next expansion gets the live map back.
+            mapDegraded = false
         }
         presentUI(for: presentationStyle)
     }
@@ -80,6 +88,16 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Drop every background task before we're backgrounded.
         rankingTask?.cancel()
         sendTask?.cancel()
+    }
+
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        // We're near the extension's memory ceiling. Shed the live MKMapView by
+        // re-rendering ExpandedView with the static snapshot fallback. No-op if we
+        // already degraded or aren't showing the map.
+        guard presentationStyle == .expanded, !mapDegraded else { return }
+        mapDegraded = true
+        presentUI(for: presentationStyle)
     }
 
     // MARK: - Decoding
@@ -110,6 +128,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
                     isOnline: networkMonitor.isOnline,
+                    useStaticMap: mapDegraded,
                     draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) },
