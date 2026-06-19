@@ -171,6 +171,7 @@ struct SuggestionRow: View {
                 .foregroundStyle(Tokens.Palette.textTertiary)
         }
         .padding(.vertical, Tokens.Spacing.s2)
+        .frame(minHeight: Tokens.Layout.minTapTarget)
         .contentShape(Rectangle())
     }
 }

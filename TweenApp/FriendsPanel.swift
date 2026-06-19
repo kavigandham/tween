@@ -65,6 +65,7 @@ struct FriendRow: View {
                 .foregroundStyle(Tokens.Palette.textSecondary)
         }
         .padding(.vertical, Tokens.Spacing.s1)
+        .frame(minHeight: Tokens.Layout.minTapTarget)
         .accessibilityElement(children: .combine)
     }
 

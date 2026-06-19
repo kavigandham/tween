@@ -39,7 +39,10 @@ struct OnboardingView: View {
     @State private var provider = LocationProvider()
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
-    @State private var selectedSheetDetent: PresentationDetent = .height(70)
+    /// Opens at the half detent (search bar + chips + "I'm in" + the
+    /// Search/Friends toggle), Apple-Maps style. Drag down to the search-only
+    /// peek, or up to full.
+    @State private var selectedSheetDetent: PresentationDetent = .fraction(0.45)
 
     // Search
     @State private var searchText = ""
@@ -212,7 +215,7 @@ struct OnboardingView: View {
         .onChange(of: searchViewMode) { _, mode in
             switch mode {
             case .map:
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(70) }
+                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
                 frameResults()
             case .list:
                 withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
@@ -221,7 +224,7 @@ struct OnboardingView: View {
         .sheet(isPresented: .constant(true)) {
             sheetContent
                 .presentationDetents(
-                    [.height(70), .fraction(0.45), .fraction(0.85)],
+                    [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent
                 )
                 .presentationBackgroundInteraction(.enabled)
@@ -295,9 +298,7 @@ struct OnboardingView: View {
     // MARK: - Bottom sheet
 
     /// True when the sheet is collapsed to its search-bar-only peek.
-    private var isMinimalDetent: Bool { selectedSheetDetent == .height(70) }
-    /// True when the sheet is pulled to full height (reveals tabs + friends).
-    private var isFullDetent: Bool { selectedSheetDetent == .fraction(0.85) }
+    private var isMinimalDetent: Bool { selectedSheetDetent == .height(Tokens.Layout.sheetPeekHeight) }
 
     @ViewBuilder
     private var sheetContent: some View {
@@ -306,26 +307,25 @@ struct OnboardingView: View {
             // Apple-Maps-style search bar floating over a full-screen map.
             searchBar
 
-            // Everything else is revealed only once the sheet is pulled up.
+            // Everything else is revealed once the sheet is lifted off its peek.
             if !isMinimalDetent {
                 if !monitor.isOnline { offlineBanner }
                 replyBanner
 
                 // The Search/Friends switch — and the friend roster behind it —
-                // surface only at full height to keep the medium detent focused
-                // on finding a spot.
-                if isFullDetent {
-                    Picker("Panel", selection: $panelTab) {
-                        ForEach(HomePanelTab.allCases) { tab in
-                            Text(tab.title).tag(tab)
-                        }
+                // are reachable at the half detent too; only the collapsed peek
+                // hides them so it stays a clean search bar.
+                Picker("Panel", selection: $panelTab) {
+                    ForEach(HomePanelTab.allCases) { tab in
+                        Text(tab.title).tag(tab)
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .accessibilityHint("Switches between place search and your friend roster")
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .frame(minHeight: Tokens.Layout.minTapTarget)
+                .accessibilityHint("Switches between place search and your friend roster")
 
-                if isFullDetent && panelTab == .waiting {
+                if panelTab == .waiting {
                     friendsPanel
                 } else {
                     mapPanel
@@ -555,12 +555,15 @@ struct OnboardingView: View {
                 Button(action: clearSearch) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Tokens.Palette.textSecondary)
+                        .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")
             }
         }
         .padding(Tokens.Spacing.s3)
+        .frame(minHeight: Tokens.Layout.searchBarHeight)
         .tweenGlass()
         .padding(.horizontal)
         // Tapping into the field lifts the collapsed sheet to medium so the chips
@@ -580,8 +583,8 @@ struct OnboardingView: View {
                     Button { selectCategory(preset) } label: {
                         Label(preset.title, systemImage: preset.icon)
                             .font(Tokens.Typography.subheadline)
-                            .padding(.horizontal, Tokens.Spacing.s3)
-                            .padding(.vertical, Tokens.Spacing.s2)
+                            .padding(.horizontal, Tokens.Spacing.s4)
+                            .frame(minHeight: Tokens.Layout.minTapTarget)
                             .background(
                                 selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(.thinMaterial),
                                 in: Capsule()
@@ -734,7 +737,7 @@ struct OnboardingView: View {
             .tweenElevation(.floating)
             .padding(.horizontal)
             // Sit above the bottom sheet's search-bar peek.
-            .padding(.bottom, 70 + Tokens.Spacing.s4)
+            .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4)
             .contentShape(Rectangle())
             .onTapGesture { activeSheet = .spot(selection) }
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -834,7 +837,7 @@ struct OnboardingView: View {
                     span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
             }
         }
-        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(70) }
+        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
     }
 
     /// Frames the camera to fit every visible result pin (Map mode).
@@ -842,6 +845,22 @@ struct OnboardingView: View {
         let coords = displayedItems.map(\.placemark.coordinate)
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+    }
+
+    /// Frames every result pin PLUS self and peer, biased upward so the pins
+    /// clear the bottom sheet. Called on every committed search (both view
+    /// modes) so the map is correctly positioned the instant the sheet is
+    /// lowered — in list mode the sheet snaps to full and covers most of the
+    /// map, so this framing is what the user sees the moment they drag down or
+    /// tap a result card.
+    private func frameResultsWithParticipants() {
+        var coords = displayedItems.map(\.placemark.coordinate)
+        if let me = savedCoordinate { coords.append(me) }
+        if let peer = peerCoordinate { coords.append(peer) }
+        guard !coords.isEmpty else { return }
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(for: coords, bottomBias: 0.35)
+        }
     }
 
     /// Composes a pre-filled iMessage for the chosen spot: a short blurb plus the
@@ -1046,15 +1065,21 @@ struct OnboardingView: View {
 
         isSearchActive = true
         searchState = .results
+
+        // Always zoom to fit the results together with both participants, in
+        // either view mode, so the camera is never stale once the sheet moves.
+        frameResultsWithParticipants()
+
         switch searchViewMode {
         case .list:
-            // Lift the sheet off its peek so the result cards are visible.
-            if selectedSheetDetent == .height(70) {
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
-            }
+            // Results arrived — expand to full so the cards fill the screen
+            // (the framed map becomes the backdrop, visible on drag-down).
+            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.90) }
         case .map:
-            // Keep the sheet at peek and reframe the camera to the new pins.
-            frameResults()
+            // Keep the sheet at its peek so the freshly framed pins stay visible.
+            withAnimation(Tokens.Motion.snappy) {
+                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+            }
         }
     }
 
@@ -1126,7 +1151,15 @@ struct OnboardingView: View {
 
     /// Frames the given coordinates with 20% padding on the span. A single point
     /// (or a degenerate cluster) falls back to a comfortable city-level zoom.
-    static func cameraPosition(for coordinates: [CLLocationCoordinate2D]) -> MapCameraPosition {
+    ///
+    /// `bottomBias` (0 = none) grows the latitude span and pushes the framed
+    /// center south, so the fitted content settles in the upper portion of the
+    /// map that the bottom sheet covers nothing of. SwiftUI exposes no live
+    /// height for a `.sheet`, so we bias the framing rather than measure it.
+    static func cameraPosition(
+        for coordinates: [CLLocationCoordinate2D],
+        bottomBias: CGFloat = 0
+    ) -> MapCameraPosition {
         guard let first = coordinates.first else {
             return .region(MKCoordinateRegion(
                 center: defaultCenter,
@@ -1143,11 +1176,17 @@ struct OnboardingView: View {
         let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
                                             longitude: (minLon + maxLon) / 2)
         let degenerate = (maxLat - minLat) < 0.0001 && (maxLon - minLon) < 0.0001
-        let latDelta = degenerate ? 0.05 : (maxLat - minLat) * 1.2
+        let baseLatDelta = degenerate ? 0.05 : (maxLat - minLat) * 1.2
         let lonDelta = degenerate ? 0.05 : (maxLon - minLon) * 1.2
 
+        let bias = Double(bottomBias)
+        let latDelta = baseLatDelta * (1 + bias)
+        let biasedCenter = CLLocationCoordinate2D(
+            latitude: center.latitude - latDelta * bias * 0.5,
+            longitude: center.longitude)
+
         return .region(MKCoordinateRegion(
-            center: center,
+            center: biasedCenter,
             span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)))
     }
 }

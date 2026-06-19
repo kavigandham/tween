@@ -86,6 +86,25 @@ enum Tokens {
         static let pill: CGFloat = .infinity
     }
 
+    // MARK: - Layout
+
+    /// Minimum control geometry. Apple's HIG calls for a 44×44pt minimum hit
+    /// area; primary CTAs read better slightly taller. Centralized so no view
+    /// hardcodes a tap-target literal.
+    enum Layout {
+        /// HIG minimum interactive target (chips, icon buttons, friend/suggestion
+        /// rows, the search field).
+        static let minTapTarget: CGFloat = 44
+        /// Primary filled CTA height ("I'm in", "Send to chat").
+        static let primaryControlHeight: CGFloat = 50
+        /// Search field height.
+        static let searchBarHeight: CGFloat = 44
+        /// Collapsed-sheet peek height. The single source of truth for the
+        /// minimal `PresentationDetent` so its value-equality comparisons can
+        /// never drift apart.
+        static let sheetPeekHeight: CGFloat = 100
+    }
+
     // MARK: - Typography
 
     /// Semantic type ramp built on `Font.system(_:)` text styles so every label
@@ -175,7 +194,7 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(foreground)
             .padding(.vertical, Tokens.Spacing.s3)
             .padding(.horizontal, Tokens.Spacing.s5)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
             .background(background, in: Capsule())
             .tweenPressFeedback(isPressed: configuration.isPressed)
     }
