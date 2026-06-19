@@ -32,8 +32,8 @@ final class MessagesViewController: MSMessagesAppViewController {
     private var hosting: UIHostingController<AnyView>?
 
     /// Default place query for the extension's fair-spot search. There's no
-    /// category UI here, so we bias toward an easy, universal meetup spot.
-    private static let defaultQuery = "Coffee"
+    /// category UI here, so we bias toward common, universal meetup spots.
+    private static let defaultQuery = "cafe restaurant food"
 
     /// Hard cap for route resolution inside the extension (vs. 8 in the app).
     private static let rankCap = 5
@@ -43,10 +43,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
         decodeAndCache(conversation.selectedMessage, in: conversation)
-        // The host app may have staged a spot for us; if so, jump to expanded so
-        // the user can confirm and send it.
+        // Jump to expanded when there's something to act on: a spot the host app
+        // staged for us, or an incoming invite to respond to (so the invitation
+        // banner and auto-ranked spots are front and center).
         draft = OutgoingDraftStore.load()
-        if draft != nil {
+        if draft != nil || received != nil {
             requestPresentationStyle(.expanded)
         }
         presentUI(for: presentationStyle)
@@ -203,8 +204,18 @@ final class MessagesViewController: MSMessagesAppViewController {
                 return
             }
 
-            let state = TweenState(text: "I'm in", latitude: coordinate.latitude, longitude: coordinate.longitude)
+            let state = TweenState(
+                text: "I'm in",
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+                senderName: UserProfile.displayName)
             await insertBubble(for: state)
+
+            // Now that we have a fix, surface the fair spots: jump to expanded
+            // (which triggers ranking) and also rank directly to cover the case
+            // where we're already expanded and no transition fires.
+            requestPresentationStyle(.expanded)
+            kickOffRanking()
         }
     }
 
@@ -215,7 +226,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         let state = TweenState(
             text: item.name ?? "Spot",
             latitude: coordinate.latitude,
-            longitude: coordinate.longitude)
+            longitude: coordinate.longitude,
+            senderName: UserProfile.displayName)
         sendBubble(state: state)
     }
 
@@ -226,7 +238,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         let state = TweenState(
             text: draft.spotName,
             latitude: draft.latitude,
-            longitude: draft.longitude)
+            longitude: draft.longitude,
+            senderName: UserProfile.displayName)
         OutgoingDraftStore.clear()
         self.draft = nil
         sendBubble(state: state)
@@ -252,8 +265,11 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         let layout = MSMessageTemplateLayout()
         layout.image = image
-        layout.caption = state.text
-        layout.subcaption = "Tap to find fair meetup spots"
+        // An "I'm in" share reads as an invite ("Alice wants to meet up!"); a
+        // chosen spot keeps its name as the caption.
+        let name = state.senderName ?? "Someone"
+        layout.caption = state.text == "I'm in" ? "\(name) wants to meet up!" : state.text
+        layout.subcaption = "Tap to find a fair spot"
 
         let session = conversation.selectedMessage?.session ?? MSSession()
         let message = MSMessage(session: session)

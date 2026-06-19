@@ -45,6 +45,25 @@ final class TweenAppTests: XCTestCase {
         XCTAssertNil(TweenState(url: url))
     }
 
+    // 4a. TweenState round-trips a sender name through encode → decode.
+    func testTweenStateRoundTripsSenderName() throws {
+        let original = TweenState(text: "I'm in", latitude: 37.7749, longitude: -122.4194, senderName: "Alice")
+        let url = try XCTUnwrap(original.encodedURL())
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(decoded.senderName, "Alice")
+    }
+
+    // 4b. A URL without `from` decodes senderName as nil (backward compatibility
+    //     with bubbles from builds before the field existed).
+    func testTweenStateDecodesMissingSenderAsNil() throws {
+        let noName = TweenState(text: "Dolores Park", latitude: 37.7596, longitude: -122.4269)
+        let url = try XCTUnwrap(noName.encodedURL())
+        XCTAssertFalse(url.absoluteString.contains("from="))
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertNil(decoded.senderName)
+    }
+
     // 5. LocationCache saves and loads the self coordinate.
     func testLocationCacheSavesAndLoadsSelf() throws {
         let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)

@@ -212,11 +212,17 @@ struct CompactView: View {
     }
 
     private var title: String {
+        if let name = received?.senderName, !name.isEmpty {
+            return "\(name) invited you to meet up"
+        }
         if let received { return received.text }
         return isUserIn ? "You're in" : "Find a place to meet"
     }
 
     private var subtitle: String {
+        if received?.senderName != nil {
+            return "Tap to find a fair spot"
+        }
         if received != nil {
             return isUserIn ? "Tap to pick a fair spot" : "Your friend shared a spot — tap to join"
         }
@@ -277,6 +283,7 @@ struct ExpandedView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
+            inviteBanner
 
             ScrollView {
                 VStack(spacing: Tokens.Spacing.s4) {
@@ -292,6 +299,31 @@ struct ExpandedView: View {
                 .padding(Tokens.Spacing.s4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Invitation
+
+    /// Shown when this surface opened from an invite that named its sender.
+    @ViewBuilder
+    private var inviteBanner: some View {
+        if let name = received?.senderName, !name.isEmpty {
+            VStack(spacing: Tokens.Spacing.s1) {
+                Text("You've been invited by")
+                    .font(Tokens.Typography.callout)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                Text(name)
+                    .font(Tokens.Typography.title)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+            }
+            .padding(Tokens.Spacing.s4)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .padding(.top, Tokens.Spacing.s2)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("You've been invited by \(name)")
+        }
     }
 
     // MARK: Map

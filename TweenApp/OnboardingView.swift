@@ -63,6 +63,13 @@ struct OnboardingView: View {
     @State private var renameText = ""
     @State private var toast: String?
 
+    // Profile (the name that rides along on invites)
+    @State private var profileName = UserProfile.displayName ?? ""
+    @State private var showNamePrompt = false
+    @State private var nameDraft = ""
+    /// Action to run once the user supplies a name from the prompt.
+    @State private var pendingNameAction: (() -> Void)?
+
     // Hand-off / onboarding
     @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
 
@@ -288,6 +295,13 @@ struct OnboardingView: View {
         .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)
+        .alert("Your Name", isPresented: $showNamePrompt) {
+            TextField("Name", text: $nameDraft)
+            Button("Save", action: saveName)
+            Button("Cancel", role: .cancel) { pendingNameAction = nil }
+        } message: {
+            Text("Add your name so friends see who's inviting them.")
+        }
     }
 
     /// Existing place-search surface.
@@ -377,6 +391,21 @@ struct OnboardingView: View {
     @ViewBuilder
     private var friendsPanel: some View {
         VStack(spacing: Tokens.Spacing.s3) {
+            HStack(spacing: Tokens.Spacing.s2) {
+                Image(systemName: "person.text.rectangle")
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                TextField("Your name", text: $profileName)
+                    .textFieldStyle(.plain)
+                    .submitLabel(.done)
+                    .onSubmit(saveProfileName)
+                    .onChange(of: profileName) { _, _ in saveProfileName() }
+                    .accessibilityLabel("Your name")
+                    .accessibilityHint("Shown to friends when you invite them")
+            }
+            .padding(Tokens.Spacing.s3)
+            .tweenGlass()
+            .padding(.horizontal)
+
             Button { activeSheet = .contacts } label: {
                 Label("Add Friend", systemImage: "person.badge.plus")
             }
@@ -662,8 +691,40 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func imIn() {
-        awaitingImIn = true
-        provider.requestOnce()
+        ensureNamed {
+            awaitingImIn = true
+            provider.requestOnce()
+        }
+    }
+
+    // MARK: - Profile name
+
+    /// Persists the Friends-tab name field (clearing it when blank).
+    private func saveProfileName() {
+        let trimmed = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserProfile.displayName = trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Runs `action` immediately when a display name is set; otherwise prompts
+    /// for one first and runs `action` after the user saves it.
+    private func ensureNamed(_ action: @escaping () -> Void) {
+        if let name = UserProfile.displayName, !name.isEmpty {
+            action()
+        } else {
+            nameDraft = profileName
+            pendingNameAction = action
+            showNamePrompt = true
+        }
+    }
+
+    private func saveName() {
+        let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            UserProfile.displayName = trimmed
+            profileName = trimmed
+        }
+        pendingNameAction?()
+        pendingNameAction = nil
     }
 
     /// Auto-requests location on launch so the map opens on the user's real
@@ -722,12 +783,14 @@ struct OnboardingView: View {
     /// Stages the chosen spot for the extension and bounces to Messages, where
     /// the user taps Tween to pick the draft up.
     private func sendToChat(_ selection: SpotSelection) {
-        OutgoingDraftStore.save(OutgoingDraft(
-            spotName: selection.name,
-            latitude: selection.coordinate.latitude,
-            longitude: selection.coordinate.longitude))
-        if let url = URL(string: "sms:") {
-            UIApplication.shared.open(url)
+        ensureNamed {
+            OutgoingDraftStore.save(OutgoingDraft(
+                spotName: selection.name,
+                latitude: selection.coordinate.latitude,
+                longitude: selection.coordinate.longitude))
+            if let url = URL(string: "sms:") {
+                UIApplication.shared.open(url)
+            }
         }
     }
 
