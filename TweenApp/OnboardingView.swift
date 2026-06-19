@@ -780,16 +780,36 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
     }
 
-    /// Stages the chosen spot for the extension and bounces to Messages, where
-    /// the user taps Tween to pick the draft up.
+    /// Composes a pre-filled iMessage for the chosen spot: a short blurb plus the
+    /// `TweenState` deep link the friend's extension decodes. The old `sms:` bounce
+    /// opened a blank composer, so the friend received nothing.
     private func sendToChat(_ selection: SpotSelection) {
         ensureNamed {
+            let coord = selection.coordinate
+            let state = TweenState(
+                text: selection.name,
+                latitude: coord.latitude,
+                longitude: coord.longitude,
+                senderName: UserProfile.displayName)        // set by ensureNamed
+            guard let url = state.encodedURL() else { return }
+
+            // Still stage the draft so the sender's own extension can pre-fill if
+            // they open Tween in the drawer (device-local; not how the friend gets it).
             OutgoingDraftStore.save(OutgoingDraft(
                 spotName: selection.name,
-                latitude: selection.coordinate.latitude,
-                longitude: selection.coordinate.longitude))
-            if let url = URL(string: "sms:") {
-                UIApplication.shared.open(url)
+                latitude: coord.latitude,
+                longitude: coord.longitude))
+
+            let who = UserProfile.displayName ?? "I"
+            let body = "\(who) wants to meet at \(selection.name)! Open in Tween to see the spot and find a fair place to meet:\n\n\(url.absoluteString)"
+
+            if MFMessageComposeViewController.canSendText() {
+                // Route through the existing enum-driven sheet; empty recipients so
+                // the user picks who in Messages (no selected-friend concept here).
+                activeSheet = .message(PendingMessage(recipients: [], body: body))
+            } else {
+                UIPasteboard.general.string = body
+                showToast("Message copied — paste it into your chat")
             }
         }
     }
