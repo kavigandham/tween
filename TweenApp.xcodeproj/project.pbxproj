@@ -48,6 +48,7 @@
 		CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */; };
 		D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */; };
 		D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */; };
+		E41DF28C2FE5AD7F00A0EE33 /* SearchCompleter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41DF28B2FE5AD7F00A0EE33 /* SearchCompleter.swift */; };
 		E8A357B79105FA3BB3F88D6C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */; };
 		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
 		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
@@ -133,6 +134,7 @@
 		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
 		DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenFriend.swift; sourceTree = "<group>"; };
 		E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraftTests.swift; sourceTree = "<group>"; };
+		E41DF28B2FE5AD7F00A0EE33 /* SearchCompleter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleter.swift; sourceTree = "<group>"; };
 		ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorial.swift; sourceTree = "<group>"; };
 		EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometryTests.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				0803F937E9C2F7FB7498C185 /* OnboardingView.swift */,
 				8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */,
 				A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */,
+				E41DF28B2FE5AD7F00A0EE33 /* SearchCompleter.swift */,
 				1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */,
 				CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */,
 			);
@@ -319,9 +322,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
-					0EEFAA9ACEC17E602E07CF3E = {
-						DevelopmentTeam = "";
-					};
 					F7226117C768735FB59F6DA1 = {
 						DevelopmentTeam = "";
 						TestTargetID = D9EB206C8867132E882F29B7;
@@ -411,6 +411,7 @@
 				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
 				3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */,
 				F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */,
+				E41DF28C2FE5AD7F00A0EE33 /* SearchCompleter.swift in Sources */,
 				D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */,
 				F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */,
 				C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */,
@@ -631,6 +632,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
 				CODE_SIGN_ENTITLEMENTS = TweenMessages.entitlements;
+				DEVELOPMENT_TEAM = K2H8P48K2D;
 				INFOPLIST_FILE = TweenMessages/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -719,6 +721,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
 				CODE_SIGN_ENTITLEMENTS = TweenMessages.entitlements;
+				DEVELOPMENT_TEAM = K2H8P48K2D;
 				INFOPLIST_FILE = TweenMessages/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

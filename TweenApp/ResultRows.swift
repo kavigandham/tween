@@ -222,7 +222,7 @@ struct ResultCard: View {
                 Button(action: onDirections) {
                     Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                 }
-                .buttonStyle(.tweenPrimary(.subtle))
+                .buttonStyle(.resultAction(.subtle))
                 .accessibilityHint("Opens \(item.name ?? "this place") in Apple Maps")
 
                 if let phone = item.phoneNumber, !phone.isEmpty {
@@ -234,14 +234,14 @@ struct ResultCard: View {
                     } label: {
                         Label("Call", systemImage: "phone.fill")
                     }
-                    .buttonStyle(.tweenPrimary(.subtle))
+                    .buttonStyle(.resultAction(.subtle))
                     .accessibilityHint("Calls \(item.name ?? "this place")")
                 }
 
                 Button(action: onSendToChat) {
                     Label("Send", systemImage: "paperplane.fill")
                 }
-                .buttonStyle(.tweenPrimary())
+                .buttonStyle(.resultAction())
                 .accessibilityHint("Sends this spot to your chat")
             }
         }
@@ -260,6 +260,48 @@ struct ResultCard: View {
         let to = CLLocation(latitude: item.placemark.coordinate.latitude,
                             longitude: item.placemark.coordinate.longitude)
         return String(format: "%.1f mi", from.distance(from: to) / 1609.34)
+    }
+}
+
+/// Compact action pills for result cards. The global Tween primary style is
+/// intentionally broad for full-width CTAs; search rows need denser controls.
+struct ResultActionButtonStyle: ButtonStyle {
+    enum Variant {
+        case prominent
+        case subtle
+    }
+
+    var variant: Variant = .prominent
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Tokens.Typography.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s3)
+            .padding(.vertical, Tokens.Spacing.s2)
+            .background(background, in: Capsule())
+            .foregroundStyle(foreground)
+            .tweenPressFeedback(isPressed: configuration.isPressed)
+    }
+
+    private var foreground: Color {
+        switch variant {
+        case .prominent: return .white
+        case .subtle:    return Tokens.Palette.brand
+        }
+    }
+
+    private var background: AnyShapeStyle {
+        switch variant {
+        case .prominent: return AnyShapeStyle(Tokens.Palette.brand)
+        case .subtle:    return AnyShapeStyle(Tokens.Palette.brandLight)
+        }
+    }
+}
+
+extension ButtonStyle where Self == ResultActionButtonStyle {
+    static func resultAction(_ variant: ResultActionButtonStyle.Variant = .prominent) -> ResultActionButtonStyle {
+        ResultActionButtonStyle(variant: variant)
     }
 }
 

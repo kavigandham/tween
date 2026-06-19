@@ -7,11 +7,12 @@ import Foundation
 enum CategoryPreset: String, CaseIterable, Identifiable {
     case coffee
     case food
-    case drinks
     case gas
+    case study
+    case groceries
+    case dessert
+    case drinks
     case parks
-    case movies
-    case fitness
 
     var id: String { rawValue }
 
@@ -20,11 +21,12 @@ enum CategoryPreset: String, CaseIterable, Identifiable {
         switch self {
         case .coffee:  return "Coffee"
         case .food:    return "Restaurants"
-        case .drinks:  return "Bars"
         case .gas:     return "Gas Stations"
+        case .study:   return "Study Spots"
+        case .groceries: return "Grocery Stores"
+        case .dessert: return "Dessert"
+        case .drinks:  return "Bars"
         case .parks:   return "Parks"
-        case .movies:  return "Movie Theaters"
-        case .fitness: return "Gyms"
         }
     }
 
@@ -33,11 +35,12 @@ enum CategoryPreset: String, CaseIterable, Identifiable {
         switch self {
         case .coffee:  return "Coffee"
         case .food:    return "Food"
-        case .drinks:  return "Drinks"
         case .gas:     return "Gas"
+        case .study:   return "Study"
+        case .groceries: return "Groceries"
+        case .dessert: return "Dessert"
+        case .drinks:  return "Drinks"
         case .parks:   return "Parks"
-        case .movies:  return "Movies"
-        case .fitness: return "Fitness"
         }
     }
 
@@ -46,11 +49,12 @@ enum CategoryPreset: String, CaseIterable, Identifiable {
         switch self {
         case .coffee:  return "cup.and.saucer.fill"
         case .food:    return "fork.knife"
-        case .drinks:  return "wineglass.fill"
         case .gas:     return "fuelpump.fill"
+        case .study:   return "book.fill"
+        case .groceries: return "cart.fill"
+        case .dessert: return "birthday.cake.fill"
+        case .drinks:  return "wineglass.fill"
         case .parks:   return "tree.fill"
-        case .movies:  return "film.fill"
-        case .fitness: return "dumbbell.fill"
         }
     }
 }

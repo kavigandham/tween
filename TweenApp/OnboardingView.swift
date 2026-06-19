@@ -49,6 +49,7 @@ struct OnboardingView: View {
     @State private var searchResults: [MKMapItem] = []
     @State private var rankedSpots: [RankedSpot] = []
     @State private var isSearchActive = false
+    @State private var isSearchLoading = false
     /// Whether the user is mid-typing (showing completer suggestions) or has
     /// committed a search (showing rich result cards). Drives which surface the
     /// sheet renders so suggestions and results never look alike.
@@ -367,7 +368,17 @@ struct OnboardingView: View {
     private var suggestionsList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(completer.results, id: \.self) { completion in
+                if completer.results.isEmpty {
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        ProgressView()
+                        Text("Searching nearby...")
+                            .font(Tokens.Typography.footnote)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Tokens.Spacing.s3)
+                }
+                ForEach(completer.results.prefix(6), id: \.self) { completion in
                     Button { selectSuggestion(completion) } label: {
                         SuggestionRow(completion: completion)
                     }
@@ -473,19 +484,25 @@ struct OnboardingView: View {
             .tweenGlass()
             .padding(.horizontal)
 
-            Button { activeSheet = .contacts } label: {
-                Label("Add Friend", systemImage: "person.badge.plus")
-            }
-            .buttonStyle(.tweenPrimary())
-            .padding(.horizontal)
-            .accessibilityHint("Picks someone from your contacts")
+            HStack(spacing: Tokens.Spacing.s2) {
+                Button { activeSheet = .contacts } label: {
+                    Label("Add Friend", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .tint(Tokens.Palette.brand)
+                .accessibilityHint("Picks someone from your contacts")
 
-            Button { activeSheet = .invite } label: {
-                Label("Invite a Friend", systemImage: "square.and.arrow.up")
+                Button { activeSheet = .invite } label: {
+                    Label("Invite", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .tint(Tokens.Palette.brand)
+                .accessibilityHint("Shares an invite link to Tween")
             }
-            .buttonStyle(.tweenPrimary(.subtle))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
-            .accessibilityHint("Shares an invite link to Tween")
 
             if friends.isEmpty {
                 ContentUnavailableView(
@@ -568,10 +585,9 @@ struct OnboardingView: View {
         .padding(.horizontal)
         // Tapping into the field lifts the collapsed sheet to medium so the chips
         // and suggestions have room to appear.
+        .onTapGesture { expandToSearchDetent() }
         .onChange(of: searchFocused) { _, focused in
-            if focused && isMinimalDetent {
-                withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
-            }
+            if focused { expandToSearchDetent() }
         }
     }
 
@@ -605,8 +621,9 @@ struct OnboardingView: View {
     private var resultsScroll: some View {
         ScrollView {
             VStack(spacing: Tokens.Spacing.s3) {
-                presenceControls
-                if searchState == .results {
+                if searchState == .idle {
+                    presenceControls
+                } else if searchState == .results || isSearchLoading {
                     resultsList
                 }
             }
@@ -644,11 +661,21 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var resultsList: some View {
-        if displayedItems.isEmpty {
-            Text("No places found nearby.")
-                .font(Tokens.Typography.footnote)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .padding(.top, Tokens.Spacing.s1)
+        if displayedItems.isEmpty, isSearchLoading {
+            HStack(spacing: Tokens.Spacing.s2) {
+                ProgressView()
+                Text("Finding places near you...")
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, Tokens.Spacing.s3)
+        } else if displayedItems.isEmpty {
+            ContentUnavailableView(
+                "No Places Nearby",
+                systemImage: "magnifyingglass",
+                description: Text("Try a broader search like coffee, food, gas, or groceries."))
+                .frame(maxWidth: .infinity, minHeight: 180)
         } else {
             ForEach(displayedItems, id: \.self) { item in
                 ResultCard(
@@ -827,9 +854,11 @@ struct OnboardingView: View {
     /// map is visible. Frames self, peer, and the spot together when both
     /// participants are known; otherwise zooms tight on the spot.
     private func focusMap(on item: MKMapItem) {
-        if savedCoordinate != nil, peerCoordinate != nil {
-            let coords = [savedCoordinate, peerCoordinate, item.placemark.coordinate].compactMap { $0 }
-            withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+        let coords = [savedCoordinate, peerCoordinate, midpoint, item.placemark.coordinate].compactMap { $0 }
+        if coords.count > 1 {
+            withAnimation(Tokens.Motion.gentle) {
+                position = Self.cameraPosition(for: coords, padding: 1.45, minSpan: 0.04)
+            }
         } else {
             withAnimation(Tokens.Motion.gentle) {
                 position = .region(MKCoordinateRegion(
@@ -844,7 +873,24 @@ struct OnboardingView: View {
     private func frameResults() {
         let coords = displayedItems.map(\.placemark.coordinate)
         guard !coords.isEmpty else { return }
-        withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+        withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords, padding: 1.35) }
+    }
+
+    /// Frames the social context plus the visible search hits, so the result list
+    /// and map feel connected as soon as a live search returns.
+    private func frameSearchResults() {
+        let resultCoords = displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate)
+        let context = [savedCoordinate, peerCoordinate, midpoint].compactMap { $0 }
+        let coords = context + resultCoords
+        guard !coords.isEmpty else { return }
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(for: coords, padding: 1.45, minSpan: 0.04)
+        }
+    }
+
+    private func expandToSearchDetent() {
+        guard isMinimalDetent else { return }
+        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
     }
 
     /// Frames every result pin PLUS self and peer, biased upward so the pins
@@ -961,21 +1007,31 @@ struct OnboardingView: View {
 
     // MARK: - Search
 
-    /// The region search is biased toward: the midpoint when both friends are
-    /// known, otherwise whichever single point we have. A wide 1.6° span keeps
-    /// results relevant without pinning them to one neighborhood.
+    /// The region search is biased toward the midpoint when both friends are
+    /// known, otherwise whichever single location we have. A tighter local span
+    /// keeps common searches like coffee, food, and gas near the active context.
     private var searchRegion: MKCoordinateRegion {
-        let center = midpoint ?? savedCoordinate ?? peerCoordinate ?? Self.defaultCenter
+        if let me = savedCoordinate, let peer = peerCoordinate {
+            let center = Self.midpoint(me, peer)
+            let latDelta = max(abs(me.latitude - peer.latitude) * 1.35, 0.25)
+            let lonDelta = max(abs(me.longitude - peer.longitude) * 1.35, 0.25)
+            return MKCoordinateRegion(
+                center: center,
+                span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))
+        }
+
+        let center = savedCoordinate ?? peerCoordinate ?? Self.defaultCenter
+        let span = savedCoordinate != nil || peerCoordinate != nil ? 0.18 : 0.5
         return MKCoordinateRegion(
             center: center,
-            span: MKCoordinateSpan(latitudeDelta: 1.6, longitudeDelta: 1.6))
+            span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
     }
 
-    /// Reacts to each keystroke. An empty field returns to the clean home
-    /// (`.idle`); anything else feeds the completer and shows suggestions. The
-    /// committed search only happens on Enter / tapping a suggestion, so typing
-    /// never fires an `MKLocalSearch`.
+    /// Reacts to each keystroke. An empty field returns to quick chips; anything
+    /// else feeds the completer immediately and launches a lightly debounced real
+    /// local search so results appear without waiting for Return.
     private func handleQueryChange(_ query: String) {
+        expandToSearchDetent()
         // A programmatic commit (suggestion/category) already started its search;
         // don't let the resulting onChange cancel it or revert to suggestions.
         if suppressNextQueryChange {
@@ -988,6 +1044,7 @@ struct OnboardingView: View {
             searchResults = []
             rankedSpots = []
             isSearchActive = false
+            isSearchLoading = false
             searchState = .idle
             completer.update(query: "")
             return
@@ -996,12 +1053,14 @@ struct OnboardingView: View {
         searchResults = []
         rankedSpots = []
         isSearchActive = false
+        isSearchLoading = true
         searchState = .suggesting
         completer.update(query: trimmed, region: searchRegion)
-        // Make sure the suggestions have room even if the field's focus change
-        // didn't lift the collapsed sheet on its own.
-        if isMinimalDetent {
-            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
+
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await runSearch(trimmed: trimmed)
         }
     }
 
@@ -1019,6 +1078,8 @@ struct OnboardingView: View {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSearch(trimmed) else { return }
         searchFocused = false
+        expandToSearchDetent()
+        isSearchLoading = true
 
         searchTask = Task { @MainActor in
             await runSearch(trimmed: trimmed)
@@ -1033,38 +1094,59 @@ struct OnboardingView: View {
             searchResults = []
             rankedSpots = []
             isSearchActive = false
+            isSearchLoading = false
             searchState = .idle
             return false
         }
         return true
     }
 
-    /// Runs the committed `MKLocalSearch`, ranks the hits through the fairness
-    /// engine when both coordinates are known, and surfaces them as result cards
-    /// (or map pins). Sets `searchState` to `.results`.
+    /// Runs `MKLocalSearch`, surfaces raw hits immediately, then ranks the same
+    /// hits by fairness when both coordinates are known.
     @MainActor
     private func runSearch(trimmed: String) async {
+        guard monitor.isOnline else {
+            isSearchLoading = false
+            searchResults = []
+            rankedSpots = []
+            searchState = .idle
+            return
+        }
+
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = trimmed
         request.region = searchRegion
 
-        guard let response = try? await MKLocalSearch(request: request).start(),
-              !Task.isCancelled else { return }
+        let response: MKLocalSearch.Response
+        do {
+            response = try await MKLocalSearch(request: request).start()
+        } catch {
+            guard !Task.isCancelled else { return }
+            isSearchLoading = false
+            searchResults = []
+            rankedSpots = []
+            isSearchActive = true
+            searchState = .results
+            return
+        }
+
+        guard !Task.isCancelled else { return }
         let items = response.mapItems
+
+        rankedSpots = []
+        searchResults = items
+        isSearchActive = true
+        isSearchLoading = false
+        searchState = .results
+        frameSearchResults()
 
         if let me = savedCoordinate, let peer = peerCoordinate {
             let ranked = await FairnessRanker.rank(
                 candidates: items, from: me, and: peer, cap: Self.rankCap)
             guard !Task.isCancelled else { return }
             rankedSpots = ranked
-            searchResults = items
-        } else {
-            rankedSpots = []
-            searchResults = items
+            frameSearchResults()
         }
-
-        isSearchActive = true
-        searchState = .results
 
         // Always zoom to fit the results together with both participants, in
         // either view mode, so the camera is never stale once the sheet moves.
@@ -1089,6 +1171,7 @@ struct OnboardingView: View {
         searchResults = []
         rankedSpots = []
         isSearchActive = false
+        isSearchLoading = false
         searchState = .idle
         completer.update(query: "")
         selectedCategory = nil
@@ -1107,6 +1190,7 @@ struct OnboardingView: View {
             suppressNextQueryChange = true
             selectedCategory = preset
             searchText = preset.searchQuery
+            expandToSearchDetent()
             commitSearch()
         }
     }
@@ -1158,12 +1242,14 @@ struct OnboardingView: View {
     /// height for a `.sheet`, so we bias the framing rather than measure it.
     static func cameraPosition(
         for coordinates: [CLLocationCoordinate2D],
+        padding: Double = 1.2,
+        minSpan: CLLocationDegrees = 0.05,
         bottomBias: CGFloat = 0
     ) -> MapCameraPosition {
         guard let first = coordinates.first else {
             return .region(MKCoordinateRegion(
                 center: defaultCenter,
-                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)))
+                span: MKCoordinateSpan(latitudeDelta: minSpan, longitudeDelta: minSpan)))
         }
 
         var minLat = first.latitude, maxLat = first.latitude
@@ -1176,8 +1262,8 @@ struct OnboardingView: View {
         let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
                                             longitude: (minLon + maxLon) / 2)
         let degenerate = (maxLat - minLat) < 0.0001 && (maxLon - minLon) < 0.0001
-        let baseLatDelta = degenerate ? 0.05 : (maxLat - minLat) * 1.2
-        let lonDelta = degenerate ? 0.05 : (maxLon - minLon) * 1.2
+        let baseLatDelta = degenerate ? minSpan : max((maxLat - minLat) * padding, minSpan)
+        let lonDelta = degenerate ? minSpan : max((maxLon - minLon) * padding, minSpan)
 
         let bias = Double(bottomBias)
         let latDelta = baseLatDelta * (1 + bias)

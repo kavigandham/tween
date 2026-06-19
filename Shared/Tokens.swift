@@ -102,7 +102,7 @@ enum Tokens {
         /// Collapsed-sheet peek height. The single source of truth for the
         /// minimal `PresentationDetent` so its value-equality comparisons can
         /// never drift apart.
-        static let sheetPeekHeight: CGFloat = 100
+        static let sheetPeekHeight: CGFloat = 70
     }
 
     // MARK: - Typography
