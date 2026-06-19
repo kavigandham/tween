@@ -257,11 +257,27 @@ struct CompactView: View {
     }
 }
 
+/// Formats a drive-time duration as a compact human string: "<1 min", "8 min",
+/// or "1h 5m". Shared by the expanded map's A/B chips and the spot list.
+func formatETA(_ seconds: TimeInterval) -> String {
+    let minutes = Int(seconds / 60)
+    if minutes < 1 { return "<1 min" }
+    if minutes < 60 { return "\(minutes) min" }
+    return "\(minutes / 60)h \(minutes % 60)m"
+}
+
+// NOTE: Using SwiftUI Map instead of MKMapSnapshotter in expanded view
+// for interactive browsing. SwiftUI Map is lighter than MKMapView.
+// If memory issues arise on older devices, revert to snapshotter.
+// CompactView and BubbleImageRenderer still use MKMapSnapshotter.
+//
 /// Full-screen presentation for the Messages extension.
 ///
-/// Shows a large map snapshot, the spot a friend shared (if any), a horizontal
-/// rail of fairness-ranked spots, and a primary call to action that adapts to
-/// whether you've shared your location yet. An offline banner replaces the live
+/// Shows an interactive SwiftUI `Map` framing both friends, the fair midpoint,
+/// and every ranked spot (each tagged with both drive times), above a scrollable
+/// list of those spots. Tapping a pin highlights its row and vice-versa; the
+/// primary call to action adapts to whether you've shared your location yet and,
+/// once you have, sends the spot you pick. An offline banner replaces the live
 /// ranking when there's no network.
 struct ExpandedView: View {
     let received: TweenState?
@@ -277,22 +293,37 @@ struct ExpandedView: View {
     var onSendDraft: () -> Void = {}
 
     @State private var selectedSpotID: RankedSpot.ID?
+    /// Drives the interactive map's camera. `.automatic` frames every annotation
+    /// (self, peer, midpoint, spots) with padding; selecting a row switches it to
+    /// a region centered on that spot. A user pan/zoom hands control back to them.
+    @State private var mapPosition: MapCameraPosition = .automatic
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
+
+    /// The peer's shared coordinate, if we've received one.
+    private var peerCoord: CLLocationCoordinate2D? { received?.coordinate }
+
+    /// True when there's nothing geographic to plot yet — no self, peer, or draft.
+    private var hasMapContent: Bool {
+        selfCoord != nil || peerCoord != nil || draft != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
             inviteBanner
 
-            ScrollView {
-                VStack(spacing: Tokens.Spacing.s4) {
-                    map
-                    if let draft { draftPanel(draft) }
-                    if let received { receivedPanel(received) }
-                    if !rankedSpots.isEmpty { spotRail }
+            // Split the space between the interactive map (~60%) and the
+            // scrollable spot list (~40%). The map can't live inside a vertical
+            // ScrollView — its pan gesture would fight the scroll — so it gets its
+            // own fixed slice here instead.
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    mapSection
+                        .frame(height: geo.size.height * 0.6)
+                    spotList
+                        .frame(height: geo.size.height * 0.4)
                 }
-                .padding(Tokens.Spacing.s4)
             }
 
             primaryCTA
@@ -328,28 +359,13 @@ struct ExpandedView: View {
 
     // MARK: Map
 
-    private var markers: [MapMarker] {
-        var result: [MapMarker] = []
-        if let selfCoord {
-            result.append(MapMarker(coordinate: selfCoord, role: isUserIn ? .selfActive : .selfDot))
-        }
-        if let received {
-            result.append(MapMarker(coordinate: received.coordinate, role: .friend))
-        }
-        if let selfCoord, let received {
-            result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, received.coordinate), role: .midpoint))
-        }
-        if let draft {
-            result.append(MapMarker(coordinate: draft.coordinate, role: .midpoint))
-        }
-        return result
-    }
-
     @ViewBuilder
-    private var map: some View {
-        if markers.isEmpty {
+    private var mapSection: some View {
+        if hasMapContent {
+            interactiveMap
+        } else {
             ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
+                Rectangle().fill(Tokens.Palette.surfaceSecondary)
                 VStack(spacing: Tokens.Spacing.s2) {
                     Image(systemName: "location.slash").font(Tokens.Typography.title)
                     Text("Share your location to see the map")
@@ -357,117 +373,170 @@ struct ExpandedView: View {
                 }
                 .foregroundStyle(Tokens.Palette.textSecondary)
             }
-            .frame(height: 220)
-        } else {
-            TweenMapSnapshotView(markers: markers, cornerRadius: Tokens.Radius.card)
-                .frame(height: 220)
-                .accessibilityLabel("Map of you, your friend, and the fair midpoint")
         }
     }
 
-    // MARK: Received panel
-
-    private func receivedPanel(_ state: TweenState) -> some View {
-        HStack(spacing: Tokens.Spacing.s3) {
-            TweenPin(role: .friend).scaleEffect(0.7)
-                .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                Text("Your friend shared")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(state.text)
-                    .font(Tokens.Typography.headline)
-                    .lineLimit(1)
+    private var interactiveMap: some View {
+        Map(position: $mapPosition) {
+            // Your location pin
+            if let selfCoord {
+                Annotation("You", coordinate: selfCoord) {
+                    TweenPin(role: isUserIn ? .selfActive : .selfDot)
+                }
             }
-            Spacer(minLength: 0)
-        }
-        .padding(Tokens.Spacing.s4)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Your friend shared \(state.text)")
-    }
 
-    // MARK: Draft panel
-
-    /// Confirmation card for a spot the host app handed off. The `primaryCTA`
-    /// becomes "Send [name]" while this is showing.
-    private func draftPanel(_ draft: OutgoingDraft) -> some View {
-        HStack(spacing: Tokens.Spacing.s3) {
-            TweenPin(role: .midpoint).scaleEffect(0.7)
-                .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                Text("Ready to send")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(draft.spotName)
-                    .font(Tokens.Typography.headline)
-                    .lineLimit(1)
+            // Friend's location pin
+            if let peerCoord {
+                Annotation("Friend", coordinate: peerCoord) {
+                    TweenPin(role: .friend)
+                }
             }
-            Spacer(minLength: 0)
-        }
-        .padding(Tokens.Spacing.s4)
-        .background(Tokens.Palette.brand.opacity(0.14), in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Ready to send \(draft.spotName)")
-    }
 
-    // MARK: Spot rail
+            // Midpoint pin
+            if let selfCoord, let peerCoord {
+                Annotation("Midpoint", coordinate: MapGeometry.midpoint(selfCoord, peerCoord)) {
+                    TweenPin(role: .midpoint)
+                }
+            }
 
-    private var spotRail: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            Text("Fair spots")
-                .font(Tokens.Typography.subheadline.weight(.semibold))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Tokens.Spacing.s3) {
-                    ForEach(rankedSpots) { spot in
-                        spotChip(spot)
+            // A spot the host app staged for hand-off
+            if let draft {
+                Annotation(draft.spotName, coordinate: draft.coordinate) {
+                    TweenPin(role: .midpoint)
+                }
+            }
+
+            // All ranked spot pins, each with an A/B drive-time chip
+            ForEach(rankedSpots) { spot in
+                if let item = spot.item {
+                    Annotation(item.name ?? "Spot", coordinate: item.placemark.coordinate) {
+                        spotPin(spot)
                     }
                 }
-                .padding(.vertical, Tokens.Spacing.s1)
             }
+        }
+        .mapStyle(.standard(elevation: .realistic))
+        .mapControls {
+            MapCompass()
+            MapScaleView()
+        }
+        .accessibilityLabel("Interactive map of you, your friend, the fair midpoint, and ranked spots")
+    }
+
+    /// A ranked-spot map pin: an A/B drive-time chip floating above a category
+    /// glyph. The selected spot reads in brand color and slightly larger so it
+    /// stands out from the red of the others.
+    private func spotPin(_ spot: RankedSpot) -> some View {
+        let isSelected = selectedSpotID == spot.id
+        return VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                Text("A \(formatETA(spot.etaFromA))")
+                Text("·")
+                Text("B \(formatETA(spot.etaFromB))")
+            }
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())
+
+            Image(systemName: "fork.knife")
+                .font(.system(size: isSelected ? 16 : 14))
+                .foregroundStyle(.white)
+                .padding(isSelected ? 9 : 8)
+                .background(isSelected ? Tokens.Palette.brand : Color.red)
+                .clipShape(Circle())
+                .shadow(radius: 2)
+        }
+        // Tapping a pin highlights its row in the list below (which scrolls to it).
+        .onTapGesture { select(spot, animateMap: false) }
+        .accessibilityLabel("\(spot.item?.name ?? "Spot"), A \(formatETA(spot.etaFromA)), B \(formatETA(spot.etaFromB))")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    // MARK: Spot list
+
+    private var spotList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: Tokens.Spacing.s2) {
+                    ForEach(rankedSpots) { spot in
+                        spotRow(spot)
+                            .id(spot.id)
+                    }
+                }
+                .padding(.horizontal, Tokens.Spacing.s4)
+                .padding(.vertical, Tokens.Spacing.s2)
+            }
+            // Keep the selected spot in view whether it was picked here or on the map.
+            .onChange(of: selectedSpotID) { _, newValue in
+                guard let newValue else { return }
+                withAnimation(Tokens.Motion.snappy) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+            .sensoryFeedback(.selection, trigger: selectedSpotID)
         }
     }
 
-    private func spotChip(_ spot: RankedSpot) -> some View {
-        let isSelected = (selectedSpotID ?? rankedSpots.first?.id) == spot.id
-        let name = spot.item?.name ?? "Spot"
-        return Button {
-            selectedSpotID = spot.id
-        } label: {
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+    private func spotRow(_ spot: RankedSpot) -> some View {
+        let isSelected = selectedSpotID == spot.id
+        let name = spot.item?.name ?? "Unknown"
+        return HStack {
+            Image(systemName: "fork.knife")
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .font(Tokens.Typography.headline)
                     .lineLimit(1)
-                Label("\(minutes(spot.worseETA)) min", systemImage: "car.fill")
-                    .font(Tokens.Typography.captionBold.monospacedDigit())
+                Text(spot.item?.placemark.title ?? "")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("A \(formatETA(spot.etaFromA))")
+                    .font(Tokens.Typography.captionBold)
+                Text("B \(formatETA(spot.etaFromB))")
+                    .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
             }
-            .frame(width: 150, alignment: .leading)
-            .padding(Tokens.Spacing.s3)
-            .background(
-                isSelected ? AnyShapeStyle(Tokens.Palette.brand.opacity(0.16))
-                           : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
-                in: RoundedRectangle(cornerRadius: Tokens.Radius.card)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Tokens.Radius.card)
-                    .stroke(isSelected ? Tokens.Palette.brand : Color.clear, lineWidth: 1.5)
-            )
         }
-        .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: selectedSpotID)
-        .accessibilityLabel("\(name), longest drive \(minutes(spot.worseETA)) minutes")
+        .padding(Tokens.Spacing.s3)
+        .background(isSelected ? Tokens.Palette.brand.opacity(0.1) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.chip))
+        .contentShape(Rectangle())
+        // Tapping a row animates the map to this spot and highlights its pin.
+        .onTapGesture { select(spot, animateMap: true) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name), A \(formatETA(spot.etaFromA)), B \(formatETA(spot.etaFromB))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Single point of truth for selection. Always updates `selectedSpotID`
+    /// (which scrolls the list and re-styles the pin); optionally flies the map
+    /// camera to the spot when the selection came from a list tap.
+    private func select(_ spot: RankedSpot, animateMap: Bool) {
+        selectedSpotID = spot.id
+        guard animateMap, let coordinate = spot.item?.placemark.coordinate else { return }
+        withAnimation(Tokens.Motion.spring) {
+            mapPosition = .region(MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)))
+        }
     }
 
     // MARK: CTA
 
     private var selectedSpot: RankedSpot? {
-        if let id = selectedSpotID, let match = rankedSpots.first(where: { $0.id == id }) {
-            return match
-        }
-        return rankedSpots.first
+        guard let id = selectedSpotID else { return nil }
+        return rankedSpots.first { $0.id == id }
     }
 
     @ViewBuilder
@@ -494,11 +563,17 @@ struct ExpandedView: View {
                 .buttonStyle(.tweenPrimary())
                 .accessibilityHint("Drops this spot into your conversation")
             } else {
-                Text("Finding fair spots…")
-                    .font(Tokens.Typography.footnote)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Tokens.Spacing.s2)
+                // No spot picked yet: a disabled prompt that adapts while the
+                // ranking is still loading.
+                Button {} label: {
+                    Label(rankedSpots.isEmpty ? "Finding fair spots…" : "Pick a spot to send",
+                          systemImage: "mappin.and.ellipse")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.tweenPrimary())
+                .disabled(true)
+                .opacity(0.5)
+                .accessibilityHint("Tap a spot on the map or list to choose where to meet")
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)
@@ -517,8 +592,6 @@ struct ExpandedView: View {
         .background(Tokens.Palette.warning)
         .accessibilityElement(children: .combine)
     }
-
-    private func minutes(_ eta: TimeInterval) -> Int { Int((eta / 60).rounded()) }
 }
 
 #Preview("Compact") {
