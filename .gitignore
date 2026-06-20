@@ -1,6 +1,8 @@
-# Secrets — never commit App Store Connect keys
+# Secrets — never commit App Store Connect keys or signing keys
 *.p8
 AuthKey_*.p8
+*.pem
+*.p12
 
 # Xcode / build artifacts
 build/
