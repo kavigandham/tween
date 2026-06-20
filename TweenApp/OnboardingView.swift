@@ -1060,7 +1060,7 @@ struct OnboardingView: View {
         searchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await runSearch(trimmed: trimmed)
+            await runSearch(trimmed: trimmed, reframeMap: false)
         }
     }
 
@@ -1082,7 +1082,7 @@ struct OnboardingView: View {
         isSearchLoading = true
 
         searchTask = Task { @MainActor in
-            await runSearch(trimmed: trimmed)
+            await runSearch(trimmed: trimmed, reframeMap: true)
         }
     }
 
@@ -1102,9 +1102,10 @@ struct OnboardingView: View {
     }
 
     /// Runs `MKLocalSearch`, surfaces raw hits immediately, then ranks the same
-    /// hits by fairness when both coordinates are known.
+    /// hits by fairness when both coordinates are known. Live typing keeps the
+    /// map still; committed searches (Return, suggestion, chip) may reframe it.
     @MainActor
-    private func runSearch(trimmed: String) async {
+    private func runSearch(trimmed: String, reframeMap: Bool) async {
         guard monitor.isOnline else {
             isSearchLoading = false
             searchResults = []
@@ -1138,15 +1139,21 @@ struct OnboardingView: View {
         isSearchActive = true
         isSearchLoading = false
         searchState = .results
-        frameSearchResults()
+        if reframeMap {
+            frameSearchResults()
+        }
 
         if let me = savedCoordinate, let peer = peerCoordinate {
             let ranked = await FairnessRanker.rank(
                 candidates: items, from: me, and: peer, cap: Self.rankCap)
             guard !Task.isCancelled else { return }
             rankedSpots = ranked
-            frameSearchResults()
+            if reframeMap {
+                frameSearchResults()
+            }
         }
+
+        guard reframeMap else { return }
 
         // Always zoom to fit the results together with both participants, in
         // either view mode, so the camera is never stale once the sheet moves.
