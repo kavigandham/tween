@@ -14,10 +14,9 @@ workflows:
       app_store_connect: Tween ASC Key
 
     environment:
-      groups:
-        # Codemagic variable group that holds CERTIFICATE_PRIVATE_KEY (the PEM
-        # contents of codemagic_cert_key.pem), added as a SECURE variable.
-        - signing
+      # Code signing identities (Distribution cert + provisioning profiles)
+      # are managed via the Codemagic UI "Code signing identities" tab and
+      # auto-injected. No CERTIFICATE_PRIVATE_KEY env var required.
       xcode: "26.0"
       vars:
         APP_BUNDLE_ID: "com.kavigandham.TweenApp"
@@ -37,15 +36,9 @@ workflows:
           # $BUILD_NUMBER guarantees each upload is higher than the last.
           plutil -replace CFBundleVersion -string "$BUILD_NUMBER" TweenApp/Info.plist
 
-      - name: Set up code signing (App Store, both bundle IDs)
+      - name: Set up code signing (uses cert + profiles uploaded via Codemagic UI)
         script: |
           keychain initialize
-          # Create the distribution cert from OUR persistent private key so the
-          # cloud Mac always has a usable key (App Store Connect only stores the
-          # public cert; without our key the fetched cert is useless). Both calls
-          # share the same key, so only one certificate is created/reused.
-          app-store-connect fetch-signing-files "$APP_BUNDLE_ID" --type IOS_APP_STORE --certificate-key @env:CERTIFICATE_PRIVATE_KEY --create
-          app-store-connect fetch-signing-files "$EXT_BUNDLE_ID" --type IOS_APP_STORE --certificate-key @env:CERTIFICATE_PRIVATE_KEY --create
           keychain add-certificates
           xcode-project use-profiles
 
