@@ -42,6 +42,22 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
+      - name: Inspect fetched provisioning profiles (diagnostic)
+        script: |
+          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "Profiles directory contents:"
+          ls -la "$PP_DIR" || echo "  (no profiles directory!)"
+          for p in "$PP_DIR"/*.mobileprovision; do
+            [ -e "$p" ] || { echo "NO PROFILES FOUND — fetch-signing-files produced nothing"; break; }
+            echo "================================================================"
+            security cms -D -i "$p" > /tmp/pp.plist 2>/dev/null
+            echo "Name:      $(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/pp.plist 2>/dev/null)"
+            echo "App ID:    $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /tmp/pp.plist 2>/dev/null)"
+            echo "App Groups in this profile:"
+            /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' /tmp/pp.plist 2>/dev/null \
+              || echo "  >>> NONE — this profile has NO App Groups entitlement (root cause) <<<"
+          done
+
       - name: Build the IPA
         script: |
           xcode-project build-ipa \
