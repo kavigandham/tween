@@ -18,7 +18,7 @@ workflows:
         # Codemagic variable group that holds CERTIFICATE_PRIVATE_KEY (the PEM
         # contents of codemagic_cert_key.pem), added as a SECURE variable.
         - signing
-      xcode: "16.0"
+      xcode: "26.0"
       vars:
         APP_BUNDLE_ID: "com.kavigandham.TweenApp"
         EXT_BUNDLE_ID: "com.kavigandham.TweenApp.messages"
