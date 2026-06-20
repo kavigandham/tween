@@ -9,7 +9,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "T4VT6R837D"
 
 targets:
   TweenApp:
@@ -29,20 +29,22 @@ targets:
       path: TweenApp.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.hassan.tween
+          - group.com.kavigandham.tween
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp
         INFOPLIST_FILE: TweenApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: TweenApp.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: TweenMessages
     info:
       path: TweenApp/Info.plist
       properties:
         CFBundleDisplayName: Tween
-        CFBundleShortVersionString: "1.0.0"
+        CFBundleShortVersionString: "1.0.1"
         CFBundleVersion: "1"
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: "Tween uses your location once to find fair meetup spots."
         NSContactsUsageDescription: "Tween uses your contacts so you can pick a friend to invite to a meetup."
@@ -59,10 +61,10 @@ targets:
       path: TweenMessages.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.hassan.tween
+          - group.com.kavigandham.tween
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenMessages
+        PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.messages
         INFOPLIST_FILE: TweenMessages/Info.plist
         CODE_SIGN_ENTITLEMENTS: TweenMessages.entitlements
     info:

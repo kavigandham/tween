@@ -16,11 +16,11 @@ A serverless, iMessage-native meetup coordinator. Two friends share locations; t
 | Target | Type | Bundle ID |
 |--------|------|-----------|
 | TweenApp | iOS App (SwiftUI lifecycle) | `com.kavigandham.TweenApp` |
-| TweenMessages | Messages Extension | `com.kavigandham.TweenApp.TweenMessages` |
+| TweenMessages | Messages Extension | `com.kavigandham.TweenApp.messages` |
 | TweenAppTests | Unit Test Bundle | `com.kavigandham.TweenApp.TweenAppTests` |
 | TweenAppUITests | UI Test Bundle | `com.kavigandham.TweenApp.TweenAppUITests` |
 
-App Group: `group.com.hassan.tween`
+App Group: `group.com.kavigandham.tween`
 
 ## Directory Structure
 ```

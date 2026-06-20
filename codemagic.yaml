@@ -1,0 +1,59 @@
+workflows:
+  ios-testflight:
+    name: Tween iOS – TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    # Reference an App Store Connect API key you add ONCE in the Codemagic UI:
+    #   Codemagic → Teams → Integrations → Developer Portal / App Store Connect
+    #   → Connect, then create a key named EXACTLY "Tween ASC Key" with:
+    #     Issuer ID  = <your issuer id>
+    #     Key ID     = JXLP2Q6WL7
+    #     API key    = paste the contents of AuthKey_JXLP2Q6WL7.p8
+    integrations:
+      app_store_connect: Tween ASC Key
+
+    environment:
+      xcode: "16.0"
+      vars:
+        APP_BUNDLE_ID: "com.kavigandham.TweenApp"
+        EXT_BUNDLE_ID: "com.kavigandham.TweenApp.messages"
+        XCODE_PROJECT: "TweenApp.xcodeproj"
+        XCODE_SCHEME: "TweenApp"
+
+    scripts:
+      - name: Install XcodeGen and generate the project
+        script: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Set the build number (monotonic via Codemagic counter)
+        script: |
+          # 1.0.1 is a fresh version train, so build numbers restart cleanly;
+          # $BUILD_NUMBER guarantees each upload is higher than the last.
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" TweenApp/Info.plist
+
+      - name: Set up code signing (App Store, both bundle IDs)
+        script: |
+          keychain initialize
+          # --create makes the distribution cert + App Store profiles on first run.
+          app-store-connect fetch-signing-files "$APP_BUNDLE_ID" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$EXT_BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build the IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight; does NOT submit for App Store review.
+        submit_to_testflight: true

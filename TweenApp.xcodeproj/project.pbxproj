@@ -640,7 +640,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp.TweenMessages;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.messages;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -675,7 +675,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -710,7 +710,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -729,7 +729,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.hassan.TweenApp.TweenMessages;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.messages;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

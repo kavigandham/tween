@@ -1,0 +1,15 @@
+# Secrets — never commit App Store Connect keys
+*.p8
+AuthKey_*.p8
+
+# Xcode / build artifacts
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
