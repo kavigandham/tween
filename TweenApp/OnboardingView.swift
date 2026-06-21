@@ -3,6 +3,7 @@ import MapKit
 import CoreLocation
 import MessageUI
 import UIKit
+import os
 
 /// The host app's primary surface: a full-screen map with an "I'm in" flow and
 /// a draggable bottom sheet. Capturing your location drops a self pin; once a
@@ -22,6 +23,7 @@ struct OnboardingView: View {
 
     /// A reply banner shows only while the last inbound bubble is this fresh.
     private static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
+    private let logger = Logger(subsystem: "com.kavigandham.TweenApp", category: "Host")
 
     /// Prefilled body for an out-of-band SMS nudge to a friend.
     private static let inviteText =
@@ -39,6 +41,8 @@ struct OnboardingView: View {
     @State private var provider = LocationProvider()
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
+    @State private var mapDisplayStyle: MapDisplayStyle = .standard
+    @State private var showingMapStylePicker = false
     /// Opens at the half detent (search bar + chips + "I'm in" + the
     /// Search/Friends toggle), Apple-Maps style. Drag down to the search-only
     /// peek, or up to full.
@@ -152,6 +156,46 @@ struct OnboardingView: View {
         var title: String { self == .list ? "List" : "Map" }
     }
 
+    enum MapDisplayStyle: String, CaseIterable, Identifiable {
+        case standard
+        case traffic
+        case satellite
+        case hybrid
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .standard:  return "Standard"
+            case .traffic:   return "Traffic"
+            case .satellite: return "Satellite"
+            case .hybrid:    return "Hybrid"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .standard:  return "map"
+            case .traffic:   return "car.fill"
+            case .satellite: return "globe.americas.fill"
+            case .hybrid:    return "map.fill"
+            }
+        }
+
+        var mapStyle: MapStyle {
+            switch self {
+            case .standard:
+                return .standard(elevation: .flat)
+            case .traffic:
+                return .standard(elevation: .flat, showsTraffic: true)
+            case .satellite:
+                return .imagery(elevation: .flat)
+            case .hybrid:
+                return .hybrid(elevation: .flat, showsTraffic: true)
+            }
+        }
+    }
+
     init() {
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
@@ -169,6 +213,11 @@ struct OnboardingView: View {
             if let peer = peerCoordinate {
                 Annotation("Friend", coordinate: peer) {
                     TweenPin(role: .friend)
+                }
+            }
+            if let midpoint {
+                Annotation("Midpoint", coordinate: midpoint) {
+                    TweenPin(role: .midpoint)
                 }
             }
             // A selectable pin for every visible search result. The selected one
@@ -201,9 +250,22 @@ struct OnboardingView: View {
             }
         }
         .ignoresSafeArea()
-        .overlay(alignment: .topTrailing) { infoButton }
+        .mapStyle(mapDisplayStyle.mapStyle)
+        .overlay(alignment: .topTrailing) { topTrailingControls }
         .overlay(alignment: .top) { viewModeToggle }
         .overlay(alignment: .bottom) { compactCard }
+        .confirmationDialog("Map Style", isPresented: $showingMapStylePicker, titleVisibility: .visible) {
+            ForEach(MapDisplayStyle.allCases) { style in
+                Button {
+                    mapDisplayStyle = style
+                } label: {
+                    Label(style.title, systemImage: style.icon)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose how the map should look.")
+        }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
             if let item { focusMap(on: item) }
@@ -289,6 +351,7 @@ struct OnboardingView: View {
         }
         .task { await pollPeer() }
         .task { requestInitialLocation() }
+        .onOpenURL(perform: handleIncomingURL)
     }
 
     // MARK: - Bottom sheet
@@ -386,6 +449,46 @@ struct OnboardingView: View {
         }
     }
 
+    private var topTrailingControls: some View {
+        VStack(alignment: .trailing, spacing: Tokens.Spacing.s3) {
+            mapControlCapsule
+            infoButton
+        }
+        .padding(.top, Tokens.Spacing.s2)
+        .padding(.trailing, Tokens.Spacing.s4)
+    }
+
+    private var mapControlCapsule: some View {
+        VStack(spacing: 0) {
+            Button {
+                showingMapStylePicker = true
+            } label: {
+                Image(systemName: mapDisplayStyle == .traffic ? "car.fill" : "map.fill")
+                    .font(Tokens.Typography.title2)
+                    .frame(width: 48, height: 48)
+            }
+            .accessibilityLabel("Map style")
+            .accessibilityHint("Choose standard, traffic, satellite, or hybrid map")
+
+            Divider()
+                .padding(.horizontal, Tokens.Spacing.s3)
+
+            Button {
+                resetMapCamera()
+            } label: {
+                Image(systemName: "location.north.fill")
+                    .font(Tokens.Typography.title2)
+                    .frame(width: 48, height: 48)
+            }
+            .accessibilityLabel("Reset map")
+            .accessibilityHint("Reframes the map around you, your friend, and visible places")
+        }
+        .foregroundStyle(Tokens.Palette.brand)
+        .buttonStyle(.plain)
+        .background(.ultraThinMaterial, in: Capsule())
+        .tweenElevation(.floating)
+    }
+
     /// Floating control to re-show the first-run walkthrough.
     private var infoButton: some View {
         Button { showTutorial = true } label: {
@@ -397,8 +500,6 @@ struct OnboardingView: View {
                 .tweenElevation(.floating)
         }
         .buttonStyle(.plain)
-        .padding(.top, Tokens.Spacing.s2)
-        .padding(.trailing, Tokens.Spacing.s4)
         .accessibilityLabel("Help")
         .accessibilityHint("Shows the welcome walkthrough")
     }
@@ -444,7 +545,9 @@ struct OnboardingView: View {
     /// while the inbound bubble is still fresh.
     @ViewBuilder
     private var replyBanner: some View {
-        if let lastReplyAt, Date().timeIntervalSince(lastReplyAt) < Self.replyFreshness {
+        if let lastReplyAt,
+           peerCoordinate != nil,
+           Date().timeIntervalSince(lastReplyAt) < Self.replyFreshness {
             HStack(spacing: Tokens.Spacing.s2) {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                 Text("Your friend replied \(RelativeTime.string(from: lastReplyAt))")
@@ -652,6 +755,16 @@ struct OnboardingView: View {
             .font(Tokens.Typography.footnote)
             .foregroundStyle(Tokens.Palette.textSecondary)
             .multilineTextAlignment(.center)
+
+        if let peerDistanceText {
+            Label(peerDistanceText, systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+                .font(Tokens.Typography.footnote.weight(.medium))
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .padding(.horizontal, Tokens.Spacing.s3)
+                .padding(.vertical, Tokens.Spacing.s2)
+                .background(.thinMaterial, in: Capsule())
+                .accessibilityLabel(peerDistanceText)
+        }
     }
 
     @ViewBuilder
@@ -816,6 +929,12 @@ struct OnboardingView: View {
         return "Tap “I'm in” to share where you are and find fair places to meet."
     }
 
+    private var peerDistanceText: String? {
+        guard let savedCoordinate, let peerCoordinate else { return nil }
+        let distance = ABDistanceLabel.formatDistance(from: savedCoordinate, to: peerCoordinate)
+        return "Distance between you: \(distance)"
+    }
+
     // MARK: - Actions
 
     private func imIn() {
@@ -942,8 +1061,10 @@ struct OnboardingView: View {
                 latitude: coord.latitude,
                 longitude: coord.longitude,
                 senderName: UserProfile.displayName,
-                kind: .place)        // set by ensureNamed
+                kind: .place,
+                senderCoordinate: savedCoordinate)        // set by ensureNamed
             guard let url = state.encodedURL() else { return }
+            let appURL = state.encodedURL(scheme: "tween", host: "m")
 
             // Still stage the draft so the sender's own extension can pre-fill if
             // they open Tween in the drawer (device-local; not how the friend gets it).
@@ -953,7 +1074,16 @@ struct OnboardingView: View {
                 longitude: coord.longitude))
 
             let who = UserProfile.displayName ?? "I"
-            let body = "\(who) wants to meet at \(selection.name)! Open in Tween to see the spot and find a fair place to meet:\n\n\(url.absoluteString)"
+            let appLink = appURL?.absoluteString ?? url.absoluteString
+            let body = """
+            \(who) wants to meet at \(selection.name)!
+
+            Tap to open Tween and share your location:
+            \(appLink)
+
+            Backup link:
+            \(url.absoluteString)
+            """
 
             if MFMessageComposeViewController.canSendText() {
                 // Route through the existing enum-driven sheet; empty recipients so
@@ -1232,6 +1362,11 @@ struct OnboardingView: View {
             let peer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
             if !same(peerCoordinate, peer) {
                 peerCoordinate = peer
+                if let peer {
+                    logger.debug("Main app loaded peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+                } else {
+                    logger.debug("Main app cleared inactive peer coordinate")
+                }
                 reframe()
             }
             // Surface inbound replies stamped by the extension's `didReceive`.
@@ -1250,7 +1385,57 @@ struct OnboardingView: View {
     private func reframe() {
         let coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         guard !coords.isEmpty else { return }
+        logger.debug("Map reframe triggered for \(coords.count, privacy: .public) coordinate(s)")
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
+    }
+
+    private func resetMapCamera() {
+        var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
+
+        if let selectedResult {
+            coords.append(selectedResult.placemark.coordinate)
+        } else if isSearchActive {
+            coords.append(contentsOf: displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate))
+        }
+
+        guard !coords.isEmpty else {
+            withAnimation(Tokens.Motion.gentle) {
+                position = Self.cameraPosition(for: [Self.defaultCenter])
+            }
+            return
+        }
+
+        logger.debug("Manual map reset for \(coords.count, privacy: .public) coordinate(s)")
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(for: coords, padding: 1.35, minSpan: 0.04, bottomBias: 0.25)
+        }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard let state = TweenState(url: url) else { return }
+        logger.debug("Host opened Tween URL kind=\(state.kind.rawValue, privacy: .public) lat=\(state.latitude, privacy: .public) lon=\(state.longitude, privacy: .public)")
+
+        if let peer = state.participantCoordinate {
+            LocationCache.savePeer(peer, isActive: true)
+            peerCoordinate = peer
+            PingLog.lastIncomingReplyAt = Date()
+            lastReplyAt = PingLog.lastIncomingReplyAt
+            logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+        }
+
+        if state.kind == .place {
+            // The link represents a proposed place; keep the sender as peer and
+            // put the map on the proposed spot without turning it into a person.
+            let place = state.coordinate
+            withAnimation(Tokens.Motion.gentle) {
+                position = Self.cameraPosition(
+                    for: [savedCoordinate, peerCoordinate, place].compactMap { $0 },
+                    padding: 1.45,
+                    minSpan: 0.04)
+            }
+        } else {
+            reframe()
+        }
     }
 
     private func same(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> Bool {

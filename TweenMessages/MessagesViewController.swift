@@ -3,6 +3,7 @@ import SwiftUI
 import Messages
 import MapKit
 import CoreLocation
+import os
 
 /// The iMessage extension's principal view controller.
 ///
@@ -28,6 +29,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private let locationProvider = LocationProvider()
     private let networkMonitor = NetworkMonitor()
+    private let logger = Logger(subsystem: "com.kavigandham.TweenApp", category: "Messages")
 
     private var hosting: UIHostingController<AnyView>?
 
@@ -47,7 +49,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        decodeAndCache(conversation.selectedMessage, in: conversation)
+        _ = decodeAndCache(conversation.selectedMessage, in: conversation)
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
         // banner and auto-ranked spots are front and center).
@@ -73,10 +75,12 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
-        decodeAndCache(message, in: conversation)
+        let savedPeer = decodeAndCache(message, in: conversation)
         // Stamp the inbound bubble so the host app can surface a "they replied"
-        // banner across its sheet.
-        PingLog.lastIncomingReplyAt = Date()
+        // banner across its sheet, but only once the peer coordinate is usable.
+        if savedPeer {
+            PingLog.lastIncomingReplyAt = Date()
+        }
         if presentationStyle == .expanded {
             kickOffRanking()
         }
@@ -105,13 +109,19 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Decodes a bubble's payload into `received` and caches the peer coordinate
     /// only when the payload represents a participant. Place bubbles also carry a
     /// coordinate, but treating that as the peer would corrupt midpoint/ranking.
-    private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) {
-        guard let message, let url = message.url, let state = TweenState(url: url) else { return }
-        guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return }
+    @discardableResult
+    private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) -> Bool {
+        guard let message, let url = message.url, let state = TweenState(url: url) else { return false }
+        guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return false }
         received = state
-        if state.representsParticipantLocation {
-            LocationCache.savePeer(state.coordinate, isActive: true)
+        logger.debug("Decoded incoming Tween message kind=\(state.kind.rawValue, privacy: .public) lat=\(state.latitude, privacy: .public) lon=\(state.longitude, privacy: .public)")
+        if let peer = state.participantCoordinate {
+            LocationCache.savePeer(peer, isActive: true)
+            logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+            return true
         }
+        logger.debug("Incoming message did not include a peer coordinate")
+        return false
     }
 
     // MARK: - Hosting
@@ -133,6 +143,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) },
+                    onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() }
                 )
             )
@@ -182,7 +193,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func kickOffRanking() {
         rankingTask?.cancel()
 
-        let receivedPeer = received?.representsParticipantLocation == true ? received?.coordinate : nil
+        let receivedPeer = received?.participantCoordinate
         guard let me = LocationCache.loadSelf()?.coordinate,
               let peer = receivedPeer ?? (LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil) else {
             return
@@ -231,7 +242,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 longitude: coordinate.longitude,
                 senderName: UserProfile.displayName,
                 kind: .participant)
-            await insertBubble(for: state)
+            logger.debug("Encoding I'm in reply lat=\(coordinate.latitude, privacy: .public) lon=\(coordinate.longitude, privacy: .public)")
+            await insertBubble(for: state, dismissAfterInsert: true)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
             // (which triggers ranking) and also rank directly to cover the case
@@ -250,8 +262,36 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             senderName: UserProfile.displayName,
-            kind: .place)
+            kind: .place,
+            senderCoordinate: LocationCache.loadSelf()?.coordinate)
         sendBubble(state: state)
+    }
+
+    /// Replies that this user agrees to the proposed place while attaching their
+    /// real coordinate, so the sender's app can show both pings and the distance.
+    private func sendAgreedPlace(_ proposed: TweenState) {
+        sendTask?.cancel()
+        sendTask = Task { @MainActor in
+            let senderCoordinate: CLLocationCoordinate2D?
+            if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
+                senderCoordinate = cached
+            } else if let fresh = await acquireLocation() {
+                LocationCache.save(fresh)
+                senderCoordinate = fresh
+            } else {
+                senderCoordinate = LocationCache.loadSelf()?.coordinate
+            }
+
+            let state = TweenState(
+                text: proposed.text,
+                latitude: proposed.latitude,
+                longitude: proposed.longitude,
+                senderName: UserProfile.displayName,
+                kind: .place,
+                senderCoordinate: senderCoordinate)
+            logger.debug("Agreeing to place \(proposed.text, privacy: .public) senderCoordPresent=\(senderCoordinate != nil, privacy: .public)")
+            await insertBubble(for: state, dismissAfterInsert: true)
+        }
     }
 
     /// Confirms a host-app hand-off: composes the bubble for the staged draft,
@@ -263,7 +303,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: draft.latitude,
             longitude: draft.longitude,
             senderName: UserProfile.displayName,
-            kind: .place)
+            kind: .place,
+            senderCoordinate: LocationCache.loadSelf()?.coordinate)
         OutgoingDraftStore.clear()
         self.draft = nil
         sendBubble(state: state)
@@ -272,13 +313,13 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func sendBubble(state: TweenState) {
         sendTask?.cancel()
-        sendTask = Task { @MainActor in await insertBubble(for: state) }
+        sendTask = Task { @MainActor in await insertBubble(for: state, dismissAfterInsert: true) }
     }
 
     /// Encodes the state into a bubble, renders its image, and stages it in the
     /// conversation. Staying on the same `MSSession` keeps the thread collapsed
     /// to a single evolving bubble rather than a stack of new ones.
-    private func insertBubble(for state: TweenState) async {
+    private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async {
         guard let conversation = activeConversation, let url = state.encodedURL() else { return }
 
         let image = await BubbleImageRenderer.makeImage(
@@ -303,7 +344,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard !Task.isCancelled else { return }
         do {
             try await conversation.insert(message)
+            logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+            if dismissAfterInsert {
+                dismiss()
+            }
         } catch {
+            logger.error("Failed to insert outgoing Tween bubble: \(String(describing: error), privacy: .public)")
             // Swallow errors in the extension context; insertion can fail if the
             // conversation is no longer active or the extension is backgrounding.
         }

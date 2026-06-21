@@ -312,6 +312,7 @@ struct ExpandedView: View {
     var draft: OutgoingDraft? = nil
     var onImIn: () -> Void
     var onSelectSpot: (RankedSpot) -> Void
+    var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
 
     @State private var selectedSpotID: RankedSpot.ID?
@@ -354,7 +355,10 @@ struct ExpandedView: View {
                 VStack(spacing: 0) {
                     mapSection
                         .frame(height: geo.size.height * 0.6)
-                    spotList
+                    VStack(spacing: 0) {
+                        proposedPlacePanel
+                        spotList
+                    }
                         .frame(height: geo.size.height * 0.4)
                 }
             }
@@ -372,12 +376,17 @@ struct ExpandedView: View {
     private var inviteBanner: some View {
         if let name = received?.senderName, !name.isEmpty {
             VStack(spacing: Tokens.Spacing.s1) {
-                Text("You've been invited by")
+                Text(received?.kind == .place ? "\(name) chose" : "You've been invited by")
                     .font(Tokens.Typography.callout)
                     .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(name)
+                Text(received?.kind == .place ? received?.text ?? "a place" : name)
                     .font(Tokens.Typography.title)
                     .foregroundStyle(Tokens.Palette.textPrimary)
+                if received?.kind == .place {
+                    Text("Do you want to agree or change it?")
+                        .font(Tokens.Typography.subheadline)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
             }
             .padding(Tokens.Spacing.s4)
             .frame(maxWidth: .infinity)
@@ -386,7 +395,7 @@ struct ExpandedView: View {
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("You've been invited by \(name)")
+            .accessibilityLabel(received?.kind == .place ? "\(name) chose \(received?.text ?? "a place"). Do you want to agree or change it?" : "You've been invited by \(name)")
         }
     }
 
@@ -424,6 +433,9 @@ struct ExpandedView: View {
         if let peerCoord {
             result.append(MapMarker(coordinate: peerCoord, role: .friend))
         }
+        if let selfCoord, let peerCoord {
+            result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, peerCoord), role: .midpoint))
+        }
         if let receivedPlaceCoord {
             result.append(MapMarker(coordinate: receivedPlaceCoord, role: .fairSpot))
         }
@@ -451,6 +463,12 @@ struct ExpandedView: View {
             if let peerCoord {
                 Annotation("Friend", coordinate: peerCoord) {
                     TweenPin(role: .friend, animated: false)
+                }
+            }
+
+            if let selfCoord, let peerCoord {
+                Annotation("Midpoint", coordinate: MapGeometry.midpoint(selfCoord, peerCoord)) {
+                    TweenPin(role: .midpoint, animated: false)
                 }
             }
 
@@ -529,6 +547,32 @@ struct ExpandedView: View {
     }
 
     // MARK: Spot list
+
+    @ViewBuilder
+    private var proposedPlacePanel: some View {
+        if let received, received.kind == .place {
+            HStack(spacing: Tokens.Spacing.s3) {
+                TweenPin(role: .fairSpot, animated: false)
+                    .scaleEffect(0.82)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(received.text)
+                        .font(Tokens.Typography.headline)
+                        .lineLimit(1)
+                    if let name = received.senderName, !name.isEmpty {
+                        Text("\(name) picked this spot")
+                            .font(Tokens.Typography.caption)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .padding(.vertical, Tokens.Spacing.s3)
+            .background(Tokens.Palette.pinFair.opacity(0.14))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(received.text), picked by \(received.senderName ?? "your friend")")
+        }
+    }
 
     private var spotList: some View {
         ScrollViewReader { proxy in
@@ -623,6 +667,33 @@ struct ExpandedView: View {
                 }
                 .buttonStyle(.tweenPrimary())
                 .accessibilityHint("Drops \(draft.spotName) into your conversation")
+            } else if let received, received.kind == .place {
+                HStack(spacing: Tokens.Spacing.s2) {
+                    Button {
+                        sendTick += 1
+                        onAgreePlace(received)
+                    } label: {
+                        Label("Agree", systemImage: "checkmark.circle.fill")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    .accessibilityHint("Sends that you agree to meet at \(received.text)")
+
+                    Button {
+                        sendTick += 1
+                        if let spot = selectedSpot {
+                            onSelectSpot(spot)
+                        } else if let first = rankedSpots.first {
+                            select(first, animateMap: true)
+                        }
+                    } label: {
+                        Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
+                    .disabled(rankedSpots.isEmpty)
+                    .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+                }
             } else if !isUserIn {
                 Button(action: onImIn) {
                     Label("I'm in", systemImage: "location.fill")

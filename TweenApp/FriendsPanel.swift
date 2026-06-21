@@ -278,7 +278,9 @@ struct MessageComposeSheet: UIViewControllerRepresentable {
 
         func messageComposeViewController(_ controller: MFMessageComposeViewController,
                                           didFinishWith result: MessageComposeResult) {
-            onFinish()
+            controller.dismiss(animated: true) { [onFinish] in
+                onFinish()
+            }
         }
     }
 }

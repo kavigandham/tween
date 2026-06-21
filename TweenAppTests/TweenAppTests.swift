@@ -87,6 +87,34 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(TweenState(url: placeURL)).kind, .place)
     }
 
+    func testPlaceInviteCanCarrySenderCoordinate() throws {
+        let sender = CLLocationCoordinate2D(latitude: 39.0438, longitude: -77.4874)
+        let place = TweenState(
+            text: "Michael's Cafe",
+            latitude: 39.2904,
+            longitude: -76.6122,
+            senderName: "Kavi",
+            kind: .place,
+            senderCoordinate: sender)
+
+        let decoded = try XCTUnwrap(TweenState(url: try XCTUnwrap(place.encodedURL())))
+
+        XCTAssertEqual(decoded.kind, .place)
+        XCTAssertEqual(decoded.coordinate.latitude, 39.2904, accuracy: 1e-9)
+        let participantCoordinate = try XCTUnwrap(decoded.participantCoordinate)
+        XCTAssertEqual(participantCoordinate.latitude, sender.latitude, accuracy: 1e-9)
+        XCTAssertEqual(participantCoordinate.longitude, sender.longitude, accuracy: 1e-9)
+    }
+
+    func testTweenStateDecodesCustomSchemeForPlainMessageLinks() throws {
+        let state = TweenState(text: "I'm in", latitude: 38.9072, longitude: -77.0369, kind: .participant)
+        let url = try XCTUnwrap(state.encodedURL(scheme: "tween", host: "m"))
+        let decoded = try XCTUnwrap(TweenState(url: url))
+
+        XCTAssertEqual(decoded.kind, .participant)
+        XCTAssertEqual(try XCTUnwrap(decoded.participantCoordinate).latitude, 38.9072, accuracy: 1e-9)
+    }
+
     // 5. LocationCache saves and loads the self coordinate.
     func testLocationCacheSavesAndLoadsSelf() throws {
         let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
