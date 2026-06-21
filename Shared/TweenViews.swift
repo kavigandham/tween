@@ -375,15 +375,17 @@ struct ExpandedView: View {
     @ViewBuilder
     private var inviteBanner: some View {
         if let name = received?.senderName, !name.isEmpty {
+            let isPlace = received?.kind == .place
+            let isAgreement = received?.action == .agree
             VStack(spacing: Tokens.Spacing.s1) {
-                Text(received?.kind == .place ? "\(name) chose" : "You've been invited by")
+                Text(isPlace ? (isAgreement ? "\(name) agreed to meet at" : "\(name) chose") : "You've been invited by")
                     .font(Tokens.Typography.callout)
                     .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(received?.kind == .place ? received?.text ?? "a place" : name)
+                Text(isPlace ? received?.text ?? "a place" : name)
                     .font(Tokens.Typography.title)
                     .foregroundStyle(Tokens.Palette.textPrimary)
-                if received?.kind == .place {
-                    Text("Do you want to agree or change it?")
+                if isPlace {
+                    Text(isAgreement ? "Open Tween to see both pings." : "Do you want to agree or change it?")
                         .font(Tokens.Typography.subheadline)
                         .foregroundStyle(Tokens.Palette.textSecondary)
                 }
@@ -395,7 +397,7 @@ struct ExpandedView: View {
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(received?.kind == .place ? "\(name) chose \(received?.text ?? "a place"). Do you want to agree or change it?" : "You've been invited by \(name)")
+            .accessibilityLabel(isPlace ? "\(name) \(isAgreement ? "agreed to meet at" : "chose") \(received?.text ?? "a place")" : "You've been invited by \(name)")
         }
     }
 
@@ -559,7 +561,7 @@ struct ExpandedView: View {
                         .font(Tokens.Typography.headline)
                         .lineLimit(1)
                     if let name = received.senderName, !name.isEmpty {
-                        Text("\(name) picked this spot")
+                        Text(received.action == .agree ? "\(name) agreed to this spot" : "\(name) picked this spot")
                             .font(Tokens.Typography.caption)
                             .foregroundStyle(Tokens.Palette.textSecondary)
                     }

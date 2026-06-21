@@ -288,7 +288,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 longitude: proposed.longitude,
                 senderName: UserProfile.displayName,
                 kind: .place,
-                senderCoordinate: senderCoordinate)
+                senderCoordinate: senderCoordinate,
+                action: .agree)
             logger.debug("Agreeing to place \(proposed.text, privacy: .public) senderCoordPresent=\(senderCoordinate != nil, privacy: .public)")
             await insertBubble(for: state, dismissAfterInsert: true)
         }
@@ -330,11 +331,17 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         let layout = MSMessageTemplateLayout()
         layout.image = image
-        // An "I'm in" share reads as an invite ("Alice wants to meet up!"); a
-        // chosen spot keeps its name as the caption.
         let name = state.senderName ?? "Someone"
-        layout.caption = state.text == "I'm in" ? "\(name) wants to meet up!" : state.text
-        layout.subcaption = "Tap to find a fair spot"
+        if state.kind == .participant {
+            layout.caption = "\(name) wants to meet up!"
+            layout.subcaption = "Tap to find a fair spot"
+        } else if state.action == .agree {
+            layout.caption = "\(name) agreed to meet at \(state.text)"
+            layout.subcaption = "Tap to see both pings"
+        } else {
+            layout.caption = state.text
+            layout.subcaption = "Tap to find a fair spot"
+        }
 
         let session = conversation.selectedMessage?.session ?? MSSession()
         let message = MSMessage(session: session)

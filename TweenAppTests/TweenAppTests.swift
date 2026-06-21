@@ -106,6 +106,24 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(participantCoordinate.longitude, sender.longitude, accuracy: 1e-9)
     }
 
+    func testPlaceAgreementRoundTripsAction() throws {
+        let state = TweenState(
+            text: "Michael's Cafe",
+            latitude: 39.2904,
+            longitude: -76.6122,
+            senderName: "Hassan",
+            kind: .place,
+            senderCoordinate: CLLocationCoordinate2D(latitude: 39.0438, longitude: -77.4874),
+            action: .agree)
+
+        let decoded = try XCTUnwrap(TweenState(url: try XCTUnwrap(state.encodedURL())))
+
+        XCTAssertEqual(decoded.text, "Michael's Cafe")
+        XCTAssertEqual(decoded.kind, .place)
+        XCTAssertEqual(decoded.action, .agree)
+        XCTAssertNotNil(decoded.participantCoordinate)
+    }
+
     func testTweenStateDecodesCustomSchemeForPlainMessageLinks() throws {
         let state = TweenState(text: "I'm in", latitude: 38.9072, longitude: -77.0369, kind: .participant)
         let url = try XCTUnwrap(state.encodedURL(scheme: "tween", host: "m"))

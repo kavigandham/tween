@@ -11,6 +11,11 @@ struct TweenState: Equatable {
         case place
     }
 
+    enum Action: String {
+        case invite
+        case agree
+    }
+
     let text: String
     let latitude: Double
     let longitude: Double
@@ -25,6 +30,9 @@ struct TweenState: Equatable {
     /// sender as peer without mistaking the selected cafe for a person.
     let senderLatitude: Double?
     let senderLongitude: Double?
+    /// Human intent for a place payload. The place name stays in `text`; this
+    /// controls copy like "picked" vs "agreed to meet at".
+    let action: Action
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -54,6 +62,9 @@ struct TweenState: Equatable {
             URLQueryItem(name: "lon", value: Self.coordinateString(longitude)),
             URLQueryItem(name: "kind", value: kind.rawValue)
         ]
+        if action != .invite {
+            items.append(URLQueryItem(name: "action", value: action.rawValue))
+        }
         if let senderName {
             items.append(URLQueryItem(name: "from", value: senderName))
         }
@@ -76,7 +87,8 @@ struct TweenState: Equatable {
         longitude: Double,
         senderName: String? = nil,
         kind: Kind? = nil,
-        senderCoordinate: CLLocationCoordinate2D? = nil
+        senderCoordinate: CLLocationCoordinate2D? = nil,
+        action: Action = .invite
     ) {
         self.text = text
         self.latitude = latitude
@@ -85,6 +97,7 @@ struct TweenState: Equatable {
         self.kind = kind ?? (text == "I'm in" ? .participant : .place)
         self.senderLatitude = senderCoordinate?.latitude
         self.senderLongitude = senderCoordinate?.longitude
+        self.action = action
     }
 
     init?(url: URL) {
@@ -109,5 +122,11 @@ struct TweenState: Equatable {
         }
         self.senderLatitude = items.first(where: { $0.name == "slat" })?.value.flatMap(Double.init)
         self.senderLongitude = items.first(where: { $0.name == "slon" })?.value.flatMap(Double.init)
+        if let rawAction = items.first(where: { $0.name == "action" })?.value,
+           let action = Action(rawValue: rawAction) {
+            self.action = action
+        } else {
+            self.action = .invite
+        }
     }
 }
