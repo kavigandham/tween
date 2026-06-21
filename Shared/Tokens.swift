@@ -31,9 +31,12 @@ enum Tokens {
         // Map pins — system colors so they track Increase Contrast and dark mode.
         // Each pin also carries a distinct glyph, so color is never the sole cue.
         static let pinSelf = Color(uiColor: .systemBlue)
-        static let pinSelfActive = Color(uiColor: .systemGreen)
+        static let pinSelfActive = Color(uiColor: .systemBlue)
         static let pinFriend = Color(uiColor: .systemOrange)
-        static let pinMidpoint = brand
+        static let pinFair = Color(uiColor: .systemYellow)
+        static let pinClosest = Color(uiColor: .systemGreen)
+        static let pinResult = Color(uiColor: .systemTeal)
+        static let pinMidpoint = pinFair
 
         // Text — semantic label colors, fully adaptive.
         static let textPrimary = Color(uiColor: .label)
@@ -54,9 +57,12 @@ enum Tokens {
         /// with `UIColor` and cannot consume the SwiftUI `Color` tokens above.
         enum UI {
             static let pinSelf = UIColor.systemBlue
-            static let pinSelfActive = UIColor.systemGreen
+            static let pinSelfActive = UIColor.systemBlue
             static let pinFriend = UIColor.systemOrange
-            static let pinMidpoint = UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1)   // #008C8C
+            static let pinFair = UIColor.systemYellow
+            static let pinClosest = UIColor.systemGreen
+            static let pinResult = UIColor.systemTeal
+            static let pinMidpoint = pinFair
             static let brand = UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1)         // #008C8C
         }
     }

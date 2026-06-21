@@ -103,14 +103,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     // MARK: - Decoding
 
     /// Decodes a bubble's payload into `received` and caches the peer coordinate
-    /// for later ranking. A bubble that isn't a Tween payload is ignored — and so
-    /// is one we sent ourselves, since caching our own coordinate as the peer's
-    /// would corrupt the midpoint and ranking.
+    /// only when the payload represents a participant. Place bubbles also carry a
+    /// coordinate, but treating that as the peer would corrupt midpoint/ranking.
     private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) {
         guard let message, let url = message.url, let state = TweenState(url: url) else { return }
         guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return }
         received = state
-        LocationCache.savePeer(state.coordinate)
+        if state.representsParticipantLocation {
+            LocationCache.savePeer(state.coordinate, isActive: true)
+        }
     }
 
     // MARK: - Hosting
@@ -181,8 +182,9 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func kickOffRanking() {
         rankingTask?.cancel()
 
+        let receivedPeer = received?.representsParticipantLocation == true ? received?.coordinate : nil
         guard let me = LocationCache.loadSelf()?.coordinate,
-              let peer = received?.coordinate ?? LocationCache.loadPeer()?.coordinate else {
+              let peer = receivedPeer ?? (LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil) else {
             return
         }
 
@@ -227,7 +229,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 text: "I'm in",
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
-                senderName: UserProfile.displayName)
+                senderName: UserProfile.displayName,
+                kind: .participant)
             await insertBubble(for: state)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
@@ -246,7 +249,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             text: item.name ?? "Spot",
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
-            senderName: UserProfile.displayName)
+            senderName: UserProfile.displayName,
+            kind: .place)
         sendBubble(state: state)
     }
 
@@ -258,7 +262,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             text: draft.spotName,
             latitude: draft.latitude,
             longitude: draft.longitude,
-            senderName: UserProfile.displayName)
+            senderName: UserProfile.displayName,
+            kind: .place)
         OutgoingDraftStore.clear()
         self.draft = nil
         sendBubble(state: state)
@@ -279,7 +284,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             selfCoord: LocationCache.loadSelf()?.coordinate,
-            peerCoord: LocationCache.loadPeer()?.coordinate)
+            peerCoord: LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil)
         guard !Task.isCancelled else { return }
 
         let layout = MSMessageTemplateLayout()

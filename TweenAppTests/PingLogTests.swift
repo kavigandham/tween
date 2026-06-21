@@ -46,7 +46,7 @@ final class PingLogTests: XCTestCase {
         let stamp = Date(timeIntervalSince1970: 1_700_000_000)
         PingLog.lastIncomingReplyAt = stamp
 
-        XCTAssertEqual(PingLog.lastIncomingReplyAt?.timeIntervalSince1970,
+        XCTAssertEqual(try XCTUnwrap(PingLog.lastIncomingReplyAt).timeIntervalSince1970,
                        stamp.timeIntervalSince1970,
                        accuracy: 1.0)
     }

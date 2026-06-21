@@ -171,11 +171,6 @@ struct OnboardingView: View {
                     TweenPin(role: .friend)
                 }
             }
-            if let mid = midpoint {
-                Annotation("Midpoint", coordinate: mid) {
-                    TweenPin(role: .midpoint)
-                }
-            }
             // A selectable pin for every visible search result. The selected one
             // becomes a custom annotation carrying the A/B distance label above a
             // larger brand icon; the rest are category markers. Tapping the empty
@@ -189,18 +184,18 @@ struct OnboardingView: View {
                                 peerCoord: peerCoordinate,
                                 target: item.placemark.coordinate,
                                 ranked: rankedMatch(for: item))
-                            Image(systemName: resultIcon)
+                            Image(systemName: resultSymbol(for: item))
                                 .font(Tokens.Typography.title2)
                                 .foregroundStyle(.white)
                                 .padding(Tokens.Spacing.s3)
-                                .background(Tokens.Palette.brand, in: Circle())
+                                .background(resultRole(for: item).fill, in: Circle())
                                 .tweenElevation(.pin)
                         }
                     }
                     .tag(item)
                 } else {
-                    Marker(item.name ?? "Place", systemImage: resultIcon, coordinate: item.placemark.coordinate)
-                        .tint(Tokens.Palette.pinFriend)
+                    Marker(item.name ?? "Place", systemImage: resultSymbol(for: item), coordinate: item.placemark.coordinate)
+                        .tint(resultRole(for: item).fill)
                         .tag(item)
                 }
             }
@@ -706,10 +701,38 @@ struct OnboardingView: View {
         rankedSpots.first { $0.item == item }
     }
 
+    /// Pin role for a result:
+    /// gold = best fair option, green = closest to the current user, teal = other.
+    private func resultRole(for item: MKMapItem) -> TweenPin.Role {
+        if rankedSpots.first?.item == item {
+            return .fairSpot
+        }
+        guard let closest = closestDisplayedItemToUser else {
+            return .result
+        }
+        return closest == item ? .closestToUser : .result
+    }
+
     /// Glyph for result pins — the active category's icon when a preset drove the
-    /// search, otherwise a generic map pin.
-    private var resultIcon: String {
-        selectedCategory?.icon ?? "mappin.circle.fill"
+    /// search, otherwise the role's semantic symbol.
+    private func resultSymbol(for item: MKMapItem) -> String {
+        let role = resultRole(for: item)
+        if role == .result {
+            return selectedCategory?.icon ?? role.symbol
+        }
+        return role.symbol
+    }
+
+    private var closestDisplayedItemToUser: MKMapItem? {
+        guard let me = savedCoordinate else { return nil }
+        let origin = CLLocation(latitude: me.latitude, longitude: me.longitude)
+        return displayedItems.min { lhs, rhs in
+            let lhsCoord = lhs.placemark.coordinate
+            let rhsCoord = rhs.placemark.coordinate
+            let lhsDistance = origin.distance(from: CLLocation(latitude: lhsCoord.latitude, longitude: lhsCoord.longitude))
+            let rhsDistance = origin.distance(from: CLLocation(latitude: rhsCoord.latitude, longitude: rhsCoord.longitude))
+            return lhsDistance < rhsDistance
+        }
     }
 
     /// Apple-Maps-style floating card for the selected pin: name, address, the
@@ -785,7 +808,10 @@ struct OnboardingView: View {
             break
         }
         if isUserIn {
-            return "You're in. Waiting for your friend to share their spot…"
+            if peerCoordinate != nil {
+                return "You're both in. Search for a fair spot between you."
+            }
+            return "You're in. Waiting for your friend to share their location…"
         }
         return "Tap “I'm in” to share where you are and find fair places to meet."
     }
@@ -841,11 +867,7 @@ struct OnboardingView: View {
 
     private func leave() {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
-        // Active state lives in the view; refresh the cached coordinate's
-        // timestamp so it stays usable while we wait for a peer.
-        if let coord = savedCoordinate {
-            LocationCache.save(coord)
-        }
+        LocationCache.deactivateSelf()
     }
 
     // MARK: - Hand-off
@@ -854,7 +876,7 @@ struct OnboardingView: View {
     /// map is visible. Frames self, peer, and the spot together when both
     /// participants are known; otherwise zooms tight on the spot.
     private func focusMap(on item: MKMapItem) {
-        let coords = [savedCoordinate, peerCoordinate, midpoint, item.placemark.coordinate].compactMap { $0 }
+        let coords = [savedCoordinate, peerCoordinate, item.placemark.coordinate].compactMap { $0 }
         if coords.count > 1 {
             withAnimation(Tokens.Motion.gentle) {
                 position = Self.cameraPosition(for: coords, padding: 1.45, minSpan: 0.04)
@@ -880,7 +902,7 @@ struct OnboardingView: View {
     /// and map feel connected as soon as a live search returns.
     private func frameSearchResults() {
         let resultCoords = displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate)
-        let context = [savedCoordinate, peerCoordinate, midpoint].compactMap { $0 }
+        let context = [savedCoordinate, peerCoordinate].compactMap { $0 }
         let coords = context + resultCoords
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) {
@@ -919,7 +941,8 @@ struct OnboardingView: View {
                 text: selection.name,
                 latitude: coord.latitude,
                 longitude: coord.longitude,
-                senderName: UserProfile.displayName)        // set by ensureNamed
+                senderName: UserProfile.displayName,
+                kind: .place)        // set by ensureNamed
             guard let url = state.encodedURL() else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
@@ -1206,7 +1229,8 @@ struct OnboardingView: View {
 
     private func pollPeer() async {
         while !Task.isCancelled {
-            if let peer = LocationCache.loadPeer()?.coordinate, !same(peerCoordinate, peer) {
+            let peer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
+            if !same(peerCoordinate, peer) {
                 peerCoordinate = peer
                 reframe()
             }
@@ -1224,14 +1248,20 @@ struct OnboardingView: View {
     }
 
     private func reframe() {
-        let coords = [savedCoordinate, peerCoordinate, midpoint].compactMap { $0 }
+        let coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
     }
 
-    private func same(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D) -> Bool {
-        guard let a else { return false }
-        return a.latitude == b.latitude && a.longitude == b.longitude
+    private func same(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> Bool {
+        switch (a, b) {
+        case (.none, .none):
+            return true
+        case let (.some(a), .some(b)):
+            return a.latitude == b.latitude && a.longitude == b.longitude
+        default:
+            return false
+        }
     }
 
     /// Average of two coordinates.

@@ -202,9 +202,17 @@ struct CompactView: View {
         }
     }
 
-    /// The friend's shared spot, plus our own cached pin when we have one.
+    /// The received payload plus fresh participant cache when available.
     private func markers(for state: TweenState) -> [MapMarker] {
-        var result = [MapMarker(coordinate: state.coordinate, role: .friend)]
+        var result: [MapMarker] = []
+        if state.kind == .participant {
+            result.append(MapMarker(coordinate: state.coordinate, role: .friend))
+        } else {
+            result.append(MapMarker(coordinate: state.coordinate, role: .fairSpot))
+            if LocationCache.isPeerActive, let peer = LocationCache.loadPeer()?.coordinate {
+                result.append(MapMarker(coordinate: peer, role: .friend))
+            }
+        }
         if let me = LocationCache.loadSelf()?.coordinate {
             result.append(MapMarker(coordinate: me, role: isUserIn ? .selfActive : .selfDot))
         }
@@ -212,6 +220,9 @@ struct CompactView: View {
     }
 
     private var title: String {
+        if received?.kind == .place, let received {
+            return received.text
+        }
         if let name = received?.senderName, !name.isEmpty {
             return "\(name) invited you to meet up"
         }
@@ -220,6 +231,9 @@ struct CompactView: View {
     }
 
     private var subtitle: String {
+        if received?.kind == .place {
+            return isUserIn ? "Tap to view this meetup spot" : "Tap “I'm in” to share where you are"
+        }
         if received?.senderName != nil {
             return "Tap to find a fair spot"
         }
@@ -308,12 +322,23 @@ struct ExpandedView: View {
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
-    /// The peer's shared coordinate, if we've received one.
-    private var peerCoord: CLLocationCoordinate2D? { received?.coordinate }
+    /// The peer's shared coordinate. Place payloads are intentionally ignored so
+    /// a chosen cafe can never masquerade as the friend.
+    private var peerCoord: CLLocationCoordinate2D? {
+        if received?.representsParticipantLocation == true {
+            return received?.coordinate
+        }
+        guard LocationCache.isPeerActive else { return nil }
+        return LocationCache.loadPeer()?.coordinate
+    }
+
+    private var receivedPlaceCoord: CLLocationCoordinate2D? {
+        received?.kind == .place ? received?.coordinate : nil
+    }
 
     /// True when there's nothing geographic to plot yet — no self, peer, or draft.
     private var hasMapContent: Bool {
-        selfCoord != nil || peerCoord != nil || draft != nil
+        selfCoord != nil || peerCoord != nil || receivedPlaceCoord != nil || draft != nil || !rankedSpots.isEmpty
     }
 
     var body: some View {
@@ -389,9 +414,8 @@ struct ExpandedView: View {
         }
     }
 
-    /// Markers for the static fallback snapshot: the two friends, the fair
-    /// midpoint, any host-app draft, and every ranked spot (drawn as midpoint dots
-    /// since the snapshotter has no spot-specific glyph).
+    /// Markers for the static fallback snapshot: people, any proposed place, and
+    /// ranked spots using the shared pin role system.
     private var staticMarkers: [MapMarker] {
         var result: [MapMarker] = []
         if let selfCoord {
@@ -400,15 +424,15 @@ struct ExpandedView: View {
         if let peerCoord {
             result.append(MapMarker(coordinate: peerCoord, role: .friend))
         }
-        if let selfCoord, let peerCoord {
-            result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, peerCoord), role: .midpoint))
+        if let receivedPlaceCoord {
+            result.append(MapMarker(coordinate: receivedPlaceCoord, role: .fairSpot))
         }
         if let draft {
-            result.append(MapMarker(coordinate: draft.coordinate, role: .midpoint))
+            result.append(MapMarker(coordinate: draft.coordinate, role: .fairSpot))
         }
-        for spot in rankedSpots {
+        for (index, spot) in rankedSpots.enumerated() {
             if let coordinate = spot.item?.placemark.coordinate {
-                result.append(MapMarker(coordinate: coordinate, role: .midpoint))
+                result.append(MapMarker(coordinate: coordinate, role: index == 0 ? .fairSpot : .result))
             }
         }
         return result
@@ -430,17 +454,16 @@ struct ExpandedView: View {
                 }
             }
 
-            // Midpoint pin
-            if let selfCoord, let peerCoord {
-                Annotation("Midpoint", coordinate: MapGeometry.midpoint(selfCoord, peerCoord)) {
-                    TweenPin(role: .midpoint, animated: false)
+            if let receivedPlaceCoord {
+                Annotation(received?.text ?? "Meetup spot", coordinate: receivedPlaceCoord) {
+                    TweenPin(role: .fairSpot, animated: false)
                 }
             }
 
             // A spot the host app staged for hand-off
             if let draft {
                 Annotation(draft.spotName, coordinate: draft.coordinate) {
-                    TweenPin(role: .midpoint, animated: false)
+                    TweenPin(role: .fairSpot, animated: false)
                 }
             }
 
@@ -460,7 +483,7 @@ struct ExpandedView: View {
             MapCompass()
             MapScaleView()
         }
-        .accessibilityLabel("Interactive map of you, your friend, the fair midpoint, and ranked spots")
+        .accessibilityLabel("Interactive map of you, your friend, and meetup spots")
     }
 
     /// Caps how far out the camera can zoom so it can't pull in a continent's worth
@@ -470,10 +493,11 @@ struct ExpandedView: View {
     }
 
     /// A ranked-spot map pin: an A/B drive-time chip floating above a category
-    /// glyph. The selected spot reads in brand color and slightly larger so it
-    /// stands out from the red of the others.
+    /// glyph. The best fair spot reads gold; other candidates use neutral teal.
     private func spotPin(_ spot: RankedSpot) -> some View {
         let isSelected = selectedSpotID == spot.id
+        let isBestFair = rankedSpots.first?.id == spot.id
+        let role: TweenPin.Role = isBestFair ? .fairSpot : .result
         return VStack(spacing: 2) {
             HStack(spacing: 2) {
                 Text("A \(formatETA(spot.etaFromA))")
@@ -494,7 +518,7 @@ struct ExpandedView: View {
                 .font(.system(size: isSelected ? 16 : 14))
                 .foregroundStyle(.white)
                 .padding(isSelected ? 9 : 8)
-                .background(isSelected ? Tokens.Palette.brand : Color.red)
+                .background(isSelected ? Tokens.Palette.brand : role.fill)
                 .clipShape(Circle())
                 .shadow(radius: 2)
         }

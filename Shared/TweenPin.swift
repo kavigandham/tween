@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A map marker for a participant or computed spot.
 ///
-/// Four roles, each a colored fill behind a white SF Symbol wrapped in a faint
-/// halo ring. The active-self and midpoint roles pulse to draw the eye. Color
+/// Map roles, each a colored fill behind a white SF Symbol wrapped in a faint
+/// halo ring. The active-self role pulses to draw the eye. Color
 /// and elevation flow from `Tokens`; each role also carries a distinct glyph so
 /// color is never the sole differentiator (accessibility).
 struct TweenPin: View {
@@ -11,43 +11,61 @@ struct TweenPin: View {
         case selfDot
         case selfActive
         case friend
+        case fairSpot
+        case closestToUser
+        case result
         case midpoint
 
         var fill: Color {
             switch self {
-            case .selfDot:    return Tokens.Palette.pinSelf
-            case .selfActive: return Tokens.Palette.pinSelfActive
-            case .friend:     return Tokens.Palette.pinFriend
-            case .midpoint:   return Tokens.Palette.pinMidpoint
+            case .selfDot:       return Tokens.Palette.pinSelf
+            case .selfActive:    return Tokens.Palette.pinSelfActive
+            case .friend:        return Tokens.Palette.pinFriend
+            case .fairSpot:      return Tokens.Palette.pinFair
+            case .closestToUser: return Tokens.Palette.pinClosest
+            case .result:        return Tokens.Palette.pinResult
+            case .midpoint:      return Tokens.Palette.pinMidpoint
             }
         }
 
         var symbol: String {
             switch self {
-            case .selfDot:    return "circle.fill"
-            case .selfActive: return "checkmark"
-            case .friend:     return "square.fill"
-            case .midpoint:   return "star.fill"
+            case .selfDot:       return "circle.fill"
+            case .selfActive:    return "checkmark"
+            case .friend:        return "square.fill"
+            case .fairSpot:      return "star.fill"
+            case .closestToUser: return "location.fill"
+            case .result:        return "mappin"
+            case .midpoint:      return "diamond.fill"
             }
         }
 
         /// VoiceOver name for the marker.
         var accessibilityName: String {
             switch self {
-            case .selfDot:    return "Your location"
-            case .selfActive: return "Your shared location"
-            case .friend:     return "Your friend's location"
-            case .midpoint:   return "Fair midpoint"
+            case .selfDot:       return "Your location"
+            case .selfActive:    return "Your shared location"
+            case .friend:        return "Your friend's location"
+            case .fairSpot:      return "Best fair meetup spot"
+            case .closestToUser: return "Place closest to you"
+            case .result:        return "Search result"
+            case .midpoint:      return "Geographic midpoint"
             }
         }
 
-        /// The midpoint reads as the goal, so it sits larger than the people pins.
         var diameter: CGFloat {
-            self == .midpoint ? 44 : 32
+            switch self {
+            case .fairSpot:
+                return 42
+            case .midpoint:
+                return 28
+            default:
+                return 32
+            }
         }
 
         var pulses: Bool {
-            self == .selfActive || self == .midpoint
+            self == .selfActive
         }
     }
 
@@ -93,7 +111,9 @@ struct TweenPin: View {
         TweenPin(role: .selfDot)
         TweenPin(role: .selfActive)
         TweenPin(role: .friend)
-        TweenPin(role: .midpoint)
+        TweenPin(role: .fairSpot)
+        TweenPin(role: .closestToUser)
+        TweenPin(role: .result)
     }
     .padding()
 }

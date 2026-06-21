@@ -14,6 +14,8 @@ enum LocationCache {
 
     private static let selfKey = "tween.cache.self"
     private static let peerKey = "tween.cache.peer"
+    private static let selfActiveKey = "tween.cache.self.active"
+    private static let peerActiveKey = "tween.cache.peer.active"
 
     /// How long a cached coordinate is considered usable.
     static let freshnessWindow: TimeInterval = 60 * 60 // 1 hour
@@ -35,29 +37,56 @@ enum LocationCache {
 
     // MARK: - Self
 
-    static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date()) {
+    static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
         write(coordinate, at: date, key: selfKey)
+        defaults?.set(isActive, forKey: selfActiveKey)
     }
 
     static func loadSelf() -> CachedCoord? {
         read(key: selfKey)
     }
 
+    static func setActive(_ active: Bool) {
+        defaults?.set(active, forKey: selfActiveKey)
+    }
+
+    static func deactivateSelf() {
+        defaults?.set(false, forKey: selfActiveKey)
+    }
+
     // MARK: - Peer
 
-    static func savePeer(_ coordinate: CLLocationCoordinate2D, at date: Date = Date()) {
+    static func savePeer(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
         write(coordinate, at: date, key: peerKey)
+        defaults?.set(isActive, forKey: peerActiveKey)
     }
 
     static func loadPeer() -> CachedCoord? {
         read(key: peerKey)
     }
 
+    static func setPeerActive(_ active: Bool) {
+        defaults?.set(active, forKey: peerActiveKey)
+    }
+
+    static var isPeerActive: Bool {
+        guard let cached = loadPeer() else { return false }
+        if defaults?.object(forKey: peerActiveKey) != nil,
+           defaults?.bool(forKey: peerActiveKey) != true {
+            return false
+        }
+        return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
+    }
+
     // MARK: - Status
 
-    /// True when a self coordinate exists and is within the freshness window.
+    /// True when self explicitly opted in and the coordinate is fresh.
     static var isActive: Bool {
         guard let cached = loadSelf() else { return false }
+        if defaults?.object(forKey: selfActiveKey) != nil,
+           defaults?.bool(forKey: selfActiveKey) != true {
+            return false
+        }
         return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
     }
 
@@ -66,6 +95,8 @@ enum LocationCache {
     static func clearAll() {
         defaults?.removeObject(forKey: selfKey)
         defaults?.removeObject(forKey: peerKey)
+        defaults?.removeObject(forKey: selfActiveKey)
+        defaults?.removeObject(forKey: peerActiveKey)
     }
 
     // MARK: - Atomic single-key codec

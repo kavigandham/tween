@@ -52,6 +52,7 @@ final class TweenAppTests: XCTestCase {
         let decoded = try XCTUnwrap(TweenState(url: url))
         XCTAssertEqual(decoded, original)
         XCTAssertEqual(decoded.senderName, "Alice")
+        XCTAssertTrue(decoded.representsParticipantLocation)
     }
 
     // 4b. A URL without `from` decodes senderName as nil (backward compatibility
@@ -62,6 +63,28 @@ final class TweenAppTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("from="))
         let decoded = try XCTUnwrap(TweenState(url: url))
         XCTAssertNil(decoded.senderName)
+        XCTAssertEqual(decoded.kind, .place)
+        XCTAssertFalse(decoded.representsParticipantLocation)
+    }
+
+    func testTweenStateRoundTripsExplicitKind() throws {
+        let participant = TweenState(
+            text: "Joining from campus",
+            latitude: 38.9897,
+            longitude: -76.9378,
+            senderName: "Khanna",
+            kind: .participant)
+        let participantURL = try XCTUnwrap(participant.encodedURL())
+        XCTAssertEqual(try XCTUnwrap(TweenState(url: participantURL)).kind, .participant)
+
+        let place = TweenState(
+            text: "Michael's Cafe",
+            latitude: 39.2904,
+            longitude: -76.6122,
+            senderName: "Hassan",
+            kind: .place)
+        let placeURL = try XCTUnwrap(place.encodedURL())
+        XCTAssertEqual(try XCTUnwrap(TweenState(url: placeURL)).kind, .place)
     }
 
     // 5. LocationCache saves and loads the self coordinate.
@@ -71,6 +94,17 @@ final class TweenAppTests: XCTestCase {
         let loaded = try XCTUnwrap(LocationCache.loadSelf())
         XCTAssertEqual(loaded.latitude, coord.latitude, accuracy: 1e-9)
         XCTAssertEqual(loaded.longitude, coord.longitude, accuracy: 1e-9)
+        XCTAssertTrue(LocationCache.isActive)
+    }
+
+    func testLocationCacheDeactivateSelfPreservesCoordinateButClearsActive() throws {
+        let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+        LocationCache.save(coord)
+        LocationCache.deactivateSelf()
+
+        let loaded = try XCTUnwrap(LocationCache.loadSelf())
+        XCTAssertEqual(loaded.latitude, coord.latitude, accuracy: 1e-9)
+        XCTAssertFalse(LocationCache.isActive)
     }
 
     // 6. LocationCache saves and loads the peer independently of self.
@@ -85,6 +119,24 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(loadedSelf.latitude, selfCoord.latitude, accuracy: 1e-9)
         XCTAssertEqual(loadedPeer.latitude, peerCoord.latitude, accuracy: 1e-9)
         XCTAssertNotEqual(loadedSelf.latitude, loadedPeer.latitude)
+        XCTAssertTrue(LocationCache.isPeerActive)
+    }
+
+    func testLocationCacheCanDeactivatePeer() throws {
+        let peerCoord = CLLocationCoordinate2D(latitude: 34.0522, longitude: -118.2437)
+        LocationCache.savePeer(peerCoord)
+        LocationCache.setPeerActive(false)
+
+        let loadedPeer = try XCTUnwrap(LocationCache.loadPeer())
+        XCTAssertEqual(loadedPeer.latitude, peerCoord.latitude, accuracy: 1e-9)
+        XCTAssertFalse(LocationCache.isPeerActive)
+    }
+
+    func testPinRolesUseRequestedColorSystem() {
+        XCTAssertEqual(TweenPin.Role.selfDot.accessibilityName, "Your location")
+        XCTAssertEqual(TweenPin.Role.friend.accessibilityName, "Your friend's location")
+        XCTAssertEqual(TweenPin.Role.fairSpot.accessibilityName, "Best fair meetup spot")
+        XCTAssertEqual(TweenPin.Role.closestToUser.accessibilityName, "Place closest to you")
     }
 
     // 7. LocationCache returns nil on a clean suite.

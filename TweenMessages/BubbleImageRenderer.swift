@@ -26,7 +26,9 @@ enum BubbleImageRenderer {
         selfCoord: CLLocationCoordinate2D?,
         peerCoord: CLLocationCoordinate2D?
     ) async -> UIImage {
-        let coords = [state.coordinate, selfCoord, peerCoord].compactMap { $0 }
+        let placeCoord = state.kind == .place ? state.coordinate : nil
+        let participantCoord = state.kind == .participant && peerCoord == nil ? state.coordinate : nil
+        let coords = [placeCoord, selfCoord, peerCoord, participantCoord].compactMap { $0 }
 
         let options = MKMapSnapshotter.Options()
         options.size = size
@@ -36,7 +38,7 @@ enum BubbleImageRenderer {
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
-            return fallbackImage(spotName: state.text)
+            return fallbackImage(state: state)
         }
         return composite(snapshot: snapshot, state: state, selfCoord: selfCoord, peerCoord: peerCoord)
     }
@@ -72,11 +74,15 @@ enum BubbleImageRenderer {
                 ctx.restoreGState()
             }
 
-            // Pin halos: people first, then the spot as the emphasized target.
+            // Pin halos: people first, then the place as the emphasized target.
             // UIKit token equivalents mirror the SwiftUI pin palette.
             if let s = selfCoord { drawHalo(Tokens.Palette.UI.pinSelf, at: snapshot.point(for: s), in: ctx) }
-            if let p = peerCoord { drawHalo(Tokens.Palette.UI.pinFriend, at: snapshot.point(for: p), in: ctx) }
-            drawHalo(Tokens.Palette.UI.pinMidpoint, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
+            if let p = peerCoord ?? (state.kind == .participant ? state.coordinate : nil) {
+                drawHalo(Tokens.Palette.UI.pinFriend, at: snapshot.point(for: p), in: ctx)
+            }
+            if state.kind == .place {
+                drawHalo(Tokens.Palette.UI.pinFair, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
+            }
 
             drawFooter(spotName: state.text, in: ctx)
         }
@@ -88,6 +94,10 @@ enum BubbleImageRenderer {
     /// faint grid, abstract pins joined by a dashed line, and the spot name.
     /// Needs no network and no map tiles.
     static func fallbackImage(spotName: String) -> UIImage {
+        fallbackImage(state: TweenState(text: spotName, latitude: 0, longitude: 0, kind: .place))
+    }
+
+    static func fallbackImage(state: TweenState) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
@@ -120,7 +130,8 @@ enum BubbleImageRenderer {
             }
             ctx.strokePath()
 
-            // Abstract pins joined by a dashed line, midpoint emphasized.
+            // Abstract pins joined by a dashed line, place emphasized when this
+            // bubble represents a meetup spot.
             let a = CGPoint(x: size.width * 0.30, y: size.height * 0.42)
             let b = CGPoint(x: size.width * 0.70, y: size.height * 0.40)
             ctx.saveGState()
@@ -132,9 +143,11 @@ enum BubbleImageRenderer {
 
             drawHalo(Tokens.Palette.UI.pinSelf, at: a, in: ctx)
             drawHalo(Tokens.Palette.UI.pinFriend, at: b, in: ctx)
-            drawHalo(Tokens.Palette.UI.pinMidpoint, at: CGPoint(x: size.width * 0.50, y: size.height * 0.41), in: ctx, emphasized: true)
+            if state.kind == .place {
+                drawHalo(Tokens.Palette.UI.pinFair, at: CGPoint(x: size.width * 0.50, y: size.height * 0.41), in: ctx, emphasized: true)
+            }
 
-            drawFooter(spotName: spotName, in: ctx)
+            drawFooter(spotName: state.text, in: ctx)
         }
     }
 
