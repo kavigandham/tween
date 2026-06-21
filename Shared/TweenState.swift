@@ -50,20 +50,24 @@ struct TweenState: Equatable {
         components.path = "/m"
         var items = [
             URLQueryItem(name: "t", value: text),
-            URLQueryItem(name: "lat", value: String(latitude)),
-            URLQueryItem(name: "lon", value: String(longitude)),
+            URLQueryItem(name: "lat", value: Self.coordinateString(latitude)),
+            URLQueryItem(name: "lon", value: Self.coordinateString(longitude)),
             URLQueryItem(name: "kind", value: kind.rawValue)
         ]
         if let senderName {
             items.append(URLQueryItem(name: "from", value: senderName))
         }
         if let senderLatitude, let senderLongitude {
-            items.append(URLQueryItem(name: "slat", value: String(senderLatitude)))
-            items.append(URLQueryItem(name: "slon", value: String(senderLongitude)))
+            items.append(URLQueryItem(name: "slat", value: Self.coordinateString(senderLatitude)))
+            items.append(URLQueryItem(name: "slon", value: Self.coordinateString(senderLongitude)))
         }
         components.queryItems = items
         guard let url = components.url, url.absoluteString.count <= 5000 else { return nil }
         return url
+    }
+
+    private static func coordinateString(_ value: Double) -> String {
+        String(format: "%.6f", value)
     }
 
     init(

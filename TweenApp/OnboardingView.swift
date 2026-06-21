@@ -42,7 +42,6 @@ struct OnboardingView: View {
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
     @State private var mapDisplayStyle: MapDisplayStyle = .standard
-    @State private var showingMapStylePicker = false
     /// Opens at the half detent (search bar + chips + "I'm in" + the
     /// Search/Friends toggle), Apple-Maps style. Drag down to the search-only
     /// peek, or up to full.
@@ -254,18 +253,6 @@ struct OnboardingView: View {
         .overlay(alignment: .topTrailing) { topTrailingControls }
         .overlay(alignment: .top) { viewModeToggle }
         .overlay(alignment: .bottom) { compactCard }
-        .confirmationDialog("Map Style", isPresented: $showingMapStylePicker, titleVisibility: .visible) {
-            ForEach(MapDisplayStyle.allCases) { style in
-                Button {
-                    mapDisplayStyle = style
-                } label: {
-                    Label(style.title, systemImage: style.icon)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose how the map should look.")
-        }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
             if let item { focusMap(on: item) }
@@ -451,8 +438,8 @@ struct OnboardingView: View {
 
     private var topTrailingControls: some View {
         VStack(alignment: .trailing, spacing: Tokens.Spacing.s3) {
-            mapControlCapsule
             infoButton
+            mapControlCapsule
         }
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
@@ -460,25 +447,31 @@ struct OnboardingView: View {
 
     private var mapControlCapsule: some View {
         VStack(spacing: 0) {
-            Button {
-                showingMapStylePicker = true
+            Menu {
+                ForEach(MapDisplayStyle.allCases) { style in
+                    Button {
+                        mapDisplayStyle = style
+                    } label: {
+                        Label(style.title, systemImage: style.icon)
+                    }
+                }
             } label: {
-                Image(systemName: mapDisplayStyle == .traffic ? "car.fill" : "map.fill")
-                    .font(Tokens.Typography.title2)
-                    .frame(width: 48, height: 48)
+                Image(systemName: mapDisplayStyle.icon)
+                    .font(Tokens.Typography.callout)
+                    .frame(width: 34, height: 34)
             }
             .accessibilityLabel("Map style")
             .accessibilityHint("Choose standard, traffic, satellite, or hybrid map")
 
             Divider()
-                .padding(.horizontal, Tokens.Spacing.s3)
+                .padding(.horizontal, Tokens.Spacing.s2)
 
             Button {
                 resetMapCamera()
             } label: {
                 Image(systemName: "location.north.fill")
-                    .font(Tokens.Typography.title2)
-                    .frame(width: 48, height: 48)
+                    .font(Tokens.Typography.callout)
+                    .frame(width: 34, height: 34)
             }
             .accessibilityLabel("Reset map")
             .accessibilityHint("Reframes the map around you, your friend, and visible places")
@@ -1063,8 +1056,7 @@ struct OnboardingView: View {
                 senderName: UserProfile.displayName,
                 kind: .place,
                 senderCoordinate: savedCoordinate)        // set by ensureNamed
-            guard let url = state.encodedURL() else { return }
-            let appURL = state.encodedURL(scheme: "tween", host: "m")
+            guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
             // they open Tween in the drawer (device-local; not how the friend gets it).
@@ -1074,15 +1066,10 @@ struct OnboardingView: View {
                 longitude: coord.longitude))
 
             let who = UserProfile.displayName ?? "I"
-            let appLink = appURL?.absoluteString ?? url.absoluteString
             let body = """
-            \(who) wants to meet at \(selection.name)!
-
-            Tap to open Tween and share your location:
-            \(appLink)
-
-            Backup link:
-            \(url.absoluteString)
+            \(who) picked \(selection.name) on Tween.
+            Open this in Tween to share your ping:
+            \(appURL.absoluteString)
             """
 
             if MFMessageComposeViewController.canSendText() {
