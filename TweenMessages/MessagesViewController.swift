@@ -24,6 +24,19 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Fairness-ranked candidates, populated only while expanded.
     private var rankedSpots: [RankedSpot] = []
 
+    /// Everyone who's currently "in" for this meetup, derived from the most
+    /// recent message we've seen. Persists across renders so an outgoing send
+    /// can append the local user without losing prior participants.
+    private var currentParticipants: [Participant] = []
+    /// Names that have agreed to the current proposal, as reported by the
+    /// latest received message. Empty for invite/propose/counter, growing for
+    /// agree messages.
+    private var currentAgreedNames: [String] = []
+    /// Total seats in this iMessage conversation (you + remote participants).
+    /// Used by Compact/ExpandedView for "X of Y ready" copy. Available only
+    /// while the extension is active.
+    private var totalConversationParticipants: Int = 1
+
     private var rankingTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
 
@@ -49,6 +62,9 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
+        // Number of seats in the iMessage thread. The local participant always
+        // counts as 1; remoteParticipantIdentifiers covers everyone else.
+        totalConversationParticipants = 1 + conversation.remoteParticipantIdentifiers.count
         _ = decodeAndCache(conversation.selectedMessage, in: conversation)
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
@@ -106,22 +122,58 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     // MARK: - Decoding
 
-    /// Decodes a bubble's payload into `received` and caches the peer coordinate
-    /// only when the payload represents a participant. Place bubbles also carry a
-    /// coordinate, but treating that as the peer would corrupt midpoint/ranking.
+    /// Decodes a bubble's payload into `received` and refreshes the cached
+    /// participant roster + agreement state from the message.
+    ///
+    /// Each received bubble carries the full participant list, so the most
+    /// recent message is the canonical snapshot — we replace, not merge. The
+    /// single-peer cache key is still written so legacy host-app code paths
+    /// keep working until Slice 6 migrates them.
     @discardableResult
     private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) -> Bool {
         guard let message, let url = message.url, let state = TweenState(url: url) else { return false }
         guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return false }
         received = state
-        logger.debug("Decoded incoming Tween message kind=\(state.kind.rawValue, privacy: .public) lat=\(state.latitude, privacy: .public) lon=\(state.longitude, privacy: .public)")
-        if let peer = state.participantCoordinate {
-            LocationCache.savePeer(peer, isActive: true)
+        logger.debug("Decoded incoming Tween message type=\(state.messageType.rawValue, privacy: .public) participants=\(state.participants.count, privacy: .public) agreed=\(state.agreedNames.count, privacy: .public)")
+
+        // Roster snapshot: trust the incoming list verbatim.
+        if !state.participants.isEmpty {
+            currentParticipants = state.participants
+            LocationCache.saveParticipants(state.participants)
+        }
+        currentAgreedNames = state.agreedNames
+
+        // Legacy single-peer cache: write the most recent non-self coordinate
+        // so OnboardingView's polling (still on loadPeer) keeps animating
+        // until Slice 6.
+        let myName = UserProfile.displayName
+        let peer = state.participants.first(where: { $0.name != myName })
+            ?? (state.kind == .participant ? state.participants.first : nil)
+        if let peer {
+            LocationCache.savePeer(peer.coordinate, isActive: true)
             logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+            return true
+        }
+        // Legacy fallback for pre-group bubbles where participants[] is empty.
+        if let peerCoord = state.participantCoordinate {
+            LocationCache.savePeer(peerCoord, isActive: true)
             return true
         }
         logger.debug("Incoming message did not include a peer coordinate")
         return false
+    }
+
+    /// Builds the next outgoing participant list by removing any prior entry
+    /// for the local user (matched by name) and appending a fresh one with the
+    /// current coordinate. Cross-message identity is by name because the
+    /// conversation-scoped UUID can't be carried inside the URL.
+    private func nextParticipantList(myCoord: CLLocationCoordinate2D,
+                                     conversation: MSConversation?) -> [Participant] {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
+        let others = currentParticipants.filter { $0.name != myName }
+        let me = Participant(id: myId, name: myName, coordinate: myCoord)
+        return others + [me]
     }
 
     // MARK: - Hosting
@@ -188,30 +240,45 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     // MARK: - Ranking
 
-    /// Searches the midpoint region for candidate spots and ranks them by
-    /// fairness, capped at 5. Re-renders the expanded UI when finished.
+    /// Searches the centroid region for candidate spots and ranks them by
+    /// fairness across every "in" participant. Re-renders the expanded UI
+    /// when finished. No-ops while fewer than two participants have shared
+    /// their location.
     private func kickOffRanking() {
         rankingTask?.cancel()
 
-        let receivedPeer = received?.participantCoordinate
-        guard let me = LocationCache.loadSelf()?.coordinate,
-              let peer = receivedPeer ?? (LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil) else {
-            return
+        // Build the ranking participants array: my cached coord plus everyone
+        // else in currentParticipants (filtered to avoid duplicating me).
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let others = currentParticipants.filter { $0.name != myName }
+        var participants = others
+        if let mySelf = LocationCache.loadSelf()?.coordinate {
+            let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
+            participants.append(Participant(id: myId, name: myName, coordinate: mySelf))
         }
+        guard participants.count >= 2 else { return }
 
-        let center = MapGeometry.midpoint(me, peer)
+        let center = MapGeometry.centroid(of: participants)
+        // Search radius widens as the group spreads out.
+        let span = participants.reduce(0.04) { acc, p in
+            let dLat = abs(p.latitude - center.latitude)
+            let dLon = abs(p.longitude - center.longitude)
+            return max(acc, max(dLat, dLon) * 2.0)
+        }
+        let cap = FairnessRanker.recommendedCap(for: participants.count)
+
         rankingTask = Task { @MainActor in
             let request = MKLocalSearch.Request()
             request.naturalLanguageQuery = Self.defaultQuery
             request.region = MKCoordinateRegion(
                 center: center,
-                span: MKCoordinateSpan(latitudeDelta: 1.6, longitudeDelta: 1.6))
+                span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
 
             guard let response = try? await MKLocalSearch(request: request).start(),
                   !Task.isCancelled else { return }
 
             let ranked = await FairnessRanker.rank(
-                candidates: response.mapItems, from: me, and: peer, cap: Self.rankCap)
+                candidates: response.mapItems, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
 
             self.rankedSpots = ranked
@@ -222,7 +289,9 @@ final class MessagesViewController: MSMessagesAppViewController {
     // MARK: - Sending
 
     /// Shares the user's location. Uses a fresh cached fix when one is fresh;
-    /// otherwise requests one (without ever prompting) before composing.
+    /// otherwise requests one (without ever prompting) before composing. Sent
+    /// as an `.invite` bubble carrying the full participant roster so any
+    /// recipient can reconstruct who's in.
     private func handleImIn() {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
@@ -236,13 +305,21 @@ final class MessagesViewController: MSMessagesAppViewController {
                 return
             }
 
+            let participants = self.nextParticipantList(myCoord: coordinate,
+                                                       conversation: self.activeConversation)
+            self.currentParticipants = participants
+            LocationCache.saveParticipants(participants)
+
             let state = TweenState(
                 text: "I'm in",
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
                 senderName: UserProfile.displayName,
-                kind: .participant)
-            logger.debug("Encoding I'm in reply lat=\(coordinate.latitude, privacy: .public) lon=\(coordinate.longitude, privacy: .public)")
+                kind: .participant,
+                messageType: .invite,
+                participants: participants
+            )
+            logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
             await insertBubble(for: state, dismissAfterInsert: true)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
@@ -253,22 +330,38 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
     }
 
-    /// Shares a specific ranked spot as the proposed meetup place.
+    /// Proposes a specific ranked spot to the group. The participants list is
+    /// carried forward verbatim so the recipient knows everyone's in.
     private func sendChosenSpot(_ spot: RankedSpot) {
         guard let item = spot.item else { return }
         let coordinate = item.placemark.coordinate
+        let mySelf = LocationCache.loadSelf()?.coordinate
+        // Make sure my own entry is in the participants list before proposing.
+        let participants: [Participant]
+        if let mySelf {
+            participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
+        } else {
+            participants = currentParticipants
+        }
+        currentParticipants = participants
+        LocationCache.saveParticipants(participants)
+
         let state = TweenState(
             text: item.name ?? "Spot",
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             senderName: UserProfile.displayName,
             kind: .place,
-            senderCoordinate: LocationCache.loadSelf()?.coordinate)
+            senderCoordinate: mySelf,
+            messageType: .propose,
+            participants: participants
+        )
         sendBubble(state: state)
     }
 
-    /// Replies that this user agrees to the proposed place while attaching their
-    /// real coordinate, so the sender's app can show both pings and the distance.
+    /// Agrees to a previously proposed place. Carries the participants forward
+    /// and appends this user's name to `agreedNames`; the receiver decides if
+    /// that's enough for full consensus via `state.isFullyAgreed`.
     private func sendAgreedPlace(_ proposed: TweenState) {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
@@ -282,6 +375,23 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderCoordinate = LocationCache.loadSelf()?.coordinate
             }
 
+            let myName = UserProfile.displayName ?? UserName.fallback
+            // Build the forward participants list. The proposed bubble's
+            // participants are authoritative; refresh my entry's coord.
+            var participants = proposed.participants.isEmpty
+                ? self.currentParticipants
+                : proposed.participants
+            if let myCoord = senderCoordinate {
+                participants = participants.filter { $0.name != myName }
+                let myId = self.activeConversation?.localParticipantIdentifier.uuidString ?? myName
+                participants.append(Participant(id: myId, name: myName, coordinate: myCoord))
+            }
+            self.currentParticipants = participants
+            LocationCache.saveParticipants(participants)
+
+            var agreed = proposed.agreedNames
+            if !agreed.contains(myName) { agreed.append(myName) }
+
             let state = TweenState(
                 text: proposed.text,
                 latitude: proposed.latitude,
@@ -289,23 +399,69 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderName: UserProfile.displayName,
                 kind: .place,
                 senderCoordinate: senderCoordinate,
-                action: .agree)
-            logger.debug("Agreeing to place \(proposed.text, privacy: .public) senderCoordPresent=\(senderCoordinate != nil, privacy: .public)")
+                action: .agree,
+                messageType: .agree,
+                participants: participants,
+                agreedNames: agreed
+            )
+            logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
             await insertBubble(for: state, dismissAfterInsert: true)
         }
+    }
+
+    /// Counter-proposes a different spot, resetting agreement to zero. The
+    /// proposer becomes the local user and the agreedNames list starts empty.
+    private func sendCounter(_ spot: RankedSpot) {
+        guard let item = spot.item else { return }
+        let coordinate = item.placemark.coordinate
+        let mySelf = LocationCache.loadSelf()?.coordinate
+        let participants: [Participant]
+        if let mySelf {
+            participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
+        } else {
+            participants = currentParticipants
+        }
+        currentParticipants = participants
+        LocationCache.saveParticipants(participants)
+
+        let state = TweenState(
+            text: item.name ?? "Spot",
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            senderName: UserProfile.displayName,
+            kind: .place,
+            senderCoordinate: mySelf,
+            messageType: .counter,
+            participants: participants,
+            agreedNames: []
+        )
+        sendBubble(state: state)
     }
 
     /// Confirms a host-app hand-off: composes the bubble for the staged draft,
     /// clears it so it isn't offered again, and re-renders.
     private func sendDraft() {
         guard let draft else { return }
+        let mySelf = LocationCache.loadSelf()?.coordinate
+        let participants: [Participant]
+        if let mySelf {
+            participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
+        } else {
+            participants = currentParticipants
+        }
+        currentParticipants = participants
+        LocationCache.saveParticipants(participants)
+
         let state = TweenState(
             text: draft.spotName,
             latitude: draft.latitude,
             longitude: draft.longitude,
             senderName: UserProfile.displayName,
             kind: .place,
-            senderCoordinate: LocationCache.loadSelf()?.coordinate)
+            senderCoordinate: mySelf,
+            messageType: .propose,
+            participants: participants
+        )
         OutgoingDraftStore.clear()
         self.draft = nil
         sendBubble(state: state)
