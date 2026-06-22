@@ -24,6 +24,21 @@ enum MapGeometry {
                                longitude: (a.longitude + b.longitude) / 2)
     }
 
+    /// Geographic centroid of N coordinates — the simple average of latitudes
+    /// and longitudes. For N=2 this equals `midpoint`. For N=0 returns
+    /// `defaultCenter` so callers don't have to special-case empty input.
+    static func centroid(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
+        guard !coordinates.isEmpty else { return defaultCenter }
+        let lat = coordinates.map(\.latitude).reduce(0, +) / Double(coordinates.count)
+        let lon = coordinates.map(\.longitude).reduce(0, +) / Double(coordinates.count)
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    /// Convenience for participant arrays.
+    static func centroid(of participants: [Participant]) -> CLLocationCoordinate2D {
+        centroid(of: participants.map(\.coordinate))
+    }
+
     /// Frames `coordinates` with padding on the span. A single point (or a
     /// degenerate cluster) falls back to a comfortable neighborhood zoom so the
     /// snapshot never renders the whole globe.

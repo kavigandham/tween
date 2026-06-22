@@ -55,4 +55,108 @@ final class FairnessRankerTests: XCTestCase {
         XCTAssertGreaterThan(guessed.score, confident.score)
         XCTAssertEqual(guessed.score, confident.score * 2, accuracy: 1e-9)
     }
+
+    // MARK: - N-person scoring
+
+    private func etas(_ pairs: [(String, TimeInterval)]) -> [ParticipantETA] {
+        pairs.map { ParticipantETA(id: $0.0, name: $0.0, eta: $0.1, fromRoute: true) }
+    }
+
+    // worstETA is the max across N participants, not just 2.
+    func testWorstETAAcrossThreeParticipants() {
+        let spot = RankedSpot(
+            item: nil,
+            etas: etas([("A", 300), ("B", 480), ("C", 900)]),
+            confidence: 1.0
+        )
+        XCTAssertEqual(spot.worstETA, 900, accuracy: 1e-9)
+        XCTAssertEqual(spot.bestETA, 300, accuracy: 1e-9)
+        XCTAssertEqual(spot.fairnessSpread, 600, accuracy: 1e-9)
+    }
+
+    // A spot where everyone drives roughly equal beats a spot with one big outlier.
+    func testFairSpotRanksAheadOfOutlierSpot() {
+        let fair = RankedSpot(
+            item: nil,
+            etas: etas([("A", 480), ("B", 540), ("C", 600)]),
+            confidence: 1.0
+        )
+        let outlier = RankedSpot(
+            item: nil,
+            etas: etas([("A", 300), ("B", 360), ("C", 1200)]),
+            confidence: 1.0
+        )
+        XCTAssertLessThan(fair.score, outlier.score)
+    }
+
+    func testWorstETAAcrossFiveParticipants() {
+        let spot = RankedSpot(
+            item: nil,
+            etas: etas([("A", 300), ("B", 360), ("C", 420), ("D", 480), ("E", 720)]),
+            confidence: 1.0
+        )
+        XCTAssertEqual(spot.worstETA, 720, accuracy: 1e-9)
+    }
+
+    // Legacy 2-person init still produces a spot whose etas array has both legs.
+    func testLegacyTwoPersonInitPopulatesETAs() {
+        let spot = RankedSpot(etaFromA: 480, etaFromB: 600, confidence: 1.0)
+        XCTAssertEqual(spot.etas.count, 2)
+        XCTAssertEqual(spot.etas[0].eta, 480, accuracy: 1e-9)
+        XCTAssertEqual(spot.etas[1].eta, 600, accuracy: 1e-9)
+        XCTAssertEqual(spot.worstETA, 600, accuracy: 1e-9)
+    }
+
+    // MARK: - Centroid
+
+    func testCentroidOfTwoEqualsMidpoint() {
+        let a = CLLocationCoordinate2D(latitude: 38.84, longitude: -77.30)
+        let b = CLLocationCoordinate2D(latitude: 38.90, longitude: -77.35)
+        let centroid = MapGeometry.centroid(of: [a, b])
+        let midpoint = MapGeometry.midpoint(a, b)
+        XCTAssertEqual(centroid.latitude, midpoint.latitude, accuracy: 1e-9)
+        XCTAssertEqual(centroid.longitude, midpoint.longitude, accuracy: 1e-9)
+    }
+
+    func testCentroidOfThreeAveragesAllThree() {
+        let coords = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 30, longitude: 60),
+            CLLocationCoordinate2D(latitude: 60, longitude: 120)
+        ]
+        let centroid = MapGeometry.centroid(of: coords)
+        XCTAssertEqual(centroid.latitude, 30, accuracy: 1e-9)
+        XCTAssertEqual(centroid.longitude, 60, accuracy: 1e-9)
+    }
+
+    func testCentroidOfEmptyFallsBackToDefault() {
+        let centroid = MapGeometry.centroid(of: [CLLocationCoordinate2D]())
+        XCTAssertEqual(centroid.latitude, MapGeometry.defaultCenter.latitude, accuracy: 1e-9)
+        XCTAssertEqual(centroid.longitude, MapGeometry.defaultCenter.longitude, accuracy: 1e-9)
+    }
+
+    func testCentroidOfParticipantsUsesCoordinates() {
+        let participants = [
+            Participant(id: "A", name: "A", latitude: 38.0, longitude: -77.0),
+            Participant(id: "B", name: "B", latitude: 39.0, longitude: -78.0)
+        ]
+        let centroid = MapGeometry.centroid(of: participants)
+        XCTAssertEqual(centroid.latitude, 38.5, accuracy: 1e-9)
+        XCTAssertEqual(centroid.longitude, -77.5, accuracy: 1e-9)
+    }
+
+    // MARK: - Cap scaling
+
+    func testRecommendedCapShrinksAsParticipantsGrow() {
+        XCTAssertEqual(FairnessRanker.recommendedCap(for: 2), 10)
+        XCTAssertEqual(FairnessRanker.recommendedCap(for: 3), 6)
+        XCTAssertEqual(FairnessRanker.recommendedCap(for: 5), 4)
+        XCTAssertEqual(FairnessRanker.recommendedCap(for: 10), 3)
+        // Floor of 3 even for very large groups.
+        XCTAssertEqual(FairnessRanker.recommendedCap(for: 50), 3)
+    }
 }
+
+// MapGeometry is in the host app target via the Shared/ source folder; XCTest
+// needs CoreLocation for CLLocationCoordinate2D.
+import CoreLocation
