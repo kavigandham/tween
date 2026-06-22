@@ -44,6 +44,11 @@ targets:
         CFBundleDisplayName: Tween
         CFBundleShortVersionString: "1.0.1"
         CFBundleVersion: "1"
+        CFBundleIconName: AppIcon
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kavigandham.TweenApp
+            CFBundleURLSchemes:
+              - tween
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:

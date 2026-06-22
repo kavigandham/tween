@@ -10,12 +10,13 @@ import CoreLocation
 /// App Group `UserDefaults` is unencrypted: store coordinates and timestamps
 /// only, never anything sensitive.
 enum LocationCache {
-    static let appGroup = "group.com.hassanahmed.tween"
+    static let appGroup = "group.com.kavigandham.tween"
 
     private static let selfKey = "tween.cache.self"
     private static let peerKey = "tween.cache.peer"
     private static let selfActiveKey = "tween.cache.self.active"
     private static let peerActiveKey = "tween.cache.peer.active"
+    private static let participantsKey = "tween.cache.participants"
 
     /// How long a cached coordinate is considered usable.
     static let freshnessWindow: TimeInterval = 60 * 60 // 1 hour
@@ -90,6 +91,28 @@ enum LocationCache {
         return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
     }
 
+    // MARK: - Participants (group-aware roster)
+    //
+    // The canonical store for the current meetup's participants. Replaces the
+    // single-peer model for any code that has been migrated; legacy callers
+    // can keep using `loadPeer`/`savePeer` until they're updated.
+
+    static func saveParticipants(_ participants: [Participant]) {
+        guard let data = try? JSONEncoder().encode(participants) else { return }
+        defaults?.set(data, forKey: participantsKey)
+    }
+
+    static func loadParticipants() -> [Participant] {
+        guard let data = defaults?.data(forKey: participantsKey),
+              let list = try? JSONDecoder().decode([Participant].self, from: data)
+        else { return [] }
+        return list
+    }
+
+    static func clearParticipants() {
+        defaults?.removeObject(forKey: participantsKey)
+    }
+
     // MARK: - Lifecycle
 
     static func clearAll() {
@@ -97,6 +120,7 @@ enum LocationCache {
         defaults?.removeObject(forKey: peerKey)
         defaults?.removeObject(forKey: selfActiveKey)
         defaults?.removeObject(forKey: peerActiveKey)
+        defaults?.removeObject(forKey: participantsKey)
     }
 
     // MARK: - Atomic single-key codec
