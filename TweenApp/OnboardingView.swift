@@ -33,6 +33,10 @@ struct OnboardingView: View {
 
     @State private var savedCoordinate: CLLocationCoordinate2D?
     @State private var peerCoordinate: CLLocationCoordinate2D?
+    /// Every "in" participant beyond the local user and the primary peer —
+    /// only populated in group chats (3+ people). Empty for DMs, preserving
+    /// the original 2-person behaviour. Refreshed each tick of `pollPeer`.
+    @State private var additionalParticipants: [Participant] = []
     @State private var isUserIn = false
     /// True while we're waiting on the location fix the user explicitly asked
     /// for via "I'm in"; distinguishes that from the silent launch-time fix that
@@ -211,6 +215,13 @@ struct OnboardingView: View {
             }
             if let peer = peerCoordinate {
                 Annotation("Friend", coordinate: peer) {
+                    TweenPin(role: .friend)
+                }
+            }
+            // Additional remote participants (groups of 3+). Each is named so
+            // the map matches what the iMessage bubble shows.
+            ForEach(additionalParticipants) { participant in
+                Annotation(participant.name, coordinate: participant.coordinate) {
                     TweenPin(role: .friend)
                 }
             }
@@ -1284,8 +1295,17 @@ struct OnboardingView: View {
         }
 
         if let me = savedCoordinate, let peer = peerCoordinate {
+            let myName = UserProfile.displayName ?? UserName.fallback
+            var participants: [Participant] = [
+                Participant(id: myName, name: myName, coordinate: me),
+                Participant(id: "peer", name: "Friend", coordinate: peer)
+            ]
+            participants.append(contentsOf: additionalParticipants)
+            let cap = participants.count >= 3
+                ? FairnessRanker.recommendedCap(for: participants.count)
+                : Self.rankCap
             let ranked = await FairnessRanker.rank(
-                candidates: items, from: me, and: peer, cap: Self.rankCap)
+                candidates: items, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
             rankedSpots = ranked
             if reframeMap {
@@ -1346,14 +1366,46 @@ struct OnboardingView: View {
 
     private func pollPeer() async {
         while !Task.isCancelled {
-            let peer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
-            if !same(peerCoordinate, peer) {
-                peerCoordinate = peer
-                if let peer {
-                    logger.debug("Main app loaded peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+            // Group-aware path: the extension writes the full participants
+            // roster via LocationCache.saveParticipants whenever it receives
+            // or sends a bubble. If that array has entries, treat the first
+            // remote participant as the primary peer (preserving every
+            // existing call site that reads peerCoordinate) and any others
+            // as additionalParticipants for group rendering + ranking.
+            let myName = UserProfile.displayName ?? UserName.fallback
+            let roster = LocationCache.loadParticipants()
+            let remotes = roster.filter { $0.name != myName }
+
+            let newPeer: CLLocationCoordinate2D?
+            let newExtras: [Participant]
+            if let firstRemote = remotes.first {
+                newPeer = firstRemote.coordinate
+                newExtras = Array(remotes.dropFirst())
+            } else {
+                // Legacy single-peer cache fallback for clients that haven't
+                // upgraded yet, or before any group bubble has been seen.
+                newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
+                newExtras = []
+            }
+
+            var didChange = false
+            if !same(peerCoordinate, newPeer) {
+                peerCoordinate = newPeer
+                didChange = true
+                if let newPeer {
+                    logger.debug("Main app loaded peer coordinate lat=\(newPeer.latitude, privacy: .public) lon=\(newPeer.longitude, privacy: .public)")
                 } else {
                     logger.debug("Main app cleared inactive peer coordinate")
                 }
+            }
+            if additionalParticipants != newExtras {
+                additionalParticipants = newExtras
+                didChange = true
+                if !newExtras.isEmpty {
+                    logger.debug("Main app loaded \(newExtras.count, privacy: .public) additional participants")
+                }
+            }
+            if didChange {
                 reframe()
             }
             // Surface inbound replies stamped by the extension's `didReceive`.
@@ -1366,11 +1418,22 @@ struct OnboardingView: View {
 
     private var midpoint: CLLocationCoordinate2D? {
         guard let me = savedCoordinate, let peer = peerCoordinate else { return nil }
-        return Self.midpoint(me, peer)
+        // Groups (3+): centroid of every "in" participant. 2-person path
+        // collapses to the legacy midpoint because the extra-participants
+        // array is empty there.
+        if additionalParticipants.isEmpty {
+            return Self.midpoint(me, peer)
+        }
+        let extras = additionalParticipants.map(\.coordinate)
+        let all = [me, peer] + extras
+        let lat = all.map(\.latitude).reduce(0, +) / Double(all.count)
+        let lon = all.map(\.longitude).reduce(0, +) / Double(all.count)
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
     private func reframe() {
-        let coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        coords.append(contentsOf: additionalParticipants.map(\.coordinate))
         guard !coords.isEmpty else { return }
         logger.debug("Map reframe triggered for \(coords.count, privacy: .public) coordinate(s)")
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
@@ -1378,6 +1441,7 @@ struct OnboardingView: View {
 
     private func resetMapCamera() {
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        coords.append(contentsOf: additionalParticipants.map(\.coordinate))
 
         if let selectedResult {
             coords.append(selectedResult.placemark.coordinate)
