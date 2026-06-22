@@ -217,17 +217,30 @@ struct CompactView: View {
         }
     }
 
-    /// The received payload plus fresh participant cache when available.
+    /// The received payload plus fresh participant cache when available. In a
+    /// group chat the bubble carries everyone who's "in" via
+    /// `state.participants`; render a friend pin for each. Self is rendered
+    /// separately from the local cache, deduped by name so I don't double-pin
+    /// when I'm in the received roster.
     private func markers(for state: TweenState) -> [MapMarker] {
         var result: [MapMarker] = []
-        if state.kind == .participant {
-            result.append(MapMarker(coordinate: state.coordinate, role: .friend))
-        } else {
+        let myName = UserProfile.displayName ?? UserName.fallback
+
+        if state.kind == .place {
+            // The place itself.
             result.append(MapMarker(coordinate: state.coordinate, role: .fairSpot))
-            if LocationCache.isPeerActive, let peer = LocationCache.loadPeer()?.coordinate {
-                result.append(MapMarker(coordinate: peer, role: .friend))
-            }
         }
+
+        // Every "in" participant other than me from the group roster.
+        for participant in state.participants where participant.name != myName {
+            result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
+        }
+        // For legacy bubbles (kind=.participant, empty participants[]) the
+        // main coord IS the friend's pin.
+        if state.kind == .participant && state.participants.isEmpty {
+            result.append(MapMarker(coordinate: state.coordinate, role: .friend))
+        }
+
         if let me = LocationCache.loadSelf()?.coordinate {
             result.append(MapMarker(coordinate: me, role: isUserIn ? .selfActive : .selfDot))
         }
@@ -338,9 +351,30 @@ struct ExpandedView: View {
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
+    /// Every "in" participant other than the local user, drawn from the
+    /// received bubble's roster. The 2-person fallback (no participants array
+    /// on the bubble, or only legacy info present) still resolves to a single
+    /// peer via the existing single-peer cache so prior conversations look
+    /// identical.
+    private var otherParticipants: [Participant] {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        if let received, !received.participants.isEmpty {
+            return received.participants.filter { $0.name != myName }
+        }
+        // Legacy fallback: only one peer's worth of info.
+        if let legacyPeer = legacyPeerCoord {
+            return [Participant(id: "peer", name: "Friend", coordinate: legacyPeer)]
+        }
+        return []
+    }
+
     /// The peer's shared coordinate. Place payloads are intentionally ignored so
     /// a chosen cafe can never masquerade as the friend.
     private var peerCoord: CLLocationCoordinate2D? {
+        otherParticipants.first?.coordinate
+    }
+
+    private var legacyPeerCoord: CLLocationCoordinate2D? {
         if received?.representsParticipantLocation == true {
             return received?.coordinate
         }
@@ -387,21 +421,30 @@ struct ExpandedView: View {
     // MARK: Invitation
 
     /// Shown when this surface opened from an invite that named its sender.
+    /// Picks up group-chat copy from `state.messageType` and `state.participants`
+    /// — the 2-person path collapses to the original behaviour because
+    /// participants.count is 0 or 1 in those legacy bubbles.
     @ViewBuilder
     private var inviteBanner: some View {
-        if let name = received?.senderName, !name.isEmpty {
-            let isPlace = received?.kind == .place
-            let isAgreement = received?.action == .agree
+        if let received, let name = received.senderName, !name.isEmpty {
+            let isPlace = received.kind == .place
+            let isFullyAgreed = received.isFullyAgreed
             VStack(spacing: Tokens.Spacing.s1) {
-                Text(isPlace ? (isAgreement ? "\(name) agreed to meet at" : "\(name) chose") : "You've been invited by")
+                Text(bannerHeadline(state: received, name: name, isFullyAgreed: isFullyAgreed))
                     .font(Tokens.Typography.callout)
                     .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(isPlace ? received?.text ?? "a place" : name)
+                Text(isPlace ? received.text : name)
                     .font(Tokens.Typography.title)
                     .foregroundStyle(Tokens.Palette.textPrimary)
                 if isPlace {
-                    Text(isAgreement ? "Open Tween to see both pings." : "Do you want to agree or change it?")
+                    Text(bannerSubcopy(state: received, isFullyAgreed: isFullyAgreed))
                         .font(Tokens.Typography.subheadline)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                // Group-aware "X of Y ready" or "X of Y agreed".
+                if let progress = groupProgress(for: received) {
+                    Text(progress)
+                        .font(Tokens.Typography.caption)
                         .foregroundStyle(Tokens.Palette.textSecondary)
                 }
             }
@@ -412,8 +455,59 @@ struct ExpandedView: View {
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(isPlace ? "\(name) \(isAgreement ? "agreed to meet at" : "chose") \(received?.text ?? "a place")" : "You've been invited by \(name)")
+            .accessibilityLabel(bannerAccessibilityLabel(state: received, name: name, isFullyAgreed: isFullyAgreed))
         }
+    }
+
+    private func bannerHeadline(state: TweenState, name: String, isFullyAgreed: Bool) -> String {
+        switch state.messageType {
+        case .invite:
+            return "You've been invited by"
+        case .propose:
+            return "\(name) chose"
+        case .agree where isFullyAgreed:
+            return "Everyone agreed to meet at"
+        case .agree:
+            return "\(name) agreed to meet at"
+        case .counter:
+            return "\(name) suggests instead"
+        }
+    }
+
+    private func bannerSubcopy(state: TweenState, isFullyAgreed: Bool) -> String {
+        switch state.messageType {
+        case .agree where isFullyAgreed:
+            return "Tap for directions."
+        case .agree:
+            return "Open Tween to see all pings."
+        case .counter, .propose:
+            return "Do you want to agree or change it?"
+        case .invite:
+            return ""
+        }
+    }
+
+    private func groupProgress(for state: TweenState) -> String? {
+        let count = state.participants.count
+        switch state.messageType {
+        case .invite where count >= 2:
+            return "\(count) ready"
+        case .agree where !state.agreedNames.isEmpty && !state.isFullyAgreed:
+            let needed = max(count - 1, 1)
+            return "\(state.agreedNames.count) of \(needed) agreed"
+        default:
+            return nil
+        }
+    }
+
+    private func bannerAccessibilityLabel(state: TweenState, name: String, isFullyAgreed: Bool) -> String {
+        if state.kind == .place {
+            if isFullyAgreed {
+                return "Everyone agreed to meet at \(state.text)"
+            }
+            return "\(name) \(state.messageType == .agree ? "agreed to meet at" : "chose") \(state.text)"
+        }
+        return "You've been invited by \(name)"
     }
 
     // MARK: Map
@@ -440,6 +534,14 @@ struct ExpandedView: View {
         }
     }
 
+    /// All coordinates currently "in" the meetup (self + every other
+    /// participant), used to compute the centroid pin and frame the camera.
+    private var allMeetupCoords: [CLLocationCoordinate2D] {
+        var coords = otherParticipants.map(\.coordinate)
+        if let selfCoord { coords.append(selfCoord) }
+        return coords
+    }
+
     /// Markers for the static fallback snapshot: people, any proposed place, and
     /// ranked spots using the shared pin role system.
     private var staticMarkers: [MapMarker] {
@@ -447,11 +549,11 @@ struct ExpandedView: View {
         if let selfCoord {
             result.append(MapMarker(coordinate: selfCoord, role: isUserIn ? .selfActive : .selfDot))
         }
-        if let peerCoord {
-            result.append(MapMarker(coordinate: peerCoord, role: .friend))
+        for participant in otherParticipants {
+            result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
         }
-        if let selfCoord, let peerCoord {
-            result.append(MapMarker(coordinate: MapGeometry.midpoint(selfCoord, peerCoord), role: .midpoint))
+        if allMeetupCoords.count >= 2 {
+            result.append(MapMarker(coordinate: MapGeometry.centroid(of: allMeetupCoords), role: .midpoint))
         }
         if let receivedPlaceCoord {
             result.append(MapMarker(coordinate: receivedPlaceCoord, role: .fairSpot))
@@ -476,15 +578,19 @@ struct ExpandedView: View {
                 }
             }
 
-            // Friend's location pin
-            if let peerCoord {
-                Annotation("Friend", coordinate: peerCoord) {
+            // Every other participant who's "in" — one pin each, labelled
+            // with their name (which is what other people see on their map
+            // when their device is the local "self").
+            ForEach(otherParticipants) { participant in
+                Annotation(participant.name, coordinate: participant.coordinate) {
                     TweenPin(role: .friend, animated: false)
                 }
             }
 
-            if let selfCoord, let peerCoord {
-                Annotation("Midpoint", coordinate: MapGeometry.midpoint(selfCoord, peerCoord)) {
+            // Centroid pin — the geographic middle of everyone "in".
+            // Equivalent to the old midpoint for the 2-person case.
+            if allMeetupCoords.count >= 2 {
+                Annotation("Midpoint", coordinate: MapGeometry.centroid(of: allMeetupCoords)) {
                     TweenPin(role: .midpoint, animated: false)
                 }
             }
@@ -527,27 +633,24 @@ struct ExpandedView: View {
         MapCameraBounds(minimumDistance: 400, maximumDistance: 200_000)
     }
 
-    /// A ranked-spot map pin: an A/B drive-time chip floating above a category
-    /// glyph. The best fair spot reads gold; other candidates use neutral teal.
+    /// A ranked-spot map pin: a drive-time chip floating above a category
+    /// glyph. For ≤4 participants we show "Alice 8 · Bob 12"; for 5+ we drop
+    /// names and just list the minutes to keep the chip readable.
     private func spotPin(_ spot: RankedSpot) -> some View {
         let isSelected = selectedSpotID == spot.id
         let isBestFair = rankedSpots.first?.id == spot.id
         let role: TweenPin.Role = isBestFair ? .fairSpot : .result
         return VStack(spacing: 2) {
-            HStack(spacing: 2) {
-                Text("A \(formatETA(spot.etaFromA))")
-                Text("·")
-                Text("B \(formatETA(spot.etaFromB))")
-            }
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(Tokens.Palette.textPrimary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            // Solid fill rather than .ultraThinMaterial: a per-annotation GPU blur
-            // layer ×N is memory we can't spare in the extension.
-            .background(Tokens.Palette.surface)
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 0.5))
+            Text(Self.compactETALabel(for: spot))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                // Solid fill rather than .ultraThinMaterial: a per-annotation GPU blur
+                // layer ×N is memory we can't spare in the extension.
+                .background(Tokens.Palette.surface)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 0.5))
 
             Image(systemName: "fork.knife")
                 .font(.system(size: isSelected ? 16 : 14))
@@ -559,8 +662,22 @@ struct ExpandedView: View {
         }
         // Tapping a pin highlights its row in the list below (which scrolls to it).
         .onTapGesture { select(spot, animateMap: false) }
-        .accessibilityLabel("\(spot.item?.name ?? "Spot"), A \(formatETA(spot.etaFromA)), B \(formatETA(spot.etaFromB))")
+        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(Self.compactETALabel(for: spot))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// "Alice 8 · Bob 12 · Carol 15" for ≤4 participants; "8 / 12 / 15 / 9 / 11"
+    /// for 5+ so the pin chip stays compact. Falls back to the legacy A·B form
+    /// when the etas array is empty (only the legacy 2-person init path).
+    static func compactETALabel(for spot: RankedSpot) -> String {
+        let etas = spot.etas
+        if etas.isEmpty {
+            return "A \(formatETA(spot.etaFromA)) · B \(formatETA(spot.etaFromB))"
+        }
+        if etas.count <= 4 {
+            return etas.map { "\($0.name) \(formatETA($0.eta))" }.joined(separator: " · ")
+        }
+        return etas.map { formatETA($0.eta) }.joined(separator: " / ")
     }
 
     // MARK: Spot list
@@ -635,11 +752,31 @@ struct ExpandedView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("A \(formatETA(spot.etaFromA))")
-                    .font(Tokens.Typography.captionBold)
-                Text("B \(formatETA(spot.etaFromB))")
-                    .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
+                if spot.etas.isEmpty {
+                    // Legacy 2-person fallback path.
+                    Text("A \(formatETA(spot.etaFromA))")
+                        .font(Tokens.Typography.captionBold)
+                    Text("B \(formatETA(spot.etaFromB))")
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                } else if spot.etas.count <= 4 {
+                    ForEach(spot.etas) { participantETA in
+                        HStack(spacing: 4) {
+                            Text(participantETA.name)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                            Text(formatETA(participantETA.eta))
+                        }
+                        .font(Tokens.Typography.captionBold)
+                    }
+                } else {
+                    // 5+ participants: compact minutes-only row.
+                    Text(spot.etas.map { formatETA($0.eta) }.joined(separator: " / "))
+                        .font(Tokens.Typography.captionBold)
+                        .multilineTextAlignment(.trailing)
+                    Text("Longest: \(formatETA(spot.worstETA))")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
             }
         }
         .padding(Tokens.Spacing.s3)
@@ -649,7 +786,7 @@ struct ExpandedView: View {
         // Tapping a row animates the map to this spot and highlights its pin.
         .onTapGesture { select(spot, animateMap: true) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), A \(formatETA(spot.etaFromA)), B \(formatETA(spot.etaFromB))")
+        .accessibilityLabel("\(name), \(Self.compactETALabel(for: spot))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
