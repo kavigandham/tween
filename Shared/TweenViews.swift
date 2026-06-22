@@ -195,6 +195,10 @@ struct CompactView: View {
         .padding(.horizontal, Tokens.Spacing.s4)
         .padding(.vertical, Tokens.Spacing.s3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Opaque background so the compact strip never reads as transparent
+        // against the iMessage keyboard backdrop. systemBackground tracks
+        // light/dark mode automatically.
+        .background(Color(.systemBackground))
         // The whole surface expands; the real Button below intercepts its own taps.
         .contentShape(Rectangle())
         .onTapGesture(perform: onExpand)
@@ -416,6 +420,10 @@ struct ExpandedView: View {
                 .padding(Tokens.Spacing.s4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Opaque background for the expanded surface for the same reason
+        // CompactView sets one — never read as transparent against the
+        // iMessage host.
+        .background(Color(.systemBackground))
     }
 
     // MARK: Invitation

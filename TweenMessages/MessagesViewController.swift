@@ -180,6 +180,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func presentUI(for style: MSMessagesAppPresentationStyle) {
         let isUserIn = LocationCache.isActive
+        logger.debug("presentUI style=\(String(describing: style), privacy: .public) hasReceived=\(self.received != nil, privacy: .public) isActive=\(isUserIn, privacy: .public)")
         let root: AnyView
 
         switch style {
@@ -223,6 +224,13 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         let controller = UIHostingController(rootView: rootView)
         addChild(controller)
+
+        // Anchor the hosting view (and the extension VC's own view) to an
+        // opaque system surface. Without this the SwiftUI content renders
+        // transparently and can read as a "blank strip" against whatever
+        // backdrop iMessage paints in the keyboard area.
+        self.view.backgroundColor = .systemBackground
+        controller.view.backgroundColor = .systemBackground
 
         controller.view.translatesAutoresizingMaskIntoConstraints = false
         self.view.addSubview(controller.view)
