@@ -473,31 +473,89 @@ final class MessagesViewController: MSMessagesAppViewController {
         sendTask = Task { @MainActor in await insertBubble(for: state, dismissAfterInsert: true) }
     }
 
+    /// Per-MessageType caption + subcaption applied to the bubble's layout.
+    /// Static so it's safe to call from the Task context inside insertBubble
+    /// without capturing self.
+    static func applyCaption(to layout: MSMessageTemplateLayout,
+                             state: TweenState,
+                             totalSeats: Int) {
+        let name = state.senderName ?? "Someone"
+        let totalKnown = max(totalSeats, state.participants.count, 1)
+        let inCount = state.participants.count
+
+        switch state.messageType {
+        case .invite:
+            if inCount <= 1 {
+                layout.caption = "\(name) wants to meet up!"
+                layout.subcaption = "Tap to find a fair spot"
+            } else {
+                layout.caption = "\(name) is in! (\(inCount) of \(totalKnown) ready)"
+                layout.subcaption = "Tap to join"
+            }
+
+        case .propose:
+            layout.caption = "\(name) suggests \(state.text)"
+            if let worst = worstETALabel(for: state) {
+                layout.subcaption = worst
+            } else {
+                layout.subcaption = "Tap to see the route"
+            }
+
+        case .agree:
+            if state.isFullyAgreed {
+                layout.caption = "✓ Meeting at \(state.text)"
+                layout.subcaption = "Tap for directions"
+            } else {
+                let needed = max(state.participants.count - 1, 1)
+                let have = state.agreedNames.count
+                layout.caption = "\(name) agrees to \(state.text) (\(have) of \(needed))"
+                let missing = state.participants
+                    .map(\.name)
+                    .filter { $0 != state.senderName && !state.agreedNames.contains($0) }
+                if !missing.isEmpty {
+                    layout.subcaption = "Waiting for \(missing.joined(separator: ", "))"
+                } else {
+                    layout.subcaption = "Tap to confirm"
+                }
+            }
+
+        case .counter:
+            layout.caption = "\(name) suggests \(state.text) instead"
+            if let worst = worstETALabel(for: state) {
+                layout.subcaption = worst
+            } else {
+                layout.subcaption = "Tap to see the route"
+            }
+        }
+    }
+
+    /// Optional "Longest drive: Carol 15 min" descriptor. Returns nil for
+    /// invites or when no sender coord is available to estimate from — the
+    /// extension itself doesn't pre-compute ETAs at send time (the recipient's
+    /// ranker does), so this is best-effort copy that may be empty.
+    private static func worstETALabel(for state: TweenState) -> String? {
+        guard state.kind == .place else { return nil }
+        // Without recomputing routes here, fall back to the simpler subcaption.
+        // The ETAs are recomputed by the receiver in ExpandedView.
+        return nil
+    }
+
     /// Encodes the state into a bubble, renders its image, and stages it in the
     /// conversation. Staying on the same `MSSession` keeps the thread collapsed
     /// to a single evolving bubble rather than a stack of new ones.
     private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async {
         guard let conversation = activeConversation, let url = state.encodedURL() else { return }
 
+        let localName = UserProfile.displayName
         let image = await BubbleImageRenderer.makeImage(
             state: state,
-            selfCoord: LocationCache.loadSelf()?.coordinate,
-            peerCoord: LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil)
+            participants: state.participants,
+            localName: localName)
         guard !Task.isCancelled else { return }
 
         let layout = MSMessageTemplateLayout()
         layout.image = image
-        let name = state.senderName ?? "Someone"
-        if state.kind == .participant {
-            layout.caption = "\(name) wants to meet up!"
-            layout.subcaption = "Tap to find a fair spot"
-        } else if state.action == .agree {
-            layout.caption = "\(name) agreed to meet at \(state.text)"
-            layout.subcaption = "Tap to see both pings"
-        } else {
-            layout.caption = state.text
-            layout.subcaption = "Tap to find a fair spot"
-        }
+        Self.applyCaption(to: layout, state: state, totalSeats: self.totalConversationParticipants)
 
         let session = conversation.selectedMessage?.session ?? MSSession()
         let message = MSMessage(session: session)

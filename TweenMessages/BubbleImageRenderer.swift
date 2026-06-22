@@ -7,9 +7,10 @@ import CoreLocation
 /// Fully static — no instance state — so it can be called from the extension's
 /// send path without holding anything alive past the async draw. The happy path
 /// snapshots the meeting area with `MKMapSnapshotter` (never `MKMapView`) and
-/// composites the participants, a dashed connector, and a branded footer onto
-/// it. Every failure mode falls back to a fully offline, network-free image so a
-/// bubble always has artwork.
+/// composites every participant pin, an optional dashed connector (only when
+/// exactly two people are present — for groups the centroid implies grouping),
+/// and a branded footer onto it. Every failure mode falls back to a fully
+/// offline, network-free image so a bubble always has artwork.
 enum BubbleImageRenderer {
     /// 600×400 points — a 3:2 bubble — rendered @3x for Retina crispness.
     private static let size = CGSize(width: 600, height: 400)
@@ -18,17 +19,23 @@ enum BubbleImageRenderer {
 
     // MARK: - Public
 
-    /// Snapshots the region spanning the spot and both participants, composites
-    /// the overlays, and returns the bubble image. Falls back to a drawn image
-    /// if the snapshot fails (offline, throttled, or cancelled).
+    /// Snapshots the region spanning every participant plus the proposed spot
+    /// (when present), composites the overlays, and returns the bubble image.
+    /// Falls back to a drawn image if the snapshot fails (offline, throttled,
+    /// or cancelled).
+    ///
+    /// `localName` lets us colour the local user's pin distinctly from the
+    /// others. Pass nil when rendering for the host app or in unit tests
+    /// where local identity is unknown.
     static func makeImage(
         state: TweenState,
-        selfCoord: CLLocationCoordinate2D?,
-        peerCoord: CLLocationCoordinate2D?
+        participants: [Participant],
+        localName: String? = nil
     ) async -> UIImage {
         let placeCoord = state.kind == .place ? state.coordinate : nil
-        let participantCoord = state.kind == .participant && peerCoord == nil ? state.coordinate : nil
-        let coords = [placeCoord, selfCoord, peerCoord, participantCoord].compactMap { $0 }
+        var coords = participants.map(\.coordinate)
+        if let placeCoord { coords.append(placeCoord) }
+        guard !coords.isEmpty else { return fallbackImage(state: state) }
 
         let options = MKMapSnapshotter.Options()
         options.size = size
@@ -38,20 +45,45 @@ enum BubbleImageRenderer {
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
-            return fallbackImage(state: state)
+            return fallbackImage(state: state, participants: participants, localName: localName)
         }
-        return composite(snapshot: snapshot, state: state, selfCoord: selfCoord, peerCoord: peerCoord)
+        return composite(snapshot: snapshot, state: state, participants: participants, localName: localName)
+    }
+
+    /// Legacy 2-person entry point. Existing internal callers (and any caller
+    /// not yet migrated) can keep passing (selfCoord, peerCoord); we synthesise
+    /// a 2-element participants array and dispatch to the canonical path.
+    @available(*, deprecated, message: "Pass participants: [Participant] instead.")
+    static func makeImage(
+        state: TweenState,
+        selfCoord: CLLocationCoordinate2D?,
+        peerCoord: CLLocationCoordinate2D?
+    ) async -> UIImage {
+        var participants: [Participant] = []
+        if let selfCoord {
+            participants.append(Participant(id: "self", name: "You", coordinate: selfCoord))
+        }
+        if let peerCoord {
+            participants.append(Participant(id: "peer", name: "Friend", coordinate: peerCoord))
+        } else if state.kind == .participant {
+            // Legacy: when no explicit peer is supplied and the bubble itself
+            // represents a participant, the main coord is that participant.
+            participants.append(Participant(id: "peer", name: "Friend", coordinate: state.coordinate))
+        }
+        return await makeImage(state: state, participants: participants, localName: "You")
     }
 
     // MARK: - Composition
 
-    /// Draws the snapshot, a dashed line between the two people, colored pin
-    /// halos, and the footer carrying the spot name.
+    /// Draws the snapshot, an optional dashed connector for the 2-person case,
+    /// colored pin halos for every participant, and the footer with the spot
+    /// name. The local user's pin is drawn with the self palette; everyone
+    /// else uses the friend palette.
     static func composite(
         snapshot: MKMapSnapshotter.Snapshot,
         state: TweenState,
-        selfCoord: CLLocationCoordinate2D?,
-        peerCoord: CLLocationCoordinate2D?
+        participants: [Participant],
+        localName: String? = nil
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
@@ -61,25 +93,31 @@ enum BubbleImageRenderer {
             let ctx = context.cgContext
             snapshot.image.draw(in: CGRect(origin: .zero, size: size))
 
-            // Dashed connector between the two participants.
-            if let a = selfCoord, let b = peerCoord {
+            // Dashed connector: only meaningful in the 2-person case. For 3+
+            // the centroid implies the grouping and a line through 3+ pins
+            // would be visually noisy.
+            if participants.count == 2 {
                 ctx.saveGState()
                 ctx.setShadow(offset: .zero, blur: 3, color: UIColor.black.withAlphaComponent(0.4).cgColor)
                 ctx.setStrokeColor(UIColor.white.cgColor)
                 ctx.setLineWidth(4)
                 ctx.setLineDash(phase: 0, lengths: [10, 8])
-                ctx.move(to: snapshot.point(for: a))
-                ctx.addLine(to: snapshot.point(for: b))
+                ctx.move(to: snapshot.point(for: participants[0].coordinate))
+                ctx.addLine(to: snapshot.point(for: participants[1].coordinate))
                 ctx.strokePath()
                 ctx.restoreGState()
             }
 
-            // Pin halos: people first, then the place as the emphasized target.
-            // UIKit token equivalents mirror the SwiftUI pin palette.
-            if let s = selfCoord { drawHalo(Tokens.Palette.UI.pinSelf, at: snapshot.point(for: s), in: ctx) }
-            if let p = peerCoord ?? (state.kind == .participant ? state.coordinate : nil) {
-                drawHalo(Tokens.Palette.UI.pinFriend, at: snapshot.point(for: p), in: ctx)
+            // Pin halos: every participant, with the local user (matched by
+            // name) coloured distinctly.
+            for participant in participants {
+                let color = (localName != nil && participant.name == localName)
+                    ? Tokens.Palette.UI.pinSelf
+                    : Tokens.Palette.UI.pinFriend
+                drawHalo(color, at: snapshot.point(for: participant.coordinate), in: ctx)
             }
+
+            // Place pin sits on top of participants when this is a propose/agree.
             if state.kind == .place {
                 drawHalo(Tokens.Palette.UI.pinFair, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
             }
@@ -97,7 +135,11 @@ enum BubbleImageRenderer {
         fallbackImage(state: TweenState(text: spotName, latitude: 0, longitude: 0, kind: .place))
     }
 
-    static func fallbackImage(state: TweenState) -> UIImage {
+    static func fallbackImage(
+        state: TweenState,
+        participants: [Participant] = [],
+        localName: String? = nil
+    ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
@@ -130,21 +172,37 @@ enum BubbleImageRenderer {
             }
             ctx.strokePath()
 
-            // Abstract pins joined by a dashed line, place emphasized when this
-            // bubble represents a meetup spot.
-            let a = CGPoint(x: size.width * 0.30, y: size.height * 0.42)
-            let b = CGPoint(x: size.width * 0.70, y: size.height * 0.40)
-            ctx.saveGState()
-            ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.8).cgColor)
-            ctx.setLineWidth(4)
-            ctx.setLineDash(phase: 0, lengths: [10, 8])
-            ctx.move(to: a); ctx.addLine(to: b); ctx.strokePath()
-            ctx.restoreGState()
+            // Pins: lay them in an arc around the place. For groups (3+) we
+            // skip the connector; for the 2-person case we still draw the
+            // dashed line so the abstract image reads like the live one.
+            let count = max(participants.count, 2)
+            let centerY = size.height * 0.42
+            let radius = size.width * 0.25
+            var points: [CGPoint] = []
+            for i in 0..<count {
+                let t = (Double(i) / Double(max(count - 1, 1))) - 0.5  // -0.5 ... 0.5
+                let x = size.width * 0.5 + CGFloat(t) * radius * 2
+                points.append(CGPoint(x: x, y: centerY))
+            }
 
-            drawHalo(Tokens.Palette.UI.pinSelf, at: a, in: ctx)
-            drawHalo(Tokens.Palette.UI.pinFriend, at: b, in: ctx)
+            if count == 2 {
+                ctx.saveGState()
+                ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.8).cgColor)
+                ctx.setLineWidth(4)
+                ctx.setLineDash(phase: 0, lengths: [10, 8])
+                ctx.move(to: points[0]); ctx.addLine(to: points[1]); ctx.strokePath()
+                ctx.restoreGState()
+            }
+
+            for (i, point) in points.enumerated() {
+                let participant = i < participants.count ? participants[i] : nil
+                let color = (participant?.name == localName)
+                    ? Tokens.Palette.UI.pinSelf
+                    : (i == 0 ? Tokens.Palette.UI.pinSelf : Tokens.Palette.UI.pinFriend)
+                drawHalo(color, at: point, in: ctx)
+            }
             if state.kind == .place {
-                drawHalo(Tokens.Palette.UI.pinFair, at: CGPoint(x: size.width * 0.50, y: size.height * 0.41), in: ctx, emphasized: true)
+                drawHalo(Tokens.Palette.UI.pinFair, at: CGPoint(x: size.width * 0.50, y: centerY - 4), in: ctx, emphasized: true)
             }
 
             drawFooter(spotName: state.text, in: ctx)
