@@ -468,11 +468,19 @@ struct OnboardingView: View {
     }
 
     private var topTrailingControls: some View {
-        VStack(spacing: Tokens.Spacing.s2) {
+        let step = Tokens.Layout.minTapTarget + Tokens.Spacing.s2
+        return ZStack(alignment: .topTrailing) {
             infoButton
             mapStyleButton
+                .offset(y: step)
             resetMapButton
+                .offset(y: step * 2)
         }
+        .frame(
+            width: Tokens.Layout.minTapTarget,
+            height: Tokens.Layout.minTapTarget * 3 + Tokens.Spacing.s2 * 2,
+            alignment: .topTrailing
+        )
         .padding(.top, Tokens.Spacing.s9 + Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
     }
