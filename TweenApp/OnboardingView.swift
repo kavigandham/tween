@@ -468,52 +468,49 @@ struct OnboardingView: View {
     }
 
     private var topTrailingControls: some View {
-        VStack(alignment: .trailing, spacing: Tokens.Spacing.s3) {
-            infoButton
-            mapControlStack
-        }
-        .padding(.top, Tokens.Spacing.s2)
-        .padding(.trailing, Tokens.Spacing.s4)
-    }
-
-    private var mapControlStack: some View {
         VStack(spacing: Tokens.Spacing.s2) {
+            infoButton
             mapStyleButton
             resetMapButton
         }
+        .padding(.top, Tokens.Spacing.s9 + Tokens.Spacing.s2)
+        .padding(.trailing, Tokens.Spacing.s4)
     }
 
     private var mapStyleButton: some View {
-        Menu {
-            ForEach(MapDisplayStyle.allCases) { style in
-                Button {
-                    mapDisplayStyle = style
-                } label: {
-                    Label(style.title, systemImage: style.icon)
-                }
-            }
+        Button {
+            cycleMapDisplayStyle()
         } label: {
             Image(systemName: mapDisplayStyle.icon)
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
                 .frame(width: 44, height: 44)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                        .strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
+                }
                 .tweenElevation(.floating)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Map style")
-        .accessibilityHint("Choose standard, traffic, satellite, or hybrid map")
+        .accessibilityValue(mapDisplayStyle.title)
+        .accessibilityHint("Cycles between standard, traffic, satellite, and hybrid map")
     }
 
     private var resetMapButton: some View {
         Button {
             resetMapCamera()
         } label: {
-            Image(systemName: "location.north.fill")
+            Image(systemName: "location.viewfinder")
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
                 .frame(width: 44, height: 44)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                        .strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
+                }
                 .tweenElevation(.floating)
         }
         .buttonStyle(.plain)
@@ -527,8 +524,11 @@ struct OnboardingView: View {
             Image(systemName: "info.circle.fill")
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
-                .padding(Tokens.Spacing.s3)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 44, height: 44)
+                .background(Color(.systemBackground).opacity(0.92), in: Circle())
+                .overlay {
+                    Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
+                }
                 .tweenElevation(.floating)
         }
         .buttonStyle(.plain)
@@ -1519,6 +1519,16 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.gentle) {
             position = Self.cameraPosition(for: coords, padding: 1.35, minSpan: 0.04, bottomBias: 0.25)
         }
+    }
+
+    private func cycleMapDisplayStyle() {
+        let styles = MapDisplayStyle.allCases
+        guard let index = styles.firstIndex(of: mapDisplayStyle) else {
+            mapDisplayStyle = .standard
+            return
+        }
+        let nextIndex = styles.index(after: index)
+        mapDisplayStyle = nextIndex == styles.endIndex ? styles[styles.startIndex] : styles[nextIndex]
     }
 
     private func handleIncomingURL(_ url: URL) {
