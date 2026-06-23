@@ -3,6 +3,7 @@ import MapKit
 import CoreLocation
 import MessageUI
 import UIKit
+import Combine
 import os
 
 /// The host app's primary surface: a full-screen map with an "I'm in" flow and
@@ -84,6 +85,7 @@ struct OnboardingView: View {
     @State private var pingTick = 0
     @State private var renameText = ""
     @State private var toast: String?
+    @State private var showLocationAlert = false
 
     // Profile (the name that rides along on invites)
     @State private var profileName = UserProfile.displayName ?? ""
@@ -327,6 +329,7 @@ struct OnboardingView: View {
             Text("Choose a new name for \(editor.friend.name).")
         }
         .onChange(of: provider.status) { _, status in
+            let wasAwaitingImIn = awaitingImIn
             if case let .got(coord) = status {
                 withAnimation(Tokens.Motion.spring) {
                     savedCoordinate = coord
@@ -334,12 +337,17 @@ struct OnboardingView: View {
                     // persists the coordinate for the peer hand-off. The silent
                     // launch fix just recenters the map on a self dot.
                     if awaitingImIn {
-                        LocationCache.save(coord)
+                        LocationCache.save(coord, isActive: true)
                         isUserIn = true
                     }
                 }
                 awaitingImIn = false
                 reframe()
+            } else if status == .denied || status == .failed {
+                awaitingImIn = false
+                if wasAwaitingImIn {
+                    showLocationAlert = true
+                }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -349,7 +357,19 @@ struct OnboardingView: View {
         }
         .task { await pollPeer() }
         .task { requestInitialLocation() }
+        .onReceive(appGroupDidChangePublisher) { _ in
+            Task { @MainActor in
+                _ = refreshFromAppGroup()
+            }
+        }
         .onOpenURL(perform: handleIncomingURL)
+        .alert("Location Unavailable", isPresented: $showLocationAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(provider.status == .denied
+                 ? "Turn on location access in Settings to share where you are."
+                 : "We couldn't get your location. Try again in a moment.")
+        }
     }
 
     // MARK: - Bottom sheet
@@ -450,47 +470,55 @@ struct OnboardingView: View {
     private var topTrailingControls: some View {
         VStack(alignment: .trailing, spacing: Tokens.Spacing.s3) {
             infoButton
-            mapControlCapsule
+            mapControlStack
         }
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    private var mapControlCapsule: some View {
-        VStack(spacing: 0) {
-            Menu {
-                ForEach(MapDisplayStyle.allCases) { style in
-                    Button {
-                        mapDisplayStyle = style
-                    } label: {
-                        Label(style.title, systemImage: style.icon)
-                    }
-                }
-            } label: {
-                Image(systemName: mapDisplayStyle.icon)
-                    .font(Tokens.Typography.callout)
-                    .frame(width: 34, height: 34)
-            }
-            .accessibilityLabel("Map style")
-            .accessibilityHint("Choose standard, traffic, satellite, or hybrid map")
-
-            Divider()
-                .padding(.horizontal, Tokens.Spacing.s2)
-
-            Button {
-                resetMapCamera()
-            } label: {
-                Image(systemName: "location.north.fill")
-                    .font(Tokens.Typography.callout)
-                    .frame(width: 34, height: 34)
-            }
-            .accessibilityLabel("Reset map")
-            .accessibilityHint("Reframes the map around you, your friend, and visible places")
+    private var mapControlStack: some View {
+        VStack(spacing: Tokens.Spacing.s2) {
+            mapStyleButton
+            resetMapButton
         }
-        .foregroundStyle(Tokens.Palette.brand)
+    }
+
+    private var mapStyleButton: some View {
+        Menu {
+            ForEach(MapDisplayStyle.allCases) { style in
+                Button {
+                    mapDisplayStyle = style
+                } label: {
+                    Label(style.title, systemImage: style.icon)
+                }
+            }
+        } label: {
+            Image(systemName: mapDisplayStyle.icon)
+                .font(Tokens.Typography.callout)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: 44, height: 44)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .tweenElevation(.floating)
+        }
         .buttonStyle(.plain)
-        .background(.ultraThinMaterial, in: Capsule())
-        .tweenElevation(.floating)
+        .accessibilityLabel("Map style")
+        .accessibilityHint("Choose standard, traffic, satellite, or hybrid map")
+    }
+
+    private var resetMapButton: some View {
+        Button {
+            resetMapCamera()
+        } label: {
+            Image(systemName: "location.north.fill")
+                .font(Tokens.Typography.callout)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: 44, height: 44)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .tweenElevation(.floating)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reset map")
+        .accessibilityHint("Reframes the map around you, your friend, and visible places")
     }
 
     /// Floating control to re-show the first-run walkthrough.
@@ -747,11 +775,19 @@ struct OnboardingView: View {
             .accessibilityHint("Stops sharing your location")
         } else {
             Button(action: imIn) {
-                Label("I'm in", systemImage: "location.fill")
-                    .symbolEffect(.bounce, value: isUserIn)
+                if awaitingImIn || provider.status == .requesting {
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        ProgressView()
+                        Text("Finding you...")
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Label("I'm in", systemImage: "location.fill")
+                        .symbolEffect(.bounce, value: isUserIn)
+                }
             }
             .buttonStyle(.tweenPrimary())
-            .disabled(provider.status == .requesting)
+            .disabled(awaitingImIn || provider.status == .requesting)
             .accessibilityHint("Shares where you are and finds fair places to meet")
         }
 
@@ -1118,7 +1154,8 @@ struct OnboardingView: View {
             activeSheet = .message(PendingMessage(recipients: [handle], body: Self.inviteText))
         } else {
             UIPasteboard.general.string = Self.inviteText
-            showToast("Invite copied for \(friend.name)")
+            let reason = friend.handle == nil ? "No phone number" : "Messages unavailable"
+            showToast("\(reason) - invite copied for \(friend.name)")
         }
     }
 
@@ -1364,54 +1401,76 @@ struct OnboardingView: View {
 
     // MARK: - Peer polling
 
+    private var appGroupDidChangePublisher: NotificationCenter.Publisher {
+        NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification,
+            object: UserDefaults(suiteName: LocationCache.appGroup)
+        )
+    }
+
+    @MainActor
     private func pollPeer() async {
         while !Task.isCancelled {
-            // Group-aware path: the extension writes the full participants
-            // roster via LocationCache.saveParticipants whenever it receives
-            // or sends a bubble. If that array has entries, treat the first
-            // remote participant as the primary peer (preserving every
-            // existing call site that reads peerCoordinate) and any others
-            // as additionalParticipants for group rendering + ranking.
-            let myName = UserProfile.displayName ?? UserName.fallback
-            let roster = LocationCache.loadParticipants()
-            let remotes = roster.filter { $0.name != myName }
-
-            let newPeer: CLLocationCoordinate2D?
-            let newExtras: [Participant]
-            if let firstRemote = remotes.first {
-                newPeer = firstRemote.coordinate
-                newExtras = Array(remotes.dropFirst())
-            } else {
-                // Legacy single-peer cache fallback for clients that haven't
-                // upgraded yet, or before any group bubble has been seen.
-                newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
-                newExtras = []
-            }
-
-            var didChange = false
-            if !same(peerCoordinate, newPeer) {
-                peerCoordinate = newPeer
-                didChange = true
-                if let newPeer {
-                    logger.debug("Main app loaded peer coordinate lat=\(newPeer.latitude, privacy: .public) lon=\(newPeer.longitude, privacy: .public)")
-                } else {
-                    logger.debug("Main app cleared inactive peer coordinate")
-                }
-            }
-            if additionalParticipants != newExtras {
-                additionalParticipants = newExtras
-                didChange = true
-                if !newExtras.isEmpty {
-                    logger.debug("Main app loaded \(newExtras.count, privacy: .public) additional participants")
-                }
-            }
-            if didChange {
-                reframe()
-            }
-            // Surface inbound replies stamped by the extension's `didReceive`.
-            lastReplyAt = PingLog.lastIncomingReplyAt
-            try? await Task.sleep(for: .seconds(1))
+            _ = refreshFromAppGroup()
+            try? await Task.sleep(for: .milliseconds(300))
         }
+    }
+
+    @MainActor
+    @discardableResult
+    private func refreshFromAppGroup() -> Bool {
+        // Group-aware path: the extension writes the full participants roster
+        // whenever it receives or sends a bubble. If present, keep the first
+        // remote participant as `peerCoordinate` for legacy call sites and draw
+        // the rest as group participants.
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let roster = LocationCache.loadParticipants()
+        let remotes = roster.filter { $0.name != myName }
+
+        let newPeer: CLLocationCoordinate2D?
+        let newExtras: [Participant]
+        if let firstRemote = remotes.first {
+            newPeer = firstRemote.coordinate
+            newExtras = Array(remotes.dropFirst())
+        } else {
+            newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
+            newExtras = []
+        }
+
+        var didChange = false
+        if !same(peerCoordinate, newPeer) {
+            peerCoordinate = newPeer
+            didChange = true
+            if let newPeer {
+                logger.debug("Main app loaded peer coordinate lat=\(newPeer.latitude, privacy: .public) lon=\(newPeer.longitude, privacy: .public)")
+            } else {
+                logger.debug("Main app cleared inactive peer coordinate")
+            }
+        }
+        if additionalParticipants != newExtras {
+            additionalParticipants = newExtras
+            didChange = true
+            if !newExtras.isEmpty {
+                logger.debug("Main app loaded \(newExtras.count, privacy: .public) additional participants")
+            }
+        }
+
+        let cachedSelf = LocationCache.loadSelf()?.coordinate
+        if !same(savedCoordinate, cachedSelf) {
+            savedCoordinate = cachedSelf
+            didChange = true
+        }
+        let active = LocationCache.isActive
+        if isUserIn != active {
+            isUserIn = active
+            didChange = true
+        }
+
+        lastReplyAt = PingLog.lastIncomingReplyAt
+        if didChange {
+            reframe()
+        }
+        return didChange
     }
 
     // MARK: - Geometry
@@ -1463,6 +1522,13 @@ struct OnboardingView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
+        if url.scheme == "tween", url.host == "search" {
+            panelTab = .map
+            selectedSheetDetent = .fraction(0.45)
+            searchFocused = true
+            return
+        }
+
         guard let state = TweenState(url: url) else { return }
         logger.debug("Host opened Tween URL kind=\(state.kind.rawValue, privacy: .public) lat=\(state.latitude, privacy: .public) lon=\(state.longitude, privacy: .public)")
 

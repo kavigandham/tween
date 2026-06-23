@@ -174,6 +174,8 @@ struct TweenMapSnapshotView: View {
 struct CompactView: View {
     let received: TweenState?
     let isUserIn: Bool
+    var isSending: Bool = false
+    var statusMessage: String?
     var onImIn: () -> Void
     var onExpand: () -> Void
 
@@ -263,6 +265,9 @@ struct CompactView: View {
     }
 
     private var subtitle: String {
+        if let statusMessage {
+            return statusMessage
+        }
         if received?.kind == .place {
             return isUserIn ? "Tap to view this meetup spot" : "Tap “I'm in” to share where you are"
         }
@@ -285,6 +290,10 @@ struct CompactView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: isUserIn)
                     .accessibilityLabel("You're in")
+            } else if isSending {
+                ProgressView()
+                    .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                    .accessibilityLabel(statusMessage ?? "Sharing your location")
             } else {
                 Button(action: onImIn) {
                     Text("I'm in")
@@ -346,6 +355,9 @@ struct ExpandedView: View {
     var onSelectSpot: (RankedSpot) -> Void
     var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
+    var onOpenFullApp: () -> Void = {}
+    var isSending: Bool = false
+    var statusMessage: String?
 
     @State private var selectedSpotID: RankedSpot.ID?
     /// Drives the interactive map's camera. `.automatic` frames every annotation
@@ -398,6 +410,7 @@ struct ExpandedView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
+            if let statusMessage, !isSending { statusBanner(statusMessage) }
             inviteBanner
 
             // Split the space between the interactive map (~60%) and the
@@ -418,6 +431,9 @@ struct ExpandedView: View {
 
             primaryCTA
                 .padding(Tokens.Spacing.s4)
+            openFullAppButton
+                .padding(.horizontal, Tokens.Spacing.s4)
+                .padding(.bottom, Tokens.Spacing.s3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque background for the expanded surface for the same reason
@@ -858,9 +874,17 @@ struct ExpandedView: View {
                 }
             } else if !isUserIn {
                 Button(action: onImIn) {
-                    Label("I'm in", systemImage: "location.fill")
+                    if isSending {
+                        HStack(spacing: Tokens.Spacing.s2) {
+                            ProgressView()
+                            Text(statusMessage ?? "Sharing...")
+                        }
+                    } else {
+                        Label("I'm in", systemImage: "location.fill")
+                    }
                 }
                 .buttonStyle(.tweenPrimary())
+                .disabled(isSending)
                 .accessibilityHint("Shares where you are with your friend")
             } else if let spot = selectedSpot {
                 Button { sendTick += 1; onSelectSpot(spot) } label: {
@@ -886,10 +910,33 @@ struct ExpandedView: View {
         .sensoryFeedback(.impact, trigger: sendTick)
     }
 
+    private var openFullAppButton: some View {
+        Button(action: onOpenFullApp) {
+            Label("Search in Tween", systemImage: "arrow.up.forward.app")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.tweenPrimary(.subtle))
+        .accessibilityHint("Opens the full Tween app to search for places")
+    }
+
     private var offlineBanner: some View {
         HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "wifi.slash")
             Text("You're offline. Reconnect to find fair spots.")
+            Spacer(minLength: 0)
+        }
+        .font(Tokens.Typography.caption.weight(.medium))
+        .foregroundStyle(.white)
+        .padding(Tokens.Spacing.s3)
+        .frame(maxWidth: .infinity)
+        .background(Tokens.Palette.warning)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func statusBanner(_ message: String) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Image(systemName: "exclamationmark.circle.fill")
+            Text(message)
             Spacer(minLength: 0)
         }
         .font(Tokens.Typography.caption.weight(.medium))

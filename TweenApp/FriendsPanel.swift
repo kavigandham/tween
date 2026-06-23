@@ -73,7 +73,7 @@ struct FriendRow: View {
         if let last = PingLog.lastPing(for: friend.id) {
             return "Pinged \(RelativeTime.string(from: last))"
         }
-        return friend.handle ?? "No number on file"
+        return friend.handle ?? "No phone number"
     }
 }
 
@@ -278,9 +278,7 @@ struct MessageComposeSheet: UIViewControllerRepresentable {
 
         func messageComposeViewController(_ controller: MFMessageComposeViewController,
                                           didFinishWith result: MessageComposeResult) {
-            controller.dismiss(animated: true) { [onFinish] in
-                onFinish()
-            }
+            onFinish()
         }
     }
 }

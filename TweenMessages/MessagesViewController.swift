@@ -39,6 +39,8 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private var rankingTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
+    private var isSending = false
+    private var sendStatusMessage: String?
 
     private let locationProvider = LocationProvider()
     private let networkMonitor = NetworkMonitor()
@@ -108,6 +110,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Drop every background task before we're backgrounded.
         rankingTask?.cancel()
         sendTask?.cancel()
+        isSending = false
     }
 
     override func didReceiveMemoryWarning() {
@@ -195,9 +198,18 @@ final class MessagesViewController: MSMessagesAppViewController {
                     useStaticMap: mapDegraded,
                     draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
-                    onSelectSpot: { [weak self] spot in self?.sendChosenSpot(spot) },
+                    onSelectSpot: { [weak self] spot in
+                        if self?.received?.kind == .place {
+                            self?.sendCounter(spot)
+                        } else {
+                            self?.sendChosenSpot(spot)
+                        }
+                    },
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
-                    onSendDraft: { [weak self] in self?.sendDraft() }
+                    onSendDraft: { [weak self] in self?.sendDraft() },
+                    onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
+                    isSending: isSending,
+                    statusMessage: sendStatusMessage
                 )
             )
         default:
@@ -205,6 +217,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 CompactView(
                     received: received,
                     isUserIn: isUserIn,
+                    isSending: isSending,
+                    statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
                 )
@@ -297,19 +311,26 @@ final class MessagesViewController: MSMessagesAppViewController {
     // MARK: - Sending
 
     /// Shares the user's location. Uses a fresh cached fix when one is fresh;
-    /// otherwise requests one (without ever prompting) before composing. Sent
-    /// as an `.invite` bubble carrying the full participant roster so any
-    /// recipient can reconstruct who's in.
+    /// otherwise requests one before composing. Sent as an `.invite` bubble
+    /// carrying the full participant roster so any recipient can reconstruct
+    /// who's in.
     private func handleImIn() {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
+            isSending = true
+            sendStatusMessage = "Sharing your location..."
+            presentUI(for: presentationStyle)
+
             let coordinate: CLLocationCoordinate2D
             if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 coordinate = cached
             } else if let fresh = await acquireLocation() {
-                LocationCache.save(fresh)
+                LocationCache.save(fresh, isActive: true)
                 coordinate = fresh
             } else {
+                isSending = false
+                sendStatusMessage = "Location unavailable. Check permission and try again."
+                presentUI(for: presentationStyle)
                 return
             }
 
@@ -328,7 +349,10 @@ final class MessagesViewController: MSMessagesAppViewController {
                 participants: participants
             )
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
-            await insertBubble(for: state, dismissAfterInsert: true)
+            let didSend = await insertBubble(for: state, dismissAfterInsert: true)
+            isSending = false
+            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            presentUI(for: presentationStyle)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
             // (which triggers ranking) and also rank directly to cover the case
@@ -551,15 +575,16 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Encodes the state into a bubble, renders its image, and stages it in the
     /// conversation. Staying on the same `MSSession` keeps the thread collapsed
     /// to a single evolving bubble rather than a stack of new ones.
-    private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async {
-        guard let conversation = activeConversation, let url = state.encodedURL() else { return }
+    @discardableResult
+    private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async -> Bool {
+        guard let conversation = activeConversation, let url = state.encodedURL() else { return false }
 
         let localName = UserProfile.displayName
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             participants: state.participants,
             localName: localName)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
 
         let layout = MSMessageTemplateLayout()
         layout.image = image
@@ -570,24 +595,26 @@ final class MessagesViewController: MSMessagesAppViewController {
         message.url = url
         message.layout = layout
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
         do {
             try await conversation.insert(message)
             logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
             if dismissAfterInsert {
                 dismiss()
             }
+            return true
         } catch {
             logger.error("Failed to insert outgoing Tween bubble: \(String(describing: error), privacy: .public)")
+            sendStatusMessage = "Couldn't send the Tween message. Try again."
             // Swallow errors in the extension context; insertion can fail if the
             // conversation is no longer active or the extension is backgrounding.
+            return false
         }
     }
 
-    /// Requests a single fix if already authorized (never prompts inside the
-    /// extension) and polls the provider for up to ~5s for a result.
+    /// Requests a single fix and polls the provider for up to ~5s for a result.
     private func acquireLocation() async -> CLLocationCoordinate2D? {
-        locationProvider.requestOnceIfAuthorized()
+        locationProvider.requestOnce()
         for _ in 0..<50 {
             if Task.isCancelled { return nil }
             switch locationProvider.status {
@@ -600,5 +627,10 @@ final class MessagesViewController: MSMessagesAppViewController {
             }
         }
         return nil
+    }
+
+    private func openFullAppSearch() {
+        guard let url = URL(string: "tween://search") else { return }
+        extensionContext?.open(url, completionHandler: nil)
     }
 }
