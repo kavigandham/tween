@@ -674,8 +674,22 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func openGoogleMaps(for state: TweenState) {
         let coordinate = state.coordinate
-        let destination = "\(coordinate.latitude),\(coordinate.longitude)"
-        guard let url = URL(string: "comgooglemapsurl://www.google.com/maps/dir/?api=1&destination=\(destination)&travelmode=driving") else { return }
+        let origin: String
+        if let selfCoordinate = LocationCache.loadSelf()?.coordinate {
+            origin = "\(selfCoordinate.latitude),\(selfCoordinate.longitude)"
+        } else {
+            origin = "Current Location"
+        }
+        let destination = "\(state.text), \(coordinate.latitude),\(coordinate.longitude)"
+        let urlString = "https://www.google.com/maps/dir/\(googleMapsPathComponent(origin))/\(googleMapsPathComponent(destination))/?travelmode=driving"
+        guard let url = URL(string: urlString) else { return }
         extensionContext?.open(url, completionHandler: nil)
+    }
+
+    private func googleMapsPathComponent(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~+,")
+        let plusSeparated = value.replacingOccurrences(of: " ", with: "+")
+        return plusSeparated.addingPercentEncoding(withAllowedCharacters: allowed) ?? plusSeparated
     }
 }
