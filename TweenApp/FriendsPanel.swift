@@ -1,6 +1,7 @@
 import SwiftUI
 @preconcurrency import Contacts
 import MessageUI
+import Messages
 
 /// Which face of the bottom sheet is showing: place search, or the friend
 /// roster you're waiting on.
@@ -255,15 +256,25 @@ struct ContactSearchView: View {
 
 /// SwiftUI bridge to the system SMS composer. Presented with recipients and a
 /// prefilled body; `onFinish` fires on send/cancel so the host can clear it.
+///
+/// `message` optionally pre-fills a rich iMessage payload (an `MSMessage`).
+/// When the recipient's handle is on iMessage, the composer shows the
+/// Tween-styled bubble instead of just the plain `body` string. The body is
+/// still set as a fallback for SMS-only recipients (Apple Messages shows the
+/// body when MSMessage delivery isn't possible).
 struct MessageComposeSheet: UIViewControllerRepresentable {
     let recipients: [String]
     let body: String
+    var message: MSMessage? = nil
     let onFinish: () -> Void
 
     func makeUIViewController(context: Context) -> MFMessageComposeViewController {
         let controller = MFMessageComposeViewController()
         controller.recipients = recipients
         controller.body = body
+        if let message {
+            controller.message = message
+        }
         controller.messageComposeDelegate = context.coordinator
         return controller
     }

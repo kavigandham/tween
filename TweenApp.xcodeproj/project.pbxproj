@@ -10,6 +10,7 @@
 		02855529C5710F5C0A5BD01D /* Participant.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA256CAEB5D69FB5441F7C3 /* Participant.swift */; };
 		0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
 		0F64262C9F3F9FD67E86F667 /* UserName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDD40282483BFE2BDFF2AC5 /* UserName.swift */; };
+		15E853C4CC305B3676F9D8F8 /* BubbleCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = A618C73F525063A2FDDFE457 /* BubbleCaption.swift */; };
 		1CB92BB0C60428A6CCD58E29 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */; };
 		1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */; };
 		1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
@@ -38,6 +39,7 @@
 		8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */; };
 		81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
 		84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECF02EB2138B0F7429E735F /* SearchCompleter.swift */; };
+		879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = A618C73F525063A2FDDFE457 /* BubbleCaption.swift */; };
 		8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
 		96830D38CD716283B271C963 /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
 		9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */; };
@@ -134,6 +136,7 @@
 		9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppUITests.swift; sourceTree = "<group>"; };
 		A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParticipantCodecTests.swift; sourceTree = "<group>"; };
 		A51D741A60625DD97D522832 /* OutgoingDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraft.swift; sourceTree = "<group>"; };
+		A618C73F525063A2FDDFE457 /* BubbleCaption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleCaption.swift; sourceTree = "<group>"; };
 		A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultRows.swift; sourceTree = "<group>"; };
 		AECF02EB2138B0F7429E735F /* SearchCompleter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleter.swift; sourceTree = "<group>"; };
 		B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRendererTests.swift; sourceTree = "<group>"; };
@@ -206,6 +209,7 @@
 		6E91F70511DEC5FAE507D598 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				A618C73F525063A2FDDFE457 /* BubbleCaption.swift */,
 				075D9066250C6952934E34C1 /* FairnessRanker.swift */,
 				126396012D826EDE687B9221 /* LocationCache.swift */,
 				999A32C93B516396B9807953 /* LocationProvider.swift */,
@@ -402,6 +406,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				15E853C4CC305B3676F9D8F8 /* BubbleCaption.swift in Sources */,
 				C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */,
 				3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */,
 				1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */,
@@ -434,6 +439,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */,
+				879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */,
 				A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */,
 				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
 				3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */,

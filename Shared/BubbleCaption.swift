@@ -1,0 +1,55 @@
+import Foundation
+import Messages
+
+/// Per-MessageType caption + subcaption applied to an iMessage bubble's layout.
+///
+/// Shared by both the iMessage extension (when sending bubbles from inside
+/// Messages) and the host app (when pre-filling MFMessageComposeViewController
+/// with a Tween-styled MSMessage for the ping flow). Lives in Shared/ so the
+/// copy stays in lockstep across targets.
+enum BubbleCaption {
+    static func apply(to layout: MSMessageTemplateLayout,
+                      state: TweenState,
+                      totalSeats: Int) {
+        let name = state.senderName ?? "Someone"
+        let totalKnown = max(totalSeats, state.participants.count, 1)
+        let inCount = state.participants.count
+
+        switch state.messageType {
+        case .invite:
+            if inCount <= 1 {
+                layout.caption = "\(name) wants to meet up!"
+                layout.subcaption = "Tap to find a fair spot"
+            } else {
+                layout.caption = "\(name) is in! (\(inCount) of \(totalKnown) ready)"
+                layout.subcaption = "Tap to join"
+            }
+
+        case .propose:
+            layout.caption = "\(name) suggests \(state.text)"
+            layout.subcaption = "Tap to see the route"
+
+        case .agree:
+            if state.isFullyAgreed {
+                layout.caption = "✓ Meeting at \(state.text)"
+                layout.subcaption = "Tap for directions"
+            } else {
+                let needed = max(state.participants.count - 1, 1)
+                let have = state.agreedNames.count
+                layout.caption = "\(name) agrees to \(state.text) (\(have) of \(needed))"
+                let missing = state.participants
+                    .map(\.name)
+                    .filter { $0 != state.senderName && !state.agreedNames.contains($0) }
+                if !missing.isEmpty {
+                    layout.subcaption = "Waiting for \(missing.joined(separator: ", "))"
+                } else {
+                    layout.subcaption = "Tap to confirm"
+                }
+            }
+
+        case .counter:
+            layout.caption = "\(name) suggests \(state.text) instead"
+            layout.subcaption = "Tap to see the route"
+        }
+    }
+}

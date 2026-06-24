@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 import MessageUI
+import Messages
 import UIKit
 import Combine
 import os
@@ -104,10 +105,15 @@ struct OnboardingView: View {
     @State private var activeSheet: ActiveSheet?
 
     /// Identifiable wrapper so the SMS composer can be presented via `sheet(item:)`.
+    ///
+    /// `message` is the rich iMessage payload (Tween bubble) — when non-nil the
+    /// composer pre-fills it. `body` is still set as a plain-text fallback for
+    /// recipients on SMS / non-iMessage handles.
     struct PendingMessage: Identifiable {
         let id = UUID()
         let recipients: [String]
         let body: String
+        var message: MSMessage? = nil
     }
 
     /// A tapped search result staged for the detail card. Carries the map item
@@ -304,7 +310,9 @@ struct OnboardingView: View {
                     case .invite:
                         ActivityView(items: [Self.inviteText]) { activeSheet = nil }
                     case .message(let pending):
-                        MessageComposeSheet(recipients: pending.recipients, body: pending.body) {
+                        MessageComposeSheet(recipients: pending.recipients,
+                                            body: pending.body,
+                                            message: pending.message) {
                             activeSheet = nil
                         }
                     case .spot(let selection):
@@ -1152,18 +1160,66 @@ struct OnboardingView: View {
 
     // MARK: - Friends
 
-    /// Logs a ping and opens the SMS composer when the friend has a handle the
-    /// device can text; otherwise copies the invite and toasts.
+    /// Pings a friend with a Tween-styled "I'm in" iMessage bubble pre-filled
+    /// in the composer (not a plain text). On iMessage the recipient sees the
+    /// full rich bubble — same UX as if it had been composed from inside the
+    /// Messages extension. SMS-only handles still see `Self.inviteText` as a
+    /// plain-text fallback.
+    ///
+    /// Falls back to plain text if (a) we have no fresh self coord to put in
+    /// the bubble, (b) MSMessage rendering fails, or (c) the device can't send
+    /// text at all (no SIM / no iMessage).
     private func pingFriend(_ friend: TweenFriend) {
         PingLog.logPing(for: friend.id)
         pingTick += 1
 
-        if let handle = friend.handle, MFMessageComposeViewController.canSendText() {
-            activeSheet = .message(PendingMessage(recipients: [handle], body: Self.inviteText))
-        } else {
+        guard let handle = friend.handle, MFMessageComposeViewController.canSendText() else {
             UIPasteboard.general.string = Self.inviteText
             let reason = friend.handle == nil ? "No phone number" : "Messages unavailable"
             showToast("\(reason) - invite copied for \(friend.name)")
+            return
+        }
+
+        // If we don't have a self coord yet, fall back to the plain-text
+        // composer immediately — no point waiting on a snapshot for an empty
+        // map. The user can still tap "I'm in" themselves once they open Tween.
+        guard let myCoord = LocationCache.loadSelf()?.coordinate else {
+            activeSheet = .message(PendingMessage(recipients: [handle], body: Self.inviteText))
+            return
+        }
+
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let state = TweenState(
+            text: "I'm in",
+            latitude: myCoord.latitude,
+            longitude: myCoord.longitude,
+            senderName: UserProfile.displayName,
+            kind: .participant,
+            messageType: .invite,
+            participants: [Participant(id: myName, name: myName, coordinate: myCoord)]
+        )
+
+        // Render the bubble image off the main actor (it's an MKMapSnapshotter
+        // round-trip — usually under a second, but we don't want to block).
+        // Once ready, build the MSMessage on the main actor and present.
+        Task { @MainActor in
+            let image = await BubbleImageRenderer.makeImage(
+                state: state,
+                participants: state.participants,
+                localName: myName)
+
+            let layout = MSMessageTemplateLayout()
+            layout.image = image
+            BubbleCaption.apply(to: layout, state: state, totalSeats: 2)
+
+            let message = MSMessage()
+            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.layout = layout
+
+            activeSheet = .message(PendingMessage(
+                recipients: [handle],
+                body: Self.inviteText,
+                message: message))
         }
     }
 
