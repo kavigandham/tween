@@ -664,14 +664,17 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func openAppleMaps(for state: TweenState) {
         let coordinate = state.coordinate
-        let query = state.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Meetup spot"
-        guard let url = URL(string: "maps://?daddr=\(coordinate.latitude),\(coordinate.longitude)&q=\(query)&dirflg=d") else { return }
-        extensionContext?.open(url, completionHandler: nil)
+        let placemark = MKPlacemark(coordinate: coordinate)
+        let item = MKMapItem(placemark: placemark)
+        item.name = state.text
+        item.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
     }
 
     private func openGoogleMaps(for state: TweenState) {
         let coordinate = state.coordinate
-        guard let url = URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinate.latitude),\(coordinate.longitude)&travelmode=driving") else { return }
+        guard let url = URL(string: "comgooglemaps://?q=\(coordinate.latitude),\(coordinate.longitude)") else { return }
         extensionContext?.open(url, completionHandler: nil)
     }
 }
