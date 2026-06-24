@@ -228,13 +228,19 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     /// Opens Apple Maps with driving directions to the agreed-upon spot.
-    /// Uses the universal-link form (http://maps.apple.com/?daddr=…&dirflg=d)
-    /// rather than MKMapItem.openInMaps because the latter is unreliable
-    /// from inside an iMessage extension — extensionContext.open dispatches
-    /// to the system URL handler which always routes to Apple Maps.
+    /// Uses the `maps://` custom URL scheme — Apple's canonical Apple Maps
+    /// scheme that always launches Apple Maps from extension context. The
+    /// http://maps.apple.com universal-link form relies on iOS' UL resolution
+    /// which can fall through to "open the containing app" instead of Maps
+    /// from inside an MSMessagesAppViewController — the bug the customer
+    /// reported. `maps://` removes that branch entirely.
+    ///
+    /// MKMapItem.openInMaps is not an option from an extension because it
+    /// calls UIApplication.shared.open under the hood, which extensions
+    /// can't access.
     private func openDirections(for state: TweenState) {
         let q = state.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Spot"
-        let urlString = "http://maps.apple.com/?daddr=\(state.latitude),\(state.longitude)&q=\(q)&dirflg=d"
+        let urlString = "maps://?daddr=\(state.latitude),\(state.longitude)&q=\(q)&dirflg=d"
         guard let url = URL(string: urlString) else { return }
         extensionContext?.open(url) { [weak self] success in
             if !success {
