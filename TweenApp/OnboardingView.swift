@@ -362,10 +362,24 @@ struct OnboardingView: View {
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
             if phase != .active { searchTask?.cancel() }
+            // When the user comes back to the host app (typically after
+            // tapping "I'm in" in the iMessage extension), refresh from the
+            // App Group BEFORE the next paint. Without this the user briefly
+            // sees stale isUserIn / pin state until pollPeer's next 300 ms
+            // tick, which reads as "the extension didn't sync." Cross-process
+            // UserDefaults.didChangeNotification doesn't fire for extension
+            // writes, so this scene-resume callback is the immediate hook.
+            if phase == .active {
+                _ = refreshFromAppGroup()
+            }
         }
         .task { await pollPeer() }
         .task { requestInitialLocation() }
+        .onAppear { _ = refreshFromAppGroup() }
         .onReceive(appGroupDidChangePublisher) { _ in
+            // Catches in-process writes (e.g. host app's own "I'm in" button).
+            // Extension writes don't fire this — see pollPeer + scenePhase
+            // handler above for the cross-process path.
             Task { @MainActor in
                 _ = refreshFromAppGroup()
             }
