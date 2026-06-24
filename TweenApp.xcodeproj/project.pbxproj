@@ -513,6 +513,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -529,6 +530,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -683,6 +685,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppUITests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -716,6 +719,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kavigandham.TweenApp.TweenAppUITests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
