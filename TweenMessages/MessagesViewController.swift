@@ -28,10 +28,6 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// recent message we've seen. Persists across renders so an outgoing send
     /// can append the local user without losing prior participants.
     private var currentParticipants: [Participant] = []
-    /// Names that have agreed to the current proposal, as reported by the
-    /// latest received message. Empty for invite/propose/counter, growing for
-    /// agree messages.
-    private var currentAgreedNames: [String] = []
     /// Total seats in this iMessage conversation (you + remote participants).
     /// Used by Compact/ExpandedView for "X of Y ready" copy. Available only
     /// while the extension is active.
@@ -144,26 +140,36 @@ final class MessagesViewController: MSMessagesAppViewController {
             currentParticipants = state.participants
             LocationCache.saveParticipants(state.participants)
         }
-        currentAgreedNames = state.agreedNames
 
-        // Legacy single-peer cache: write the most recent non-self coordinate
-        // so OnboardingView's polling (still on loadPeer) keeps animating
-        // until Slice 6.
-        let myName = UserProfile.displayName
-        let peer = state.participants.first(where: { $0.name != myName })
-            ?? (state.kind == .participant ? state.participants.first : nil)
-        if let peer {
+        // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
+        // so OnboardingView's polling keeps animating. The name comparison MUST
+        // use the same fallback the host app uses (UserName.fallback = "You");
+        // without it, when UserProfile.displayName is nil, every participant's
+        // non-nil name wins the != comparison and the first entry — possibly
+        // the LOCAL user — leaks into the peer cache. That was Bug #4.
+        let myName = Self.localParticipantName()
+        if let peer = state.participants.first(where: { $0.name != myName }) {
             LocationCache.savePeer(peer.coordinate, isActive: true)
             logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
             return true
         }
         // Legacy fallback for pre-group bubbles where participants[] is empty.
-        if let peerCoord = state.participantCoordinate {
+        // We trust state.participantCoordinate here because the sender filtered
+        // out their own message via senderParticipantIdentifier (guard above) —
+        // so this coord IS the remote user's.
+        if state.participants.isEmpty, let peerCoord = state.participantCoordinate {
             LocationCache.savePeer(peerCoord, isActive: true)
             return true
         }
-        logger.debug("Incoming message did not include a peer coordinate")
+        logger.debug("Incoming message had no non-local participant; peer cache untouched")
         return false
+    }
+
+    /// The local user's display name, with the same fallback the host app
+    /// uses. Centralised so every name-based filter agrees on what counts as
+    /// "me" — drifting between call sites was the root of Bug #4.
+    static func localParticipantName() -> String {
+        UserProfile.displayName ?? UserName.fallback
     }
 
     /// Builds the next outgoing participant list by removing any prior entry
@@ -172,7 +178,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// conversation-scoped UUID can't be carried inside the URL.
     private func nextParticipantList(myCoord: CLLocationCoordinate2D,
                                      conversation: MSConversation?) -> [Participant] {
-        let myName = UserProfile.displayName ?? UserName.fallback
+        let myName = Self.localParticipantName()
         let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
         let others = currentParticipants.filter { $0.name != myName }
         let me = Participant(id: myId, name: myName, coordinate: myCoord)
@@ -271,7 +277,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         // Build the ranking participants array: my cached coord plus everyone
         // else in currentParticipants (filtered to avoid duplicating me).
-        let myName = UserProfile.displayName ?? UserName.fallback
+        let myName = Self.localParticipantName()
         let others = currentParticipants.filter { $0.name != myName }
         var participants = others
         if let mySelf = LocationCache.loadSelf()?.coordinate {
@@ -407,7 +413,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderCoordinate = LocationCache.loadSelf()?.coordinate
             }
 
-            let myName = UserProfile.displayName ?? UserName.fallback
+            let myName = Self.localParticipantName()
             // Build the forward participants list. The proposed bubble's
             // participants are authoritative; refresh my entry's coord.
             var participants = proposed.participants.isEmpty
