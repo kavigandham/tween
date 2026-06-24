@@ -227,28 +227,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         abs(a.longitude - b.longitude) < 1e-4
     }
 
-    /// Opens Apple Maps with driving directions to the agreed-upon spot.
-    /// Uses the `maps://` custom URL scheme — Apple's canonical Apple Maps
-    /// scheme that always launches Apple Maps from extension context. The
-    /// http://maps.apple.com universal-link form relies on iOS' UL resolution
-    /// which can fall through to "open the containing app" instead of Maps
-    /// from inside an MSMessagesAppViewController — the bug the customer
-    /// reported. `maps://` removes that branch entirely.
-    ///
-    /// MKMapItem.openInMaps is not an option from an extension because it
-    /// calls UIApplication.shared.open under the hood, which extensions
-    /// can't access.
-    private func openDirections(for state: TweenState) {
-        let q = state.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Spot"
-        let urlString = "maps://?daddr=\(state.latitude),\(state.longitude)&q=\(q)&dirflg=d"
-        guard let url = URL(string: urlString) else { return }
-        extensionContext?.open(url) { [weak self] success in
-            if !success {
-                self?.logger.error("Failed to open Apple Maps for directions")
-            }
-        }
-    }
-
     /// Builds the next outgoing participant list by removing any prior entry
     /// for the local user (matched by name) and appending a fresh one with the
     /// current coordinate. Cross-message identity is by name because the
@@ -290,8 +268,9 @@ final class MessagesViewController: MSMessagesAppViewController {
                     },
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() },
-                    onGetDirections: { [weak self] state in self?.openDirections(for: state) },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
+                    onOpenAppleMaps: { [weak self] state in self?.openAppleMaps(for: state) },
+                    onOpenGoogleMaps: { [weak self] state in self?.openGoogleMaps(for: state) },
                     isSending: isSending,
                     statusMessage: sendStatusMessage
                 )
@@ -536,9 +515,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
             // Don't dismiss after an agree send — instead, lock in the local
             // view as the terminal MEETUP SET so the agreer immediately sees
-            // "It's a plan!" with Get Directions, rather than being bounced
-            // back to the iMessage thread. The receiver gets the same view
-            // via didReceive → presentUI.
+            // "It's a plan!" with map-app direction choices, rather than being
+            // bounced back to the iMessage thread. The receiver gets the same
+            // view via didReceive → presentUI.
             await insertBubble(for: state, dismissAfterInsert: false)
             // Persist the agreement so re-opening the extension (after iOS
             // dispose, or after the user collapses + re-taps) re-renders
@@ -680,6 +659,19 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func openFullAppSearch() {
         guard let url = URL(string: "tween://search") else { return }
+        extensionContext?.open(url, completionHandler: nil)
+    }
+
+    private func openAppleMaps(for state: TweenState) {
+        let coordinate = state.coordinate
+        let query = state.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Meetup spot"
+        guard let url = URL(string: "maps://?daddr=\(coordinate.latitude),\(coordinate.longitude)&q=\(query)&dirflg=d") else { return }
+        extensionContext?.open(url, completionHandler: nil)
+    }
+
+    private func openGoogleMaps(for state: TweenState) {
+        let coordinate = state.coordinate
+        guard let url = URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinate.latitude),\(coordinate.longitude)&travelmode=driving") else { return }
         extensionContext?.open(url, completionHandler: nil)
     }
 }

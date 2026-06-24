@@ -355,11 +355,10 @@ struct ExpandedView: View {
     var onSelectSpot: (RankedSpot) -> Void
     var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
-    /// Fired by the MEETUP SET view's Get Directions button. The TweenState
-    /// is the fully-agreed bubble carrying the spot name + coord; the host
-    /// opens Apple Maps with driving directions.
-    var onGetDirections: (TweenState) -> Void = { _ in }
     var onOpenFullApp: () -> Void = {}
+    /// Fired by the MEETUP SET view's map-app buttons.
+    var onOpenAppleMaps: (TweenState) -> Void = { _ in }
+    var onOpenGoogleMaps: (TweenState) -> Void = { _ in }
     var isSending: Bool = false
     var statusMessage: String?
 
@@ -413,7 +412,7 @@ struct ExpandedView: View {
 
     /// Terminal state — everyone the proposer needs has agreed. Once true,
     /// the body swaps from the spot-list/agree-or-change UI to the dedicated
-    /// MEETUP SET hero with a single Get Directions CTA. No more negotiation.
+    /// MEETUP SET hero with map-app choices. No more negotiation.
     private var isMeetupSet: Bool {
         guard let received else { return false }
         return received.messageType == .agree && received.isFullyAgreed
@@ -429,7 +428,7 @@ struct ExpandedView: View {
             // scrollable spot list (~40%). The map can't live inside a vertical
             // ScrollView — its pan gesture would fight the scroll — so it gets its
             // own fixed slice here instead. When the meetup is set, the bottom
-            // half becomes a celebratory hero with the Get Directions CTA
+            // half becomes a celebratory hero with map-app direction choices
             // instead of the spot list (negotiation is over).
             GeometryReader { geo in
                 VStack(spacing: 0) {
@@ -450,7 +449,7 @@ struct ExpandedView: View {
 
             primaryCTA
                 .padding(Tokens.Spacing.s4)
-            openFullAppButton
+            bottomAction
                 .padding(.horizontal, Tokens.Spacing.s4)
                 .padding(.bottom, Tokens.Spacing.s3)
         }
@@ -773,7 +772,7 @@ struct ExpandedView: View {
 
     /// MEETUP SET — the terminal hero shown when the bubble's messageType is
     /// `.agree` and every non-proposer participant has agreed. No more
-    /// Agree/Change buttons; the only action is Get Directions.
+    /// Agree/Change buttons; the only actions are map-app direction choices.
     private func meetupSetView(state: TweenState) -> some View {
         VStack(spacing: Tokens.Spacing.s3) {
             HStack(spacing: Tokens.Spacing.s2) {
@@ -794,18 +793,10 @@ struct ExpandedView: View {
                     .multilineTextAlignment(.center)
             }
             Spacer(minLength: Tokens.Spacing.s2)
-            Button {
-                sendTick += 1
-                onGetDirections(state)
-            } label: {
-                Label("Get Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.tweenPrimary())
+            directionButtons(for: state)
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.bottom, Tokens.Spacing.s4)
             .sensoryFeedback(.success, trigger: isMeetupSet)
-            .accessibilityHint("Opens Apple Maps with driving directions to \(state.text)")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, Tokens.Spacing.s4)
@@ -952,31 +943,35 @@ struct ExpandedView: View {
                 .opacity(0.6)
                 .accessibilityHint("Negotiation in progress — no action needed from you")
             } else if let received, received.kind == .place {
-                HStack(spacing: Tokens.Spacing.s2) {
-                    Button {
-                        sendTick += 1
-                        onAgreePlace(received)
-                    } label: {
-                        Label("Agree", systemImage: "checkmark.circle.fill")
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.tweenPrimary())
-                    .accessibilityHint("Sends that you agree to meet at \(received.text)")
-
-                    Button {
-                        sendTick += 1
-                        if let spot = selectedSpot {
-                            onSelectSpot(spot)
-                        } else if let first = rankedSpots.first {
-                            select(first, animateMap: true)
+                if received.isFullyAgreed {
+                    directionButtons(for: received)
+                } else {
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        Button {
+                            sendTick += 1
+                            onAgreePlace(received)
+                        } label: {
+                            Label("Agree", systemImage: "checkmark.circle.fill")
+                                .lineLimit(1)
                         }
-                    } label: {
-                        Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
-                            .lineLimit(1)
+                        .buttonStyle(.tweenPrimary())
+                        .accessibilityHint("Sends that you agree to meet at \(received.text)")
+
+                        Button {
+                            sendTick += 1
+                            if let spot = selectedSpot {
+                                onSelectSpot(spot)
+                            } else if let first = rankedSpots.first {
+                                select(first, animateMap: true)
+                            }
+                        } label: {
+                            Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary(.subtle))
+                        .disabled(rankedSpots.isEmpty)
+                        .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
                     }
-                    .buttonStyle(.tweenPrimary(.subtle))
-                    .disabled(rankedSpots.isEmpty)
-                    .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
                 }
             } else if !isUserIn {
                 Button(action: onImIn) {
@@ -1014,6 +1009,39 @@ struct ExpandedView: View {
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)
+    }
+
+    @ViewBuilder
+    private var bottomAction: some View {
+        if let received, received.kind == .place, received.isFullyAgreed {
+            EmptyView()
+        } else {
+            openFullAppButton
+        }
+    }
+
+    private func directionButtons(for state: TweenState) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Button {
+                sendTick += 1
+                onOpenAppleMaps(state)
+            } label: {
+                Label("Apple Maps", systemImage: "map")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary())
+            .accessibilityHint("Opens driving directions to \(state.text) in Apple Maps")
+
+            Button {
+                sendTick += 1
+                onOpenGoogleMaps(state)
+            } label: {
+                Label("Google Maps", systemImage: "globe")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .accessibilityHint("Opens driving directions to \(state.text) in Google Maps")
+        }
     }
 
     private var openFullAppButton: some View {
