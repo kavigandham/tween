@@ -229,8 +229,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                     },
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() },
-                    onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
                     onGetDirections: { [weak self] state in self?.openDirections(for: state) },
+                    onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
                     isSending: isSending,
                     statusMessage: sendStatusMessage
                 )
