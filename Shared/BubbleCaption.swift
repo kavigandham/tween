@@ -25,6 +25,10 @@ enum BubbleCaption {
                 layout.subcaption = "Tap to join"
             }
 
+        case .leave:
+            layout.caption = "\(name) is out"
+            layout.subcaption = inCount > 0 ? "\(inCount) still ready" : "Tap to join"
+
         case .propose:
             layout.caption = "\(name) suggests \(state.text)"
             layout.subcaption = "Tap to see the route"

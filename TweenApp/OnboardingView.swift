@@ -1654,13 +1654,22 @@ struct OnboardingView: View {
             logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
         }
         // Refresh participants array too so the group view sees everyone "in".
-        if !state.participants.isEmpty {
+        // A `.leave` message may intentionally carry an empty roster.
+        if !state.participants.isEmpty || state.messageType == .leave {
             LocationCache.saveParticipants(state.participants)
+            let myName = UserProfile.displayName ?? UserName.fallback
+            if let firstRemote = state.participants.first(where: { $0.name != myName }) {
+                LocationCache.savePeer(firstRemote.coordinate, isActive: true)
+                peerCoordinate = firstRemote.coordinate
+            } else {
+                LocationCache.setPeerActive(false)
+                peerCoordinate = nil
+            }
         }
         // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
         // proposals, and agrees from a peer. Plain `tween://search` deep links
         // (handled above) and self-opened URLs shouldn't inflate the banner.
-        if state.kind == .participant || state.messageType == .agree {
+        if state.kind == .participant || state.messageType == .agree || state.messageType == .leave {
             PingLog.lastIncomingReplyAt = Date()
             lastReplyAt = PingLog.lastIncomingReplyAt
         }
@@ -1710,6 +1719,11 @@ struct OnboardingView: View {
             // reframe; the user sees the friend's pin and decides what to
             // do (tap I'm in themselves, search a spot, etc).
             reframe()
+
+        case .leave:
+            reframe()
+            let who = state.senderName ?? "Your friend"
+            showToast("\(who) is out.")
         }
     }
 

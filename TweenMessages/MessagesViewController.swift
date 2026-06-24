@@ -147,12 +147,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         //   - others → leave the cache alone
         if state.messageType == .agree, state.isFullyAgreed {
             LocationCache.saveAgreedMeetup(state)
-        } else if state.messageType == .counter {
+        } else if state.messageType == .counter || state.messageType == .leave {
             LocationCache.clearAgreedMeetup()
         }
 
         // Roster snapshot: trust the incoming list verbatim.
-        if !state.participants.isEmpty {
+        if !state.participants.isEmpty || state.messageType == .leave {
             currentParticipants = state.participants
             LocationCache.saveParticipants(state.participants)
         }
@@ -168,6 +168,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             LocationCache.savePeer(peer.coordinate, isActive: true)
             logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
             return true
+        } else if !state.participants.isEmpty || state.messageType == .leave {
+            LocationCache.setPeerActive(false)
         }
         // Legacy fallback for pre-group bubbles where participants[] is empty.
         // We trust state.participantCoordinate here because the sender filtered
@@ -235,9 +237,16 @@ final class MessagesViewController: MSMessagesAppViewController {
                                      conversation: MSConversation?) -> [Participant] {
         let myName = Self.localParticipantName()
         let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
-        let others = currentParticipants.filter { $0.name != myName }
+        let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
+        let others = source.filter { $0.name != myName }
         let me = Participant(id: myId, name: myName, coordinate: myCoord)
         return others + [me]
+    }
+
+    private func participantListWithoutMe() -> [Participant] {
+        let myName = Self.localParticipantName()
+        let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
+        return source.filter { $0.name != myName }
     }
 
     // MARK: - Hosting
@@ -259,6 +268,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     useStaticMap: mapDegraded,
                     draft: draft,
                     onImIn: { [weak self] in self?.handleImIn() },
+                    onImOut: { [weak self] in self?.handleImOut() },
                     onSelectSpot: { [weak self] spot in
                         if self?.received?.kind == .place {
                             self?.sendCounter(spot)
@@ -283,6 +293,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
+                    onImOut: { [weak self] in self?.handleImOut() },
                     onExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
                 )
             )
@@ -337,11 +348,17 @@ final class MessagesViewController: MSMessagesAppViewController {
         let myName = Self.localParticipantName()
         let others = currentParticipants.filter { $0.name != myName }
         var participants = others
-        if let mySelf = LocationCache.loadSelf()?.coordinate {
+        if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
             let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
             participants.append(Participant(id: myId, name: myName, coordinate: mySelf))
         }
-        guard participants.count >= 2 else { return }
+        guard participants.count >= 2 else {
+            if !rankedSpots.isEmpty {
+                rankedSpots = []
+                presentUI(for: presentationStyle)
+            }
+            return
+        }
 
         let center = MapGeometry.centroid(of: participants)
         // Search radius widens as the group spreads out.
@@ -428,6 +445,44 @@ final class MessagesViewController: MSMessagesAppViewController {
             // where we're already expanded and no transition fires.
             requestPresentationStyle(.expanded)
             kickOffRanking()
+        }
+    }
+
+    /// Removes the local user from the active roster and sends a canonical
+    /// `.leave` snapshot so every recipient stops ranking this participant.
+    private func handleImOut() {
+        sendTask?.cancel()
+        sendTask = Task { @MainActor in
+            isSending = true
+            sendStatusMessage = "Leaving this meetup..."
+            presentUI(for: presentationStyle)
+
+            let participants = participantListWithoutMe()
+            currentParticipants = participants
+            LocationCache.saveParticipants(participants)
+            LocationCache.deactivateSelf()
+            if participants.isEmpty {
+                LocationCache.setPeerActive(false)
+            }
+            rankedSpots = []
+
+            let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
+                ?? participants.first?.coordinate
+                ?? MapGeometry.defaultCenter
+            let state = TweenState(
+                text: "I'm out",
+                latitude: fallbackCoordinate.latitude,
+                longitude: fallbackCoordinate.longitude,
+                senderName: UserProfile.displayName,
+                kind: .participant,
+                messageType: .leave,
+                participants: participants
+            )
+            logger.debug("Encoding I'm out reply participants=\(participants.count, privacy: .public)")
+            let didSend = await insertBubble(for: state, dismissAfterInsert: true)
+            isSending = false
+            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            presentUI(for: presentationStyle)
         }
     }
 
@@ -674,22 +729,23 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func openGoogleMaps(for state: TweenState) {
         let coordinate = state.coordinate
-        let origin: String
-        if let selfCoordinate = LocationCache.loadSelf()?.coordinate {
-            origin = "\(selfCoordinate.latitude),\(selfCoordinate.longitude)"
-        } else {
-            origin = "Current Location"
+        var queryItems = [
+            URLQueryItem(name: "daddr", value: "\(coordinate.latitude),\(coordinate.longitude)"),
+            URLQueryItem(name: "directionsmode", value: "driving")
+        ]
+        if LocationCache.isActive, let selfCoordinate = LocationCache.loadSelf()?.coordinate {
+            queryItems.append(URLQueryItem(name: "saddr", value: "\(selfCoordinate.latitude),\(selfCoordinate.longitude)"))
         }
-        let destination = "\(state.text), \(coordinate.latitude),\(coordinate.longitude)"
-        let urlString = "https://www.google.com/maps/dir/\(googleMapsPathComponent(origin))/\(googleMapsPathComponent(destination))/?travelmode=driving"
-        guard let url = URL(string: urlString) else { return }
-        extensionContext?.open(url, completionHandler: nil)
-    }
-
-    private func googleMapsPathComponent(_ value: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~+,")
-        let plusSeparated = value.replacingOccurrences(of: " ", with: "+")
-        return plusSeparated.addingPercentEncoding(withAllowedCharacters: allowed) ?? plusSeparated
+        var components = URLComponents()
+        components.queryItems = queryItems
+        guard let query = components.percentEncodedQuery,
+              let url = URL(string: "comgooglemaps://?\(query)") else { return }
+        extensionContext?.open(url) { [weak self] didOpen in
+            guard !didOpen else { return }
+            DispatchQueue.main.async {
+                self?.sendStatusMessage = "Google Maps isn't installed."
+                self?.presentUI(for: self?.presentationStyle ?? .expanded)
+            }
+        }
     }
 }

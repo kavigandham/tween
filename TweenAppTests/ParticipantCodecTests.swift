@@ -191,6 +191,46 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertFalse(state.isFullyAgreed)
     }
 
+    // MARK: - Leaving
+
+    func testLeaveMessageRoundTripsWithUpdatedRoster() throws {
+        let remaining = [
+            Participant(id: "Bob", name: "Bob", latitude: 38.90, longitude: -77.35)
+        ]
+        let state = TweenState(
+            text: "I'm out",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .participant,
+            messageType: .leave,
+            participants: remaining
+        )
+        let url = try XCTUnwrap(state.encodedURL())
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.messageType, .leave)
+        XCTAssertEqual(decoded.participants, remaining)
+        XCTAssertNil(decoded.participantCoordinate)
+        XCTAssertFalse(decoded.representsParticipantLocation)
+    }
+
+    func testLeaveMessageCanCarryEmptyRoster() throws {
+        let state = TweenState(
+            text: "I'm out",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .participant,
+            messageType: .leave,
+            participants: []
+        )
+        let url = try XCTUnwrap(state.encodedURL())
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.messageType, .leave)
+        XCTAssertEqual(decoded.participants, [])
+        XCTAssertNil(decoded.participantCoordinate)
+    }
+
     // MARK: - Name escaping
 
     func testNameWithCommaSurvivesRoundTrip() throws {

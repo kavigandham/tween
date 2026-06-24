@@ -177,6 +177,7 @@ struct CompactView: View {
     var isSending: Bool = false
     var statusMessage: String?
     var onImIn: () -> Void
+    var onImOut: () -> Void = {}
     var onExpand: () -> Void
 
     var body: some View {
@@ -268,6 +269,9 @@ struct CompactView: View {
         if let statusMessage {
             return statusMessage
         }
+        if received?.messageType == .leave {
+            return isUserIn ? "They stepped out — you're still in" : "They stepped out"
+        }
         if received?.kind == .place {
             return isUserIn ? "Tap to view this meetup spot" : "Tap “I'm in” to share where you are"
         }
@@ -284,12 +288,21 @@ struct CompactView: View {
     private var imInControl: some View {
         Group {
             if isUserIn {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(Tokens.Typography.title2)
-                    .foregroundStyle(Tokens.Palette.success)
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.bounce, value: isUserIn)
-                    .accessibilityLabel("You're in")
+                Button(action: onImOut) {
+                    Label("I'm out", systemImage: "checkmark.circle.fill")
+                        .font(Tokens.Typography.subheadline.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .frame(minHeight: Tokens.Layout.minTapTarget)
+                        .foregroundStyle(Tokens.Palette.success)
+                        .background(Tokens.Palette.success.opacity(0.12), in: Capsule())
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: isUserIn)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("I'm out")
+                .accessibilityHint("Stops sharing you as active for this meetup")
             } else if isSending {
                 ProgressView()
                     .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
@@ -352,6 +365,7 @@ struct ExpandedView: View {
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
     var onImIn: () -> Void
+    var onImOut: () -> Void = {}
     var onSelectSpot: (RankedSpot) -> Void
     var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
@@ -505,6 +519,8 @@ struct ExpandedView: View {
         switch state.messageType {
         case .invite:
             return "You've been invited by"
+        case .leave:
+            return "\(name) is out"
         case .propose:
             return "\(name) chose"
         case .agree where isFullyAgreed:
@@ -522,6 +538,8 @@ struct ExpandedView: View {
             return "Tap for directions."
         case .agree:
             return "Open Tween to see all pings."
+        case .leave:
+            return "They are no longer active for this meetup."
         case .counter, .propose:
             return "Do you want to agree or change it?"
         case .invite:
@@ -534,6 +552,8 @@ struct ExpandedView: View {
         switch state.messageType {
         case .invite where count >= 2:
             return "\(count) ready"
+        case .leave:
+            return count > 0 ? "\(count) still ready" : "No one is in"
         case .agree where !state.agreedNames.isEmpty && !state.isFullyAgreed:
             let needed = max(count - 1, 1)
             return "\(state.agreedNames.count) of \(needed) agreed"
@@ -765,6 +785,8 @@ struct ExpandedView: View {
             return "\(proposer) picked this spot"
         case .counter:
             return "\(proposer) suggests this instead"
+        case .leave:
+            return "\(proposer) stepped out"
         case .invite:
             return ""
         }
@@ -1015,6 +1037,16 @@ struct ExpandedView: View {
     private var bottomAction: some View {
         if let received, received.kind == .place, received.isFullyAgreed {
             EmptyView()
+        } else if isUserIn {
+            HStack(spacing: Tokens.Spacing.s2) {
+                openFullAppButton
+                Button(action: onImOut) {
+                    Label("I'm out", systemImage: "location.slash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+                .accessibilityHint("Stops sharing you as active for this meetup")
+            }
         } else {
             openFullAppButton
         }

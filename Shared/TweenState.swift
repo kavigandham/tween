@@ -28,6 +28,7 @@ struct TweenState: Equatable {
 
     enum MessageType: String, Codable {
         case invite   // I'm joining the meetup (sharing my location)
+        case leave    // I'm leaving the meetup (removing my location)
         case propose  // I'm suggesting a place
         case agree    // I'm agreeing to the proposed place
         case counter  // I'm suggesting a different place (resets agreement)
@@ -71,11 +72,12 @@ struct TweenState: Equatable {
     }
 
     var participantCoordinate: CLLocationCoordinate2D? {
-        kind == .participant ? coordinate : senderCoordinate
+        guard messageType != .leave else { return nil }
+        return kind == .participant ? coordinate : senderCoordinate
     }
 
     var representsParticipantLocation: Bool {
-        kind == .participant
+        kind == .participant && messageType != .leave
     }
 
     /// True when every non-proposer participant has agreed to the current
