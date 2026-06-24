@@ -34,9 +34,13 @@ enum BubbleCaption {
                 layout.caption = "✓ Meeting at \(state.text)"
                 layout.subcaption = "Tap for directions"
             } else {
+                // `name` (from senderName) is the original proposer — the
+                // most recent agreer is `agreedNames.last`. Use that for the
+                // caption so users see who just confirmed.
+                let agreer = state.agreedNames.last ?? "Your friend"
                 let needed = max(state.participants.count - 1, 1)
                 let have = state.agreedNames.count
-                layout.caption = "\(name) agrees to \(state.text) (\(have) of \(needed))"
+                layout.caption = "\(agreer) agrees to \(state.text) (\(have) of \(needed))"
                 let missing = state.participants
                     .map(\.name)
                     .filter { $0 != state.senderName && !state.agreedNames.contains($0) }

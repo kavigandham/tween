@@ -355,6 +355,10 @@ struct ExpandedView: View {
     var onSelectSpot: (RankedSpot) -> Void
     var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
+    /// Fired by the MEETUP SET view's Get Directions button. The TweenState
+    /// is the fully-agreed bubble carrying the spot name + coord; the host
+    /// opens Apple Maps with driving directions.
+    var onGetDirections: (TweenState) -> Void = { _ in }
     var onOpenFullApp: () -> Void = {}
     var isSending: Bool = false
     var statusMessage: String?
@@ -407,6 +411,14 @@ struct ExpandedView: View {
         selfCoord != nil || peerCoord != nil || receivedPlaceCoord != nil || draft != nil || !rankedSpots.isEmpty
     }
 
+    /// Terminal state — everyone the proposer needs has agreed. Once true,
+    /// the body swaps from the spot-list/agree-or-change UI to the dedicated
+    /// MEETUP SET hero with a single Get Directions CTA. No more negotiation.
+    private var isMeetupSet: Bool {
+        guard let received else { return false }
+        return received.messageType == .agree && received.isFullyAgreed
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
@@ -416,16 +428,23 @@ struct ExpandedView: View {
             // Split the space between the interactive map (~60%) and the
             // scrollable spot list (~40%). The map can't live inside a vertical
             // ScrollView — its pan gesture would fight the scroll — so it gets its
-            // own fixed slice here instead.
+            // own fixed slice here instead. When the meetup is set, the bottom
+            // half becomes a celebratory hero with the Get Directions CTA
+            // instead of the spot list (negotiation is over).
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     mapSection
                         .frame(height: geo.size.height * 0.6)
-                    VStack(spacing: 0) {
-                        proposedPlacePanel
-                        spotList
+                    if isMeetupSet, let received {
+                        meetupSetView(state: received)
+                            .frame(height: geo.size.height * 0.4)
+                    } else {
+                        VStack(spacing: 0) {
+                            proposedPlacePanel
+                            spotList
+                        }
+                            .frame(height: geo.size.height * 0.4)
                     }
-                        .frame(height: geo.size.height * 0.4)
                 }
             }
 
@@ -708,7 +727,8 @@ struct ExpandedView: View {
 
     @ViewBuilder
     private var proposedPlacePanel: some View {
-        if let received, received.kind == .place {
+        // Hidden when the meetup is set — the body swaps to meetupSetView.
+        if let received, received.kind == .place, !isMeetupSet {
             HStack(spacing: Tokens.Spacing.s3) {
                 TweenPin(role: .fairSpot, animated: false)
                     .scaleEffect(0.82)
@@ -716,11 +736,9 @@ struct ExpandedView: View {
                     Text(received.text)
                         .font(Tokens.Typography.headline)
                         .lineLimit(1)
-                    if let name = received.senderName, !name.isEmpty {
-                        Text(received.action == .agree ? "\(name) agreed to this spot" : "\(name) picked this spot")
-                            .font(Tokens.Typography.caption)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                    }
+                    Text(panelSubcopy(for: received))
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -728,8 +746,70 @@ struct ExpandedView: View {
             .padding(.vertical, Tokens.Spacing.s3)
             .background(Tokens.Palette.pinFair.opacity(0.14))
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(received.text), picked by \(received.senderName ?? "your friend")")
+            .accessibilityLabel("\(received.text) — \(panelSubcopy(for: received))")
         }
+    }
+
+    /// Subcopy under the spot name in the proposed-place panel. Uses
+    /// `messageType` (the canonical source) and pulls the agreer's name from
+    /// `agreedNames.last` rather than `senderName`, which is the original
+    /// proposer's identity on every bubble in the chain.
+    private func panelSubcopy(for received: TweenState) -> String {
+        let proposer = received.senderName ?? "Your friend"
+        switch received.messageType {
+        case .agree:
+            // Partial-agree case (group, not everyone agreed yet). Fully-agreed
+            // never reaches here because the panel is hidden via isMeetupSet.
+            let agreer = received.agreedNames.last ?? "Your friend"
+            return "\(agreer) agreed — waiting on the rest"
+        case .propose:
+            return "\(proposer) picked this spot"
+        case .counter:
+            return "\(proposer) suggests this instead"
+        case .invite:
+            return ""
+        }
+    }
+
+    /// MEETUP SET — the terminal hero shown when the bubble's messageType is
+    /// `.agree` and every non-proposer participant has agreed. No more
+    /// Agree/Change buttons; the only action is Get Directions.
+    private func meetupSetView(state: TweenState) -> some View {
+        VStack(spacing: Tokens.Spacing.s3) {
+            HStack(spacing: Tokens.Spacing.s2) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(Tokens.Typography.title2)
+                    .foregroundStyle(Tokens.Palette.success)
+                Text("It's a plan!")
+                    .font(Tokens.Typography.title2.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+            }
+            VStack(spacing: 2) {
+                Text("Meeting at")
+                    .font(Tokens.Typography.callout)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                Text(state.text)
+                    .font(Tokens.Typography.title)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer(minLength: Tokens.Spacing.s2)
+            Button {
+                sendTick += 1
+                onGetDirections(state)
+            } label: {
+                Label("Get Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.tweenPrimary())
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .padding(.bottom, Tokens.Spacing.s4)
+            .sensoryFeedback(.success, trigger: isMeetupSet)
+            .accessibilityHint("Opens Apple Maps with driving directions to \(state.text)")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, Tokens.Spacing.s4)
+        .background(Tokens.Palette.success.opacity(0.10))
     }
 
     private var spotList: some View {
@@ -845,6 +925,32 @@ struct ExpandedView: View {
                 }
                 .buttonStyle(.tweenPrimary())
                 .accessibilityHint("Drops \(draft.spotName) into your conversation")
+            } else if isMeetupSet {
+                // Terminal state — meetupSetView above already renders the Get
+                // Directions button, so the CTA bar is empty here. Spacer keeps
+                // the bottom padding consistent.
+                EmptyView()
+            } else if let received, received.messageType == .agree {
+                // Group / partial-agree case: bubble carries an agree but not
+                // everyone's in yet. The local user can't agree again to their
+                // own outgoing agree, and the negotiation isn't done — so we
+                // show a disabled "waiting for X" pill rather than the Agree
+                // / Change pair.
+                let myName = UserProfile.displayName ?? UserName.fallback
+                let missing = received.participants
+                    .map(\.name)
+                    .filter { $0 != received.senderName && !received.agreedNames.contains($0) && $0 != myName }
+                Button {} label: {
+                    Label(missing.isEmpty
+                            ? "Waiting for your friend"
+                            : "Waiting for \(missing.joined(separator: ", "))",
+                          systemImage: "hourglass")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.tweenPrimary())
+                .disabled(true)
+                .opacity(0.6)
+                .accessibilityHint("Negotiation in progress — no action needed from you")
             } else if let received, received.kind == .place {
                 HStack(spacing: Tokens.Spacing.s2) {
                     Button {

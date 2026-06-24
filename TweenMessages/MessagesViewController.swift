@@ -172,6 +172,22 @@ final class MessagesViewController: MSMessagesAppViewController {
         UserProfile.displayName ?? UserName.fallback
     }
 
+    /// Opens Apple Maps with driving directions to the agreed-upon spot.
+    /// Uses the universal-link form (http://maps.apple.com/?daddr=…&dirflg=d)
+    /// rather than MKMapItem.openInMaps because the latter is unreliable
+    /// from inside an iMessage extension — extensionContext.open dispatches
+    /// to the system URL handler which always routes to Apple Maps.
+    private func openDirections(for state: TweenState) {
+        let q = state.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Spot"
+        let urlString = "http://maps.apple.com/?daddr=\(state.latitude),\(state.longitude)&q=\(q)&dirflg=d"
+        guard let url = URL(string: urlString) else { return }
+        extensionContext?.open(url) { [weak self] success in
+            if !success {
+                self?.logger.error("Failed to open Apple Maps for directions")
+            }
+        }
+    }
+
     /// Builds the next outgoing participant list by removing any prior entry
     /// for the local user (matched by name) and appending a fresh one with the
     /// current coordinate. Cross-message identity is by name because the
@@ -214,6 +230,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
+                    onGetDirections: { [weak self] state in self?.openDirections(for: state) },
                     isSending: isSending,
                     statusMessage: sendStatusMessage
                 )
@@ -439,11 +456,15 @@ final class MessagesViewController: MSMessagesAppViewController {
             var agreed = proposed.agreedNames
             if !agreed.contains(myName) { agreed.append(myName) }
 
+            // Preserve the ORIGINAL proposer's name in senderName so the
+            // receiving end's `isFullyAgreed` (which derives the proposer
+            // from senderName) computes correctly. The agreer's identity
+            // travels in agreedNames — last entry is the most recent agreer.
             let state = TweenState(
                 text: proposed.text,
                 latitude: proposed.latitude,
                 longitude: proposed.longitude,
-                senderName: UserProfile.displayName,
+                senderName: proposed.senderName ?? UserProfile.displayName,
                 kind: .place,
                 senderCoordinate: senderCoordinate,
                 action: .agree,
@@ -452,7 +473,14 @@ final class MessagesViewController: MSMessagesAppViewController {
                 agreedNames: agreed
             )
             logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
-            await insertBubble(for: state, dismissAfterInsert: true)
+            // Don't dismiss after an agree send — instead, lock in the local
+            // view as the terminal MEETUP SET so the agreer immediately sees
+            // "It's a plan!" with Get Directions, rather than being bounced
+            // back to the iMessage thread. The receiver gets the same view
+            // via didReceive → presentUI.
+            await insertBubble(for: state, dismissAfterInsert: false)
+            self.received = state
+            self.presentUI(for: self.presentationStyle)
         }
     }
 
