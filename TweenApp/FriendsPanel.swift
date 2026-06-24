@@ -19,6 +19,23 @@ enum HomePanelTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// Subsections inside the Friends surface. Keeping this nested tab structure
+/// gives future group pickup / ride coordination a stable home without
+/// disturbing the existing friend roster flow.
+enum FriendsPanelTab: String, CaseIterable, Identifiable {
+    case people
+    case rides
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .people: return "People"
+        case .rides:  return "Rides"
+        }
+    }
+}
+
 /// Drives the rename flow. Held as optional state; non-nil presents the editor.
 enum FriendEditor: Identifiable {
     case rename(TweenFriend)

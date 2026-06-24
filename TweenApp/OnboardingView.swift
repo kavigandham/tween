@@ -80,6 +80,7 @@ struct OnboardingView: View {
 
     // Friends / social
     @State private var panelTab: HomePanelTab = .map
+    @State private var friendsPanelTab: FriendsPanelTab = .people
     @State private var friends: [TweenFriend] = FriendRoster.load()
     @State private var editorMode: FriendEditor?
     @State private var lastReplyAt: Date? = PingLog.lastIncomingReplyAt
@@ -656,6 +657,28 @@ struct OnboardingView: View {
     @ViewBuilder
     private var friendsPanel: some View {
         VStack(spacing: Tokens.Spacing.s3) {
+            Picker("Friends section", selection: $friendsPanelTab) {
+                ForEach(FriendsPanelTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .frame(minHeight: Tokens.Layout.minTapTarget)
+            .accessibilityHint("Switches between people and rides")
+
+            switch friendsPanelTab {
+            case .people:
+                peoplePanel
+            case .rides:
+                ridesPanel
+            }
+        }
+        .animation(Tokens.Motion.snappy, value: friendsPanelTab)
+    }
+
+    private var peoplePanel: some View {
+        VStack(spacing: Tokens.Spacing.s3) {
             HStack(spacing: Tokens.Spacing.s2) {
                 Image(systemName: "person.text.rectangle")
                     .foregroundStyle(Tokens.Palette.textSecondary)
@@ -721,6 +744,17 @@ struct OnboardingView: View {
                 .listStyle(.plain)
             }
         }
+    }
+
+    private var ridesPanel: some View {
+        VStack(spacing: Tokens.Spacing.s4) {
+            ContentUnavailableView(
+                "No Rides Yet",
+                systemImage: "car.2",
+                description: Text("Group pickup planning will appear here."))
+                .frame(maxHeight: .infinity)
+        }
+        .padding(.horizontal)
     }
 
     @ViewBuilder
