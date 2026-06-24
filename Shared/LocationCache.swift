@@ -19,7 +19,14 @@ enum LocationCache {
     private static let participantsKey = "tween.cache.participants"
 
     /// How long a cached coordinate is considered usable.
-    static let freshnessWindow: TimeInterval = 60 * 60 // 1 hour
+    ///
+    /// Was 1 hour, which routinely served stale fixes (last hour's coffee
+    /// shop) as the user's "current" location and read like a spoofing bug
+    /// to customers. 5 minutes is short enough that a user who's actively
+    /// moving (e.g. walking from work to the cafe) is rarely served a wrong
+    /// pin, while still long enough that a quick "I'm in" → open-app round
+    /// trip doesn't re-fetch unnecessarily.
+    static let freshnessWindow: TimeInterval = 5 * 60 // 5 minutes
 
     /// A single coordinate sample. The whole struct is encoded under one key.
     struct CachedCoord: Codable, Equatable {

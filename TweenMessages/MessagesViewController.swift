@@ -327,12 +327,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             sendStatusMessage = "Sharing your location..."
             presentUI(for: presentationStyle)
 
+            // Force a fresh fix on every explicit "I'm in" so the bubble
+            // carries the user's CURRENT location, not whatever happened to
+            // be in the cache (which could be ~5 min old). The cache is only
+            // the fallback when CoreLocation can't deliver a fresh fix in
+            // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
-            if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
-                coordinate = cached
-            } else if let fresh = await acquireLocation() {
+            if let fresh = await acquireLocation() {
                 LocationCache.save(fresh, isActive: true)
                 coordinate = fresh
+            } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
+                coordinate = cached
+                logger.debug("Used cached self coord (fresh fix unavailable)")
             } else {
                 isSending = false
                 sendStatusMessage = "Location unavailable. Check permission and try again."
@@ -403,12 +409,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func sendAgreedPlace(_ proposed: TweenState) {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
+            // Same fresh-fix-first policy as handleImIn: never agree with a
+            // stale coord that might land you in a worst-case route the
+            // ranker would have rejected.
             let senderCoordinate: CLLocationCoordinate2D?
-            if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
-                senderCoordinate = cached
-            } else if let fresh = await acquireLocation() {
-                LocationCache.save(fresh)
+            if let fresh = await acquireLocation() {
+                LocationCache.save(fresh, isActive: true)
                 senderCoordinate = fresh
+            } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
+                senderCoordinate = cached
             } else {
                 senderCoordinate = LocationCache.loadSelf()?.coordinate
             }
