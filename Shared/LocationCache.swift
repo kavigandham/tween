@@ -17,6 +17,7 @@ enum LocationCache {
     private static let selfActiveKey = "tween.cache.self.active"
     private static let peerActiveKey = "tween.cache.peer.active"
     private static let participantsKey = "tween.cache.participants"
+    private static let agreedMeetupKey = "tween.cache.agreedMeetup"
 
     /// How long a cached coordinate is considered usable.
     ///
@@ -120,6 +121,33 @@ enum LocationCache {
         defaults?.removeObject(forKey: participantsKey)
     }
 
+    // MARK: - Agreed meetup (terminal state of a negotiation)
+    //
+    // Once both sides have agreed on a spot, that agreement needs to persist
+    // across extension launches — otherwise re-opening the extension by
+    // tapping the older propose bubble would re-render the Agree/Change UI
+    // and let the user "agree again", which is the v1 customer report:
+    // "When both agreed, it didnt give a directions page, it gave back the
+    // agree or change page."
+    //
+    // Serialised via TweenState's URL encoder so we don't have to make
+    // TweenState Codable — the URL roundtrip is already covered by tests.
+
+    static func saveAgreedMeetup(_ state: TweenState) {
+        guard let url = state.encodedURL(scheme: "tween", host: "m") else { return }
+        defaults?.set(url.absoluteString, forKey: agreedMeetupKey)
+    }
+
+    static func loadAgreedMeetup() -> TweenState? {
+        guard let raw = defaults?.string(forKey: agreedMeetupKey),
+              let url = URL(string: raw) else { return nil }
+        return TweenState(url: url)
+    }
+
+    static func clearAgreedMeetup() {
+        defaults?.removeObject(forKey: agreedMeetupKey)
+    }
+
     // MARK: - Lifecycle
 
     static func clearAll() {
@@ -128,6 +156,7 @@ enum LocationCache {
         defaults?.removeObject(forKey: selfActiveKey)
         defaults?.removeObject(forKey: peerActiveKey)
         defaults?.removeObject(forKey: participantsKey)
+        defaults?.removeObject(forKey: agreedMeetupKey)
     }
 
     // MARK: - Atomic single-key codec

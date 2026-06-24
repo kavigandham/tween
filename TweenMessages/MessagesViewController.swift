@@ -64,6 +64,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         // counts as 1; remoteParticipantIdentifiers covers everyone else.
         totalConversationParticipants = 1 + conversation.remoteParticipantIdentifiers.count
         _ = decodeAndCache(conversation.selectedMessage, in: conversation)
+        // Apply the agreed-meetup override even when no message decoded
+        // (e.g. selectedMessage was the local user's own bubble, which
+        // decodeAndCache skips). Lets the terminal MEETUP SET survive
+        // extension re-launches initiated by tapping any bubble, including
+        // the agree bubble itself when it was sent by this device.
+        received = effectiveReceived(decoded: received)
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
         // banner and auto-ranked spots are front and center).
@@ -132,8 +138,18 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) -> Bool {
         guard let message, let url = message.url, let state = TweenState(url: url) else { return false }
         guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return false }
-        received = state
+        received = effectiveReceived(decoded: state)
         logger.debug("Decoded incoming Tween message type=\(state.messageType.rawValue, privacy: .public) participants=\(state.participants.count, privacy: .public) agreed=\(state.agreedNames.count, privacy: .public)")
+
+        // Persist / clear the agreed-meetup cache based on the new state:
+        //   - .agree fully agreed → persist (terminal state survives extension restarts)
+        //   - .counter → clear (counter restarts negotiation, prior agreement is undone)
+        //   - others → leave the cache alone
+        if state.messageType == .agree, state.isFullyAgreed {
+            LocationCache.saveAgreedMeetup(state)
+        } else if state.messageType == .counter {
+            LocationCache.clearAgreedMeetup()
+        }
 
         // Roster snapshot: trust the incoming list verbatim.
         if !state.participants.isEmpty {
@@ -170,6 +186,45 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// "me" — drifting between call sites was the root of Bug #4.
     static func localParticipantName() -> String {
         UserProfile.displayName ?? UserName.fallback
+    }
+
+    // MARK: - Effective received state
+    //
+    // The bubble the user tapped (`conversation.selectedMessage`) tells us
+    // what THEY were looking at, but the SOURCE OF TRUTH for the meetup is
+    // the most recent agreement — which lives in App Group via
+    // LocationCache.{save,load}AgreedMeetup. If they tap an old propose
+    // after agreeing, we still want to show MEETUP SET, not Agree/Change.
+
+    /// Resolves the effective `received` state for rendering, applying the
+    /// "agreed meetup is sticky" rule on top of whatever decodeAndCache
+    /// produced. The decoded value still drives peer/participant cache writes
+    /// (those happen inside decodeAndCache); this only changes what
+    /// ExpandedView is handed.
+    private func effectiveReceived(decoded: TweenState?) -> TweenState? {
+        guard let agreed = LocationCache.loadAgreedMeetup(), agreed.isFullyAgreed else {
+            return decoded
+        }
+        // Nothing selected — show the agreement so the user lands on the
+        // terminal state regardless of which bubble iOS happens to pick.
+        guard let decoded else { return agreed }
+        // User tapped the propose/counter that led to this agreement — show
+        // MEETUP SET (sameSpot match means it's literally the bubble that
+        // was agreed to).
+        if decoded.kind == .place, Self.sameSpot(decoded, agreed) {
+            return agreed
+        }
+        // Different spot, an invite, etc. — trust the user's tap.
+        return decoded
+    }
+
+    /// Two TweenStates point at the "same" spot when their coordinates match
+    /// within a tight epsilon. 1e-4 degrees is ~11 m at the equator — well
+    /// inside any GPS jitter, well outside any float-roundtrip noise from
+    /// `coordinateString`'s %.6f formatting.
+    private static func sameSpot(_ a: TweenState, _ b: TweenState) -> Bool {
+        abs(a.latitude  - b.latitude)  < 1e-4 &&
+        abs(a.longitude - b.longitude) < 1e-4
     }
 
     /// Opens Apple Maps with driving directions to the agreed-upon spot.
@@ -479,7 +534,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             // back to the iMessage thread. The receiver gets the same view
             // via didReceive → presentUI.
             await insertBubble(for: state, dismissAfterInsert: false)
-            self.received = state
+            // Persist the agreement so re-opening the extension (after iOS
+            // dispose, or after the user collapses + re-taps) re-renders
+            // MEETUP SET instead of the propose's Agree/Change buttons.
+            if state.isFullyAgreed {
+                LocationCache.saveAgreedMeetup(state)
+            }
+            self.received = self.effectiveReceived(decoded: state)
             self.presentUI(for: self.presentationStyle)
         }
     }
@@ -510,6 +571,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants: participants,
             agreedNames: []
         )
+        // A counter restarts negotiation — any prior agreement is invalidated,
+        // so the persisted terminal cache must be cleared too. Otherwise the
+        // user could agree, then counter, then re-open the extension and see
+        // MEETUP SET for the OLD agreed spot via the sticky cache.
+        LocationCache.clearAgreedMeetup()
         sendBubble(state: state)
     }
 
