@@ -119,14 +119,30 @@ struct OnboardingView: View {
     /// A tapped search result staged for the detail card. Carries the map item
     /// plus its ranking (when both coordinates are known) so the card can show
     /// an ETA chip.
+    ///
+    /// `incoming` is non-nil when the card is being shown because a friend's
+    /// `tween://` link was opened (rather than the user picking a search
+    /// result themselves). It flips the card into Agree/Change mode and
+    /// carries the metadata needed to compose the reply bubble.
     struct SpotSelection: Identifiable {
         let id = UUID()
         let item: MKMapItem
         let ranked: RankedSpot?
+        var incoming: IncomingProposalContext? = nil
 
         var name: String { item.name ?? "Spot" }
         var address: String? { item.placemark.title }
         var coordinate: CLLocationCoordinate2D { item.placemark.coordinate }
+    }
+
+    /// Context for an incoming spot proposal received via `tween://` link.
+    /// Used by SpotDetailCard's Agree/Change actions to build the reply
+    /// bubble's TweenState (sender name + participants + counter flag).
+    struct IncomingProposalContext {
+        let senderName: String?
+        let participants: [Participant]
+        let agreedNames: [String]
+        let isCounter: Bool
     }
 
     /// Every secondary sheet the home surface can present, multiplexed through a
@@ -321,7 +337,18 @@ struct OnboardingView: View {
                             address: selection.address,
                             coordinate: selection.coordinate,
                             ranked: selection.ranked,
-                            onSendToChat: { sendToChat(selection) }
+                            incoming: selection.incoming.map {
+                                SpotDetailCard.IncomingProposal(
+                                    senderName: $0.senderName,
+                                    isCounter: $0.isCounter)
+                            },
+                            onSendToChat: { sendToChat(selection) },
+                            onAgree: {
+                                if let incoming = selection.incoming {
+                                    sendAgreeReply(for: selection, incoming: incoming)
+                                }
+                            },
+                            onChange: { startChangeFlow(initialCoord: selection.coordinate) }
                         )
                     }
                 }
@@ -1618,28 +1645,142 @@ struct OnboardingView: View {
         }
 
         guard let state = TweenState(url: url) else { return }
-        logger.debug("Host opened Tween URL kind=\(state.kind.rawValue, privacy: .public) lat=\(state.latitude, privacy: .public) lon=\(state.longitude, privacy: .public)")
+        logger.debug("Host opened Tween URL type=\(state.messageType.rawValue, privacy: .public) kind=\(state.kind.rawValue, privacy: .public)")
 
+        // Save the sender's coord as peer so the map can frame both pings.
         if let peer = state.participantCoordinate {
             LocationCache.savePeer(peer, isActive: true)
             peerCoordinate = peer
-            PingLog.lastIncomingReplyAt = Date()
-            lastReplyAt = PingLog.lastIncomingReplyAt
             logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
         }
+        // Refresh participants array too so the group view sees everyone "in".
+        if !state.participants.isEmpty {
+            LocationCache.saveParticipants(state.participants)
+        }
+        // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
+        // proposals, and agrees from a peer. Plain `tween://search` deep links
+        // (handled above) and self-opened URLs shouldn't inflate the banner.
+        if state.kind == .participant || state.messageType == .agree {
+            PingLog.lastIncomingReplyAt = Date()
+            lastReplyAt = PingLog.lastIncomingReplyAt
+        }
 
-        if state.kind == .place {
-            // The link represents a proposed place; keep the sender as peer and
-            // put the map on the proposed spot without turning it into a person.
-            let place = state.coordinate
+        switch state.messageType {
+        case .propose, .counter:
+            // A friend has suggested a place — open the SpotDetailCard in
+            // incoming mode so the user sees Agree / Change buttons rather
+            // than the search-result CTA. Build a synthetic MKMapItem to
+            // reuse the existing .spot sheet plumbing.
+            let placemark = MKPlacemark(coordinate: state.coordinate)
+            let item = MKMapItem(placemark: placemark)
+            item.name = state.text
+            let selection = SpotSelection(
+                item: item,
+                ranked: nil,  // no ETA chip until we re-rank against fresh self
+                incoming: IncomingProposalContext(
+                    senderName: state.senderName,
+                    participants: state.participants,
+                    agreedNames: state.agreedNames,
+                    isCounter: state.messageType == .counter))
+            activeSheet = .spot(selection)
+            // Frame the map so the user can see the proposed spot in context.
             withAnimation(Tokens.Motion.gentle) {
                 position = Self.cameraPosition(
-                    for: [savedCoordinate, peerCoordinate, place].compactMap { $0 },
+                    for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
                     padding: 1.45,
                     minSpan: 0.04)
             }
-        } else {
+
+        case .agree:
+            // A friend's reply that they agree to a previously-proposed spot.
+            // No interactive UI needed — just frame the map on it and toast.
+            withAnimation(Tokens.Motion.gentle) {
+                position = Self.cameraPosition(
+                    for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
+                    padding: 1.45,
+                    minSpan: 0.04)
+            }
+            let who = state.senderName ?? "Your friend"
+            showToast(state.isFullyAgreed
+                      ? "Meeting at \(state.text) — \(who) is in."
+                      : "\(who) agreed to \(state.text).")
+
+        case .invite:
+            // Bare participant invite — the legacy "I'm in" case. Cache and
+            // reframe; the user sees the friend's pin and decides what to
+            // do (tap I'm in themselves, search a spot, etc).
             reframe()
+        }
+    }
+
+    /// Sends an agree-bubble back to a friend after they proposed a place
+    /// via `tween://` link. Uses the same MFMessageComposeViewController +
+    /// MSMessage plumbing as the rich-bubble ping (Slice B), but with an
+    /// `.agree` TweenState containing the local user appended to agreedNames.
+    private func sendAgreeReply(for selection: SpotSelection,
+                                 incoming: IncomingProposalContext) {
+        guard MFMessageComposeViewController.canSendText() else {
+            UIPasteboard.general.string = "I'm in for \(selection.name)"
+            showToast("Messages unavailable - copied a reply for you")
+            return
+        }
+        // Synthesise the agree state. Append my name to agreedNames if not
+        // already present; the bubble's `isFullyAgreed` flag fires on the
+        // receiver's side once everyone-but-the-proposer is in.
+        let myName = UserProfile.displayName ?? UserName.fallback
+        var agreed = incoming.agreedNames
+        if !agreed.contains(myName) { agreed.append(myName) }
+        let mySelf = LocationCache.loadSelf()?.coordinate
+
+        let state = TweenState(
+            text: selection.name,
+            latitude: selection.coordinate.latitude,
+            longitude: selection.coordinate.longitude,
+            senderName: UserProfile.displayName,
+            kind: .place,
+            senderCoordinate: mySelf,
+            action: .agree,
+            messageType: .agree,
+            participants: incoming.participants,
+            agreedNames: agreed
+        )
+
+        // Async render the bubble image, then present the composer. The
+        // recipient field is left empty so the user picks the same friend
+        // they got the link from.
+        Task { @MainActor in
+            let image = await BubbleImageRenderer.makeImage(
+                state: state,
+                participants: state.participants,
+                localName: myName)
+
+            let layout = MSMessageTemplateLayout()
+            layout.image = image
+            BubbleCaption.apply(to: layout, state: state, totalSeats: state.participants.count)
+
+            let message = MSMessage()
+            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.layout = layout
+
+            activeSheet = .message(PendingMessage(
+                recipients: [],
+                body: "I'm in for \(selection.name)",
+                message: message))
+        }
+    }
+
+    /// Lifts the bottom sheet and focuses the search bar so the user can
+    /// pick a different spot than the one their friend proposed. Drops a
+    /// pin on the rejected spot so they have spatial context.
+    private func startChangeFlow(initialCoord: CLLocationCoordinate2D) {
+        panelTab = .map
+        selectedSheetDetent = .fraction(0.45)
+        searchFocused = true
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(
+                for: [savedCoordinate, peerCoordinate, initialCoord].compactMap { $0 },
+                padding: 1.45,
+                minSpan: 0.04)
         }
     }
 
