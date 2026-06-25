@@ -181,15 +181,14 @@ struct CompactView: View {
     var onExpand: () -> Void
 
     var body: some View {
-        Group {
+        VStack(spacing: Tokens.Spacing.s4) {
             if received == nil {
-                emptyState
+                launcherState
             } else {
-                compactRow
+                activeMeetupState
             }
         }
-        .padding(.horizontal, Tokens.Spacing.s5)
-        .padding(.vertical, Tokens.Spacing.s5)
+        .padding(Tokens.Spacing.s4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque background so the compact strip never reads as transparent
         // against the iMessage keyboard backdrop. systemBackground tracks
@@ -203,12 +202,216 @@ struct CompactView: View {
         .accessibilityHint("Opens Tween to find a fair place to meet")
     }
 
-    private var compactRow: some View {
+    private var launcherState: some View {
+        VStack(spacing: Tokens.Spacing.s4) {
+            compactHeader
+            starterHero
+            starterSteps
+            bottomActionRow(
+                title: isUserIn ? "Waiting for your friend" : "Start from this chat",
+                subtitle: isUserIn ? "You are already in. Open Tween to watch fair spots appear." : "Tap I'm in to share your side of the meetup.",
+                control: { imInControl }
+            )
+        }
+    }
+
+    private var activeMeetupState: some View {
+        VStack(spacing: Tokens.Spacing.s4) {
+            compactHeader
+            Button(action: onExpand) {
+                HStack(spacing: Tokens.Spacing.s4) {
+                    thumbnail
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+                        Text(title)
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textPrimary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Text(subtitle)
+                            .font(Tokens.Typography.callout)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        statusPill
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Tokens.Spacing.s3)
+                .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                        .strokeBorder(Tokens.Palette.brand.opacity(0.18), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+
+            bottomActionRow(
+                title: received?.kind == .place ? "Ready when you are" : "Join the meetup",
+                subtitle: received?.kind == .place ? "Open the card for maps, agreement, and directions." : "Share where you are so Tween can find fair places.",
+                control: { imInControl }
+            )
+        }
+    }
+
+    private var compactHeader: some View {
         HStack(spacing: Tokens.Spacing.s3) {
-            thumbnail
+            ZStack {
+                Circle()
+                    .fill(Tokens.Palette.brandLight)
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.brand)
+            }
+            .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tween")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text("Meet halfway in Messages")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            HStack(spacing: Tokens.Spacing.s1) {
+                Text("Open")
+                    .font(Tokens.Typography.captionBold)
+                Image(systemName: "chevron.up")
+                    .font(Tokens.Typography.captionBold)
+            }
+            .foregroundStyle(Tokens.Palette.brand)
+            .padding(.horizontal, Tokens.Spacing.s3)
+            .frame(minHeight: 34)
+            .background(Tokens.Palette.brandLight, in: Capsule())
+        }
+    }
+
+    private var starterHero: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Tokens.Palette.brand.opacity(0.22),
+                            Tokens.Palette.pinSelf.opacity(0.12),
+                            Tokens.Palette.surfaceSecondary
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing)
+                )
+
+            GeometryReader { proxy in
+                Path { path in
+                    path.move(to: CGPoint(x: proxy.size.width * 0.08, y: proxy.size.height * 0.72))
+                    path.addCurve(
+                        to: CGPoint(x: proxy.size.width * 0.92, y: proxy.size.height * 0.24),
+                        control1: CGPoint(x: proxy.size.width * 0.30, y: proxy.size.height * 0.30),
+                        control2: CGPoint(x: proxy.size.width * 0.66, y: proxy.size.height * 0.86)
+                    )
+                }
+                .stroke(Color.white.opacity(0.78), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+
+                Path { path in
+                    path.move(to: CGPoint(x: proxy.size.width * 0.14, y: proxy.size.height * 0.25))
+                    path.addLine(to: CGPoint(x: proxy.size.width * 0.88, y: proxy.size.height * 0.74))
+                }
+                .stroke(Tokens.Palette.textTertiary.opacity(0.34), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [9, 8]))
+
+                compactPin(color: TweenPin.Role.selfActive.fill, symbol: "location.fill")
+                    .position(x: proxy.size.width * 0.20, y: proxy.size.height * 0.66)
+                compactPin(color: TweenPin.Role.friend.fill, symbol: "person.fill")
+                    .position(x: proxy.size.width * 0.82, y: proxy.size.height * 0.30)
+
+                ZStack {
+                    Circle()
+                        .fill(Tokens.Palette.pinFair.opacity(0.24))
+                        .frame(width: 70, height: 70)
+                    TweenPin(role: .fairSpot)
+                }
+                .position(x: proxy.size.width * 0.52, y: proxy.size.height * 0.50)
+            }
+            .padding(Tokens.Spacing.s3)
+
+            VStack {
+                HStack {
+                    Text("Find the fair spot")
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .frame(minHeight: 30)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Spacer()
+                    Text("You + friend")
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .frame(minHeight: 30)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+            }
+            .padding(Tokens.Spacing.s3)
+        }
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                .strokeBorder(Tokens.Palette.brand.opacity(0.20), lineWidth: 1)
+        }
+        .tweenElevation(.floating)
+        .accessibilityHidden(true)
+    }
+
+    private var starterSteps: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            starterStep("1", "I'm in", "location.fill", Tokens.Palette.pinSelf)
+            starterStep("2", "Friend joins", "person.fill", Tokens.Palette.pinFriend)
+            starterStep("3", "Pick spot", "star.fill", Tokens.Palette.pinFair)
+        }
+    }
+
+    private func starterStep(_ number: String, _ title: String, _ symbol: String, _ color: Color) -> some View {
+        VStack(spacing: Tokens.Spacing.s2) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: symbol)
+                    .font(Tokens.Typography.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(color, in: Circle())
+                Text(number)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .frame(width: 18, height: 18)
+                    .background(Color(uiColor: .systemBackground), in: Circle())
+                    .offset(x: 5, y: -5)
+            }
+            Text(title)
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+    }
+
+    private func bottomActionRow<Control: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(spacing: Tokens.Spacing.s3) {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text(title)
-                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(Tokens.Typography.caption)
@@ -216,66 +419,36 @@ struct CompactView: View {
                     .lineLimit(2)
             }
             Spacer(minLength: Tokens.Spacing.s2)
-            imInControl
+            control()
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let received {
+            TweenMapSnapshotView(markers: markers(for: received), cornerRadius: Tokens.Radius.card)
+                .frame(width: 112, height: 92)
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
+                Image(systemName: "map.fill").foregroundStyle(Tokens.Palette.textTertiary)
+            }
+            .frame(width: 112, height: 92)
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: Tokens.Spacing.s4) {
-            Spacer(minLength: 0)
-            emptyMapHero
-            VStack(spacing: Tokens.Spacing.s2) {
-                Text(isUserIn ? "Waiting for friends" : "Find a fair place to meet")
-                    .font(Tokens.Typography.title2.weight(.semibold))
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                    .multilineTextAlignment(.center)
-                Text(isUserIn
-                     ? "You’re in. When friends join, fair meetup spots appear here."
-                     : "Share your location once, then Tween finds a balanced spot for everyone.")
-                    .font(Tokens.Typography.callout)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            imInControl
-            Spacer(minLength: 0)
+    private var statusPill: some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Image(systemName: isUserIn ? "checkmark.circle.fill" : "location.circle")
+            Text(isUserIn ? "You are in" : "Waiting on you")
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var emptyMapHero: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Tokens.Palette.brand.opacity(0.18),
-                            Tokens.Palette.surfaceSecondary.opacity(0.72)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing)
-                )
-            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
-                .strokeBorder(Tokens.Palette.brand.opacity(0.20), lineWidth: 1)
-            VStack(spacing: Tokens.Spacing.s3) {
-                HStack(spacing: Tokens.Spacing.s2) {
-                    compactPin(color: TweenPin.Role.selfActive.fill, symbol: "location.fill")
-                    dottedLine
-                    compactPin(color: TweenPin.Role.friend.fill, symbol: "person.fill")
-                }
-                ZStack {
-                    Circle()
-                        .fill(Tokens.Palette.pinFair.opacity(0.20))
-                        .frame(width: 58, height: 58)
-                    TweenPin(role: .fairSpot)
-                }
-            }
-            .padding(Tokens.Spacing.s4)
-        }
-        .frame(width: 180, height: 132)
-        .tweenElevation(.floating)
-        .accessibilityHidden(true)
+        .font(Tokens.Typography.captionBold)
+        .foregroundStyle(isUserIn ? Tokens.Palette.success : Tokens.Palette.brand)
+        .padding(.horizontal, Tokens.Spacing.s2)
+        .frame(minHeight: 26)
+        .background((isUserIn ? Tokens.Palette.success : Tokens.Palette.brand).opacity(0.12), in: Capsule())
     }
 
     private func compactPin(color: Color, symbol: String) -> some View {
@@ -287,30 +460,6 @@ struct CompactView: View {
             .overlay {
                 Circle().strokeBorder(.white.opacity(0.82), lineWidth: 2)
             }
-    }
-
-    private var dottedLine: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<5, id: \.self) { _ in
-                Circle()
-                    .fill(Tokens.Palette.textTertiary.opacity(0.55))
-                    .frame(width: 4, height: 4)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var thumbnail: some View {
-        if let received {
-            TweenMapSnapshotView(markers: markers(for: received), cornerRadius: Tokens.Radius.card)
-                .frame(width: 84, height: 84)
-        } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
-                Image(systemName: "map.fill").foregroundStyle(Tokens.Palette.textTertiary)
-            }
-            .frame(width: 84, height: 84)
-        }
     }
 
     /// The received payload plus fresh participant cache when available. In a
