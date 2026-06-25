@@ -9,7 +9,6 @@ workflows:
       branch_patterns:
         - pattern: main
           include: true
-          source: true
       cancel_previous_builds: true
 
     # Reference an App Store Connect API key you add ONCE in the Codemagic UI:
