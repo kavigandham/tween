@@ -718,8 +718,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     private func openAppleMaps(for state: TweenState) {
-        guard let url = MapLinks.appleMapsURL(name: state.text, coordinate: state.coordinate) else { return }
-        extensionContext?.open(url, completionHandler: nil)
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: state.coordinate))
+        item.name = state.text
+        item.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
     }
 
     private func openGoogleMaps(for state: TweenState) {
