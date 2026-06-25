@@ -185,6 +185,20 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(TweenPin.Role.closestToUser.accessibilityName, "Place closest to you")
     }
 
+    func testMapLinksUsePlaceNameAndCoordinate() throws {
+        let coordinate = CLLocationCoordinate2D(latitude: 37.7825, longitude: -122.4099)
+
+        let appleURL = try XCTUnwrap(MapLinks.appleMapsURL(name: "Blue Bottle Coffee", coordinate: coordinate))
+        XCTAssertEqual(appleURL.scheme, "http")
+        XCTAssertTrue(appleURL.absoluteString.contains("q=Blue%20Bottle%20Coffee"))
+        XCTAssertTrue(appleURL.absoluteString.contains("ll=37.7825,-122.4099"))
+
+        let googleURL = try XCTUnwrap(MapLinks.googleMapsURL(name: "Blue Bottle Coffee", coordinate: coordinate))
+        XCTAssertEqual(googleURL.scheme, "comgooglemaps")
+        XCTAssertTrue(googleURL.absoluteString.contains("q=Blue%20Bottle%20Coffee"))
+        XCTAssertTrue(googleURL.absoluteString.contains("center=37.7825,-122.4099"))
+    }
+
     // 7. LocationCache returns nil on a clean suite.
     func testLocationCacheEmptyOnCleanSuite() {
         XCTAssertNil(LocationCache.loadSelf())

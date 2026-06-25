@@ -718,33 +718,23 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     private func openAppleMaps(for state: TweenState) {
-        let coordinate = state.coordinate
-        let placemark = MKPlacemark(coordinate: coordinate)
-        let item = MKMapItem(placemark: placemark)
-        item.name = state.text
-        item.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
-        ])
+        guard let url = MapLinks.appleMapsURL(name: state.text, coordinate: state.coordinate) else { return }
+        extensionContext?.open(url, completionHandler: nil)
     }
 
     private func openGoogleMaps(for state: TweenState) {
-        let coordinate = state.coordinate
-        var queryItems = [
-            URLQueryItem(name: "daddr", value: "\(coordinate.latitude),\(coordinate.longitude)"),
-            URLQueryItem(name: "directionsmode", value: "driving")
-        ]
-        if LocationCache.isActive, let selfCoordinate = LocationCache.loadSelf()?.coordinate {
-            queryItems.append(URLQueryItem(name: "saddr", value: "\(selfCoordinate.latitude),\(selfCoordinate.longitude)"))
-        }
-        var components = URLComponents()
-        components.queryItems = queryItems
-        guard let query = components.percentEncodedQuery,
-              let url = URL(string: "comgooglemaps://?\(query)") else { return }
+        guard let url = MapLinks.googleMapsURL(name: state.text, coordinate: state.coordinate) else { return }
         extensionContext?.open(url) { [weak self] didOpen in
             guard !didOpen else { return }
+            guard let webURL = MapLinks.googleMapsWebURL(name: state.text, coordinate: state.coordinate) else { return }
             DispatchQueue.main.async {
-                self?.sendStatusMessage = "Google Maps isn't installed."
-                self?.presentUI(for: self?.presentationStyle ?? .expanded)
+                self?.extensionContext?.open(webURL) { openedWeb in
+                    guard !openedWeb else { return }
+                    DispatchQueue.main.async {
+                        self?.sendStatusMessage = "Google Maps isn't installed."
+                        self?.presentUI(for: self?.presentationStyle ?? .expanded)
+                    }
+                }
             }
         }
     }

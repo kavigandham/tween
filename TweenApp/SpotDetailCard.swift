@@ -191,13 +191,12 @@ struct SpotDetailCard: View {
 
     /// `http://maps.apple.com/?ll=LAT,LON&q=NAME` — opens the native Maps app.
     private var appleMapsURL: URL? {
-        let q = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Spot"
-        return URL(string: "http://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)&q=\(q)")
+        MapLinks.appleMapsURL(name: name, coordinate: coordinate)
     }
 
-    /// `comgooglemaps://?q=LAT,LON` — opens Google Maps when installed.
+    /// `comgooglemaps://?q=NAME&center=LAT,LON` — opens Google Maps when installed.
     private var googleMapsURL: URL? {
-        URL(string: "comgooglemaps://?q=\(coordinate.latitude),\(coordinate.longitude)")
+        MapLinks.googleMapsURL(name: name, coordinate: coordinate)
     }
 }
 

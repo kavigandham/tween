@@ -14,6 +14,7 @@
 		1CB92BB0C60428A6CCD58E29 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */; };
 		1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */; };
 		1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		229676053976C85B25675D40 /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6EE95DAB661245924908C8 /* MapLinks.swift */; };
 		25EBB1371F60304CB6BD44AB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */; };
 		276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */; };
 		38EBE426E101BAF907787082 /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
@@ -54,6 +55,7 @@
 		C4964CD5898396955CCB06E5 /* TweenViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86835B35A5B33A95000424C /* TweenViews.swift */; };
 		C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
 		C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		CBF14E248AF650D0BB89009A /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6EE95DAB661245924908C8 /* MapLinks.swift */; };
 		CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */; };
 		D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */; };
 		D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */; };
@@ -128,6 +130,7 @@
 		74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLog.swift; sourceTree = "<group>"; };
 		7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		83C7747C92C12454D8BCD60B /* TweenApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TweenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A6EE95DAB661245924908C8 /* MapLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinks.swift; sourceTree = "<group>"; };
 		8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FairnessRankerTests.swift; sourceTree = "<group>"; };
 		8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsPanel.swift; sourceTree = "<group>"; };
@@ -213,6 +216,7 @@
 				075D9066250C6952934E34C1 /* FairnessRanker.swift */,
 				126396012D826EDE687B9221 /* LocationCache.swift */,
 				999A32C93B516396B9807953 /* LocationProvider.swift */,
+				8A6EE95DAB661245924908C8 /* MapLinks.swift */,
 				EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */,
 				65D5E40D144C329C588077FE /* OnboardingFlags.swift */,
 				A51D741A60625DD97D522832 /* OutgoingDraft.swift */,
@@ -411,6 +415,7 @@
 				3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */,
 				1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */,
 				3EFCBDBCB3B45CA0DC5FDD44 /* LocationProvider.swift in Sources */,
+				229676053976C85B25675D40 /* MapLinks.swift in Sources */,
 				FB82FF593DDAF2AD30DE8730 /* MessagesViewController.swift in Sources */,
 				62F1F0447441F1F398ED7ED9 /* NetworkMonitor.swift in Sources */,
 				C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */,
@@ -448,6 +453,7 @@
 				F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */,
 				C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */,
 				81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */,
+				CBF14E248AF650D0BB89009A /* MapLinks.swift in Sources */,
 				6C5FF34BE079E32BE1B002DE /* NetworkMonitor.swift in Sources */,
 				96830D38CD716283B271C963 /* OnboardingFlags.swift in Sources */,
 				8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */,
