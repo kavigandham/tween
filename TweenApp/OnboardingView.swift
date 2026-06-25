@@ -48,6 +48,8 @@ struct OnboardingView: View {
     @State private var monitor = NetworkMonitor()
     @State private var position: MapCameraPosition
     @State private var mapDisplayStyle: MapDisplayStyle = .standard
+    @State private var isMapStylePickerExpanded = false
+    @State private var resetNextTapReturnsToUser = false
     /// Opens at the half detent (search bar + chips + "I'm in" + the
     /// Search/Friends toggle), Apple-Maps style. Drag down to the search-only
     /// peek, or up to full.
@@ -286,13 +288,17 @@ struct OnboardingView: View {
         }
         .ignoresSafeArea()
         .mapStyle(mapDisplayStyle.mapStyle)
+        .overlay(alignment: .top) { topSafeAreaGlass }
         .overlay(alignment: .topTrailing) { topTrailingControls }
         .overlay(alignment: .top) { viewModeToggle }
         .overlay(alignment: .bottom) { compactCard }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
+            resetNextTapReturnsToUser = false
             if let item { focusMap(on: item) }
         }
+        .onChange(of: searchResults.count) { _, _ in resetNextTapReturnsToUser = false }
+        .onChange(of: isSearchActive) { _, _ in resetNextTapReturnsToUser = false }
         .onChange(of: searchViewMode) { _, mode in
             switch mode {
             case .map:
@@ -527,7 +533,7 @@ struct OnboardingView: View {
                 .offset(y: step * 2)
         }
         .frame(
-            width: Tokens.Layout.minTapTarget,
+            width: Tokens.Layout.minTapTarget * 5 + Tokens.Spacing.s2 * 4,
             height: Tokens.Layout.minTapTarget * 3 + Tokens.Spacing.s2 * 2,
             alignment: .topTrailing
         )
@@ -535,26 +541,71 @@ struct OnboardingView: View {
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    private var mapStyleButton: some View {
-        Button {
-            cycleMapDisplayStyle()
-        } label: {
-            Image(systemName: mapDisplayStyle.icon)
-                .font(Tokens.Typography.callout)
-                .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 44, height: 44)
-                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                        .strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
-                }
-                .tweenElevation(.floating)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Map style")
-        .accessibilityValue(mapDisplayStyle.title)
-        .accessibilityHint("Cycles between standard, traffic, satellite, and hybrid map")
+    private var topSafeAreaGlass: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .frame(height: 132)
+            .mask(
+                LinearGradient(
+                    colors: [.black, .black.opacity(0.72), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom)
+            )
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
     }
+
+    private var mapStyleButton: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            if isMapStylePickerExpanded {
+                HStack(spacing: Tokens.Spacing.s2) {
+                    ForEach(MapDisplayStyle.allCases) { style in
+                        Button {
+                            withAnimation(Tokens.Motion.snappy) {
+                                mapDisplayStyle = style
+                                isMapStylePickerExpanded = false
+                            }
+                        } label: {
+                            mapControlIcon(style.icon, isSelected: style == mapDisplayStyle)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(style.title)
+                    }
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
+            Button {
+                withAnimation(Tokens.Motion.snappy) {
+                    isMapStylePickerExpanded.toggle()
+                }
+            } label: {
+                mapControlIcon(mapDisplayStyle.icon)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Map style")
+            .accessibilityValue(mapDisplayStyle.title)
+            .accessibilityHint("Shows map style choices")
+        }
+        .animation(Tokens.Motion.snappy, value: isMapStylePickerExpanded)
+    }
+
+    private func mapControlIcon(_ systemName: String, isSelected: Bool = false) -> some View {
+        Image(systemName: systemName)
+            .font(Tokens.Typography.callout)
+            .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
+            .frame(width: 44, height: 44)
+            .background(
+                isSelected ? Tokens.Palette.brand : Color(.systemBackground).opacity(0.92),
+                in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                    .strokeBorder(Tokens.Palette.surfaceSecondary.opacity(isSelected ? 0 : 1), lineWidth: 1)
+            }
+            .tweenElevation(.floating)
+    }
+
 
     private var resetMapButton: some View {
         Button {
@@ -573,7 +624,7 @@ struct OnboardingView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Reset map")
-        .accessibilityHint("Reframes the map around you, your friend, and visible places")
+        .accessibilityHint("First shows visible places, then returns to your location")
     }
 
     /// Floating control to re-show the first-run walkthrough.
@@ -1031,7 +1082,7 @@ struct OnboardingView: View {
             .tweenElevation(.floating)
             .padding(.horizontal)
             // Sit above the bottom sheet's search-bar peek.
-            .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4)
+            .padding(.bottom, Tokens.Spacing.s1)
             .contentShape(Rectangle())
             .onTapGesture { activeSheet = .spot(selection) }
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1638,15 +1689,52 @@ struct OnboardingView: View {
     }
 
     private func resetMapCamera() {
+        let hasSearchContext = selectedResult != nil || (isSearchActive && !displayedItems.isEmpty)
+        if hasSearchContext && !resetNextTapReturnsToUser {
+            resetNextTapReturnsToUser = true
+            frameVisibleSearchContext()
+            return
+        }
+
+        resetNextTapReturnsToUser = false
+        selectedResult = nil
+        frameUserContext()
+    }
+
+    private func frameVisibleSearchContext() {
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
 
         if let selectedResult {
             coords.append(selectedResult.placemark.coordinate)
-        } else if isSearchActive {
+        } else {
             coords.append(contentsOf: displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate))
         }
 
+        guard !coords.isEmpty else {
+            frameUserContext()
+            return
+        }
+
+        logger.debug("Manual map reset to search context for \(coords.count, privacy: .public) coordinate(s)")
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(for: coords, padding: 1.35, minSpan: 0.04, bottomBias: 0.25)
+        }
+    }
+
+    private func frameUserContext() {
+        if let savedCoordinate {
+            logger.debug("Manual map reset to user location")
+            withAnimation(Tokens.Motion.gentle) {
+                position = .region(MKCoordinateRegion(
+                    center: savedCoordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
+            }
+            return
+        }
+
+        var coords = [peerCoordinate].compactMap { $0 }
+        coords.append(contentsOf: additionalParticipants.map(\.coordinate))
         guard !coords.isEmpty else {
             withAnimation(Tokens.Motion.gentle) {
                 position = Self.cameraPosition(for: [Self.defaultCenter])
@@ -1654,20 +1742,10 @@ struct OnboardingView: View {
             return
         }
 
-        logger.debug("Manual map reset for \(coords.count, privacy: .public) coordinate(s)")
+        logger.debug("Manual map reset to available participant context")
         withAnimation(Tokens.Motion.gentle) {
-            position = Self.cameraPosition(for: coords, padding: 1.35, minSpan: 0.04, bottomBias: 0.25)
+            position = Self.cameraPosition(for: coords, padding: 1.2, minSpan: 0.04)
         }
-    }
-
-    private func cycleMapDisplayStyle() {
-        let styles = MapDisplayStyle.allCases
-        guard let index = styles.firstIndex(of: mapDisplayStyle) else {
-            mapDisplayStyle = .standard
-            return
-        }
-        let nextIndex = styles.index(after: index)
-        mapDisplayStyle = nextIndex == styles.endIndex ? styles[styles.startIndex] : styles[nextIndex]
     }
 
     private func handleIncomingURL(_ url: URL) {
