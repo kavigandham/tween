@@ -1081,8 +1081,9 @@ struct OnboardingView: View {
             .tweenGlass(radius: Tokens.Radius.card)
             .tweenElevation(.floating)
             .padding(.horizontal)
-            // Sit above the bottom sheet's search-bar peek.
-            .padding(.bottom, Tokens.Spacing.s1)
+            // Clear the always-peeked search sheet without leaving a loose map
+            // strip between the card and search bar.
+            .padding(.bottom, Tokens.Layout.sheetPeekHeight - Tokens.Spacing.s4)
             .contentShape(Rectangle())
             .onTapGesture { activeSheet = .spot(selection) }
             .transition(.move(edge: .bottom).combined(with: .opacity))
