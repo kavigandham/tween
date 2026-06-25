@@ -181,6 +181,29 @@ struct CompactView: View {
     var onExpand: () -> Void
 
     var body: some View {
+        Group {
+            if received == nil {
+                emptyState
+            } else {
+                compactRow
+            }
+        }
+        .padding(.horizontal, Tokens.Spacing.s5)
+        .padding(.vertical, Tokens.Spacing.s5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Opaque background so the compact strip never reads as transparent
+        // against the iMessage keyboard backdrop. systemBackground tracks
+        // light/dark mode automatically.
+        .background(Color(.systemBackground))
+        // The whole surface expands; the real Button below intercepts its own taps.
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onExpand)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens Tween to find a fair place to meet")
+    }
+
+    private var compactRow: some View {
         HStack(spacing: Tokens.Spacing.s3) {
             thumbnail
             VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
@@ -195,19 +218,85 @@ struct CompactView: View {
             Spacer(minLength: Tokens.Spacing.s2)
             imInControl
         }
-        .padding(.horizontal, Tokens.Spacing.s4)
-        .padding(.vertical, Tokens.Spacing.s3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Opaque background so the compact strip never reads as transparent
-        // against the iMessage keyboard backdrop. systemBackground tracks
-        // light/dark mode automatically.
-        .background(Color(.systemBackground))
-        // The whole surface expands; the real Button below intercepts its own taps.
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onExpand)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens Tween to find a fair place to meet")
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: Tokens.Spacing.s4) {
+            Spacer(minLength: 0)
+            emptyMapHero
+            VStack(spacing: Tokens.Spacing.s2) {
+                Text(isUserIn ? "Waiting for friends" : "Find a fair place to meet")
+                    .font(Tokens.Typography.title2.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .multilineTextAlignment(.center)
+                Text(isUserIn
+                     ? "You’re in. When friends join, fair meetup spots appear here."
+                     : "Share your location once, then Tween finds a balanced spot for everyone.")
+                    .font(Tokens.Typography.callout)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            imInControl
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var emptyMapHero: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Tokens.Palette.brand.opacity(0.18),
+                            Tokens.Palette.surfaceSecondary.opacity(0.72)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing)
+                )
+            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                .strokeBorder(Tokens.Palette.brand.opacity(0.20), lineWidth: 1)
+            VStack(spacing: Tokens.Spacing.s3) {
+                HStack(spacing: Tokens.Spacing.s2) {
+                    compactPin(color: TweenPin.Role.selfActive.fill, symbol: "location.fill")
+                    dottedLine
+                    compactPin(color: TweenPin.Role.friend.fill, symbol: "person.fill")
+                }
+                ZStack {
+                    Circle()
+                        .fill(Tokens.Palette.pinFair.opacity(0.20))
+                        .frame(width: 58, height: 58)
+                    TweenPin(role: .fairSpot)
+                }
+            }
+            .padding(Tokens.Spacing.s4)
+        }
+        .frame(width: 180, height: 132)
+        .tweenElevation(.floating)
+        .accessibilityHidden(true)
+    }
+
+    private func compactPin(color: Color, symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(Tokens.Typography.callout.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 42, height: 42)
+            .background(color, in: Circle())
+            .overlay {
+                Circle().strokeBorder(.white.opacity(0.82), lineWidth: 2)
+            }
+    }
+
+    private var dottedLine: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<5, id: \.self) { _ in
+                Circle()
+                    .fill(Tokens.Palette.textTertiary.opacity(0.55))
+                    .frame(width: 4, height: 4)
+            }
+        }
     }
 
     @ViewBuilder
