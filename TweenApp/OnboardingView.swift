@@ -35,6 +35,7 @@ struct OnboardingView: View {
 
     @State private var savedCoordinate: CLLocationCoordinate2D?
     @State private var peerCoordinate: CLLocationCoordinate2D?
+    @State private var agreedMeetup: TweenState?
     /// Every "in" participant beyond the local user and the primary peer —
     /// only populated in group chats (3+ people). Empty for DMs, preserving
     /// the original 2-person behaviour. Refreshed each tick of `pollPeer`.
@@ -230,6 +231,7 @@ struct OnboardingView: View {
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
         _isUserIn = State(initialValue: cached != nil && LocationCache.isActive)
+        _agreedMeetup = State(initialValue: LocationCache.loadAgreedMeetup())
         _position = State(initialValue: Self.cameraPosition(for: [cached?.coordinate ?? Self.defaultCenter]))
     }
 
@@ -255,6 +257,11 @@ struct OnboardingView: View {
             if let midpoint {
                 Annotation("Midpoint", coordinate: midpoint) {
                     TweenPin(role: .midpoint)
+                }
+            }
+            if let agreedMeetup, agreedMeetup.kind == .place {
+                Annotation(agreedMeetup.text, coordinate: agreedMeetup.coordinate, anchor: .bottom) {
+                    TweenPin(role: .fairSpot)
                 }
             }
             // A selectable pin for every visible search result. The selected one
@@ -990,6 +997,12 @@ struct OnboardingView: View {
         rankedSpots.isEmpty ? searchResults : rankedSpots.compactMap(\.item)
     }
 
+    private func mapItem(for state: TweenState) -> MKMapItem {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: state.coordinate))
+        item.name = state.text
+        return item
+    }
+
     /// The ranked entry for a given map item, when one exists (so the card can
     /// show an ETA chip).
     private func rankedMatch(for item: MKMapItem) -> RankedSpot? {
@@ -1038,22 +1051,32 @@ struct OnboardingView: View {
     private var compactCard: some View {
         if let item = selectedResult {
             let ranked = rankedMatch(for: item)
-            let selection = SpotSelection(item: item, ranked: ranked)
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-                HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
-                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                        Text(item.name ?? "Place")
-                            .font(Tokens.Typography.headline)
+            compactCardContent(item: item, ranked: ranked, isAgreedMeetup: false)
+        } else if let agreedMeetup, agreedMeetup.kind == .place {
+            compactCardContent(item: mapItem(for: agreedMeetup), ranked: nil, isAgreedMeetup: true)
+        }
+    }
+
+    private func compactCardContent(item: MKMapItem, ranked: RankedSpot?, isAgreedMeetup: Bool) -> some View {
+        let selection = SpotSelection(item: item, ranked: ranked)
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
+                VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                    Text(item.name ?? "Place")
+                        .font(Tokens.Typography.headline)
+                        .lineLimit(1)
+                    if let address = item.placemark.title, !address.isEmpty {
+                        Text(address)
+                            .font(Tokens.Typography.caption)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
                             .lineLimit(1)
-                        if let address = item.placemark.title, !address.isEmpty {
-                            Text(address)
-                                .font(Tokens.Typography.caption)
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                                .lineLimit(1)
-                        }
                     }
-                    Spacer(minLength: 0)
-                    Button { selectedResult = nil } label: {
+                }
+                Spacer(minLength: 0)
+                if !isAgreedMeetup {
+                    Button {
+                        selectedResult = nil
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(Tokens.Typography.title2)
                             .foregroundStyle(Tokens.Palette.textSecondary)
@@ -1061,34 +1084,44 @@ struct OnboardingView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Deselect")
                 }
-                ABDistanceLabel(
-                    selfCoord: savedCoordinate,
-                    peerCoord: peerCoordinate,
-                    target: item.placemark.coordinate,
-                    ranked: ranked)
-                HStack(spacing: Tokens.Spacing.s2) {
+            }
+            ABDistanceLabel(
+                selfCoord: savedCoordinate,
+                peerCoord: peerCoordinate,
+                target: item.placemark.coordinate,
+                ranked: ranked)
+            HStack(spacing: Tokens.Spacing.s2) {
+                if isAgreedMeetup {
+                    Button(role: .destructive, action: leave) {
+                        Label("I'm out", systemImage: "location.slash")
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
+                } else {
                     Button { sendToChat(selection) } label: {
                         Label("Send to chat", systemImage: "paperplane.fill")
                     }
                     .buttonStyle(.tweenPrimary())
-                    Button { openDirections(to: item) } label: {
-                        Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                    }
-                    .buttonStyle(.tweenPrimary(.subtle))
                 }
+                Button { openDirections(to: item) } label: {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                }
+                .buttonStyle(isAgreedMeetup ? .tweenPrimary() : .tweenPrimary(.subtle))
             }
-            .padding(Tokens.Spacing.s4)
-            .tweenGlass(radius: Tokens.Radius.card)
-            .tweenElevation(.floating)
-            .padding(.horizontal)
-            // Clear the always-peeked search sheet without leaving a loose map
-            // strip between the card and search bar.
-            .padding(.bottom, Tokens.Layout.sheetPeekHeight - Tokens.Spacing.s4)
-            .contentShape(Rectangle())
-            .onTapGesture { activeSheet = .spot(selection) }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .accessibilityHint("Tap for full details, or send this spot to your chat")
         }
+        .padding(Tokens.Spacing.s4)
+        .tweenGlass(radius: Tokens.Radius.card)
+        .tweenElevation(.floating)
+        .padding(.horizontal)
+        // Clear the always-peeked search sheet without leaving a loose map
+        // strip between the card and search bar.
+        .padding(.bottom, Tokens.Layout.sheetPeekHeight - Tokens.Spacing.s4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isAgreedMeetup else { return }
+            activeSheet = .spot(selection)
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .accessibilityHint(isAgreedMeetup ? "Current agreed meetup" : "Tap for full details, or send this spot to your chat")
     }
 
     private var statusText: String {
@@ -1169,7 +1202,58 @@ struct OnboardingView: View {
 
     private func leave() {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let participants = LocationCache.loadParticipants().filter { $0.name != myName }
+        LocationCache.saveParticipants(participants)
         LocationCache.deactivateSelf()
+        LocationCache.clearAgreedMeetup()
+        if participants.isEmpty {
+            LocationCache.setPeerActive(false)
+        }
+        agreedMeetup = nil
+        selectedResult = nil
+        presentLeaveMessage(participants: participants)
+    }
+
+    private func presentLeaveMessage(participants: [Participant]) {
+        let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
+            ?? participants.first?.coordinate
+            ?? Self.defaultCenter
+        let state = TweenState(
+            text: "I'm out",
+            latitude: fallbackCoordinate.latitude,
+            longitude: fallbackCoordinate.longitude,
+            senderName: UserProfile.displayName,
+            kind: .participant,
+            messageType: .leave,
+            participants: participants
+        )
+
+        guard MFMessageComposeViewController.canSendText() else {
+            UIPasteboard.general.string = "I'm out of this meetup."
+            showToast("Messages unavailable - copied an I'm out reply")
+            return
+        }
+
+        Task { @MainActor in
+            let image = await BubbleImageRenderer.makeImage(
+                state: state,
+                participants: state.participants,
+                localName: UserProfile.displayName ?? UserName.fallback)
+
+            let layout = MSMessageTemplateLayout()
+            layout.image = image
+            BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count + 1, 2))
+
+            let message = MSMessage()
+            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.layout = layout
+
+            activeSheet = .message(PendingMessage(
+                recipients: [],
+                body: "I'm out of this meetup.",
+                message: message))
+        }
     }
 
     // MARK: - Hand-off
@@ -1657,6 +1741,17 @@ struct OnboardingView: View {
             didChange = true
         }
 
+        let cachedAgreedMeetup = LocationCache.loadAgreedMeetup()
+        if agreedMeetup != cachedAgreedMeetup {
+            agreedMeetup = cachedAgreedMeetup
+            selectedResult = nil
+            didChange = true
+            if cachedAgreedMeetup != nil {
+                panelTab = .map
+                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+            }
+        }
+
         lastReplyAt = PingLog.lastIncomingReplyAt
         if didChange {
             reframe()
@@ -1684,6 +1779,9 @@ struct OnboardingView: View {
     private func reframe() {
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
+        if let agreedMeetup {
+            coords.append(agreedMeetup.coordinate)
+        }
         guard !coords.isEmpty else { return }
         logger.debug("Map reframe triggered for \(coords.count, privacy: .public) coordinate(s)")
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
@@ -1789,6 +1887,10 @@ struct OnboardingView: View {
 
         switch state.messageType {
         case .propose, .counter:
+            if state.messageType == .counter {
+                LocationCache.clearAgreedMeetup()
+                agreedMeetup = nil
+            }
             // A friend has suggested a place — open the SpotDetailCard in
             // incoming mode so the user sees Agree / Change buttons rather
             // than the search-result CTA. Build a synthetic MKMapItem to
@@ -1814,6 +1916,11 @@ struct OnboardingView: View {
             }
 
         case .agree:
+            if state.isFullyAgreed {
+                LocationCache.saveAgreedMeetup(state)
+                agreedMeetup = state
+                selectedResult = nil
+            }
             // A friend's reply that they agree to a previously-proposed spot.
             // No interactive UI needed — just frame the map on it and toast.
             withAnimation(Tokens.Motion.gentle) {
@@ -1834,6 +1941,8 @@ struct OnboardingView: View {
             reframe()
 
         case .leave:
+            LocationCache.clearAgreedMeetup()
+            agreedMeetup = nil
             reframe()
             let who = state.senderName ?? "Your friend"
             showToast("\(who) is out.")

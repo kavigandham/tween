@@ -461,6 +461,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             currentParticipants = participants
             LocationCache.saveParticipants(participants)
             LocationCache.deactivateSelf()
+            LocationCache.clearAgreedMeetup()
             if participants.isEmpty {
                 LocationCache.setPeerActive(false)
             }

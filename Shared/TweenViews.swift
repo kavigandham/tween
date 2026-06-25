@@ -272,6 +272,9 @@ struct CompactView: View {
         if received?.messageType == .leave {
             return isUserIn ? "They stepped out — you're still in" : "They stepped out"
         }
+        if received?.kind == .place, received?.isFullyAgreed == true {
+            return isUserIn ? "It's a plan — tap for directions" : "It's a plan — tap “I'm in” to rejoin"
+        }
         if received?.kind == .place {
             return isUserIn ? "Tap to view this meetup spot" : "Tap “I'm in” to share where you are"
         }
@@ -793,8 +796,8 @@ struct ExpandedView: View {
     }
 
     /// MEETUP SET — the terminal hero shown when the bubble's messageType is
-    /// `.agree` and every non-proposer participant has agreed. No more
-    /// Agree/Change buttons; the only actions are map-app direction choices.
+    /// `.agree` and every non-proposer participant has agreed. Agreement is
+    /// terminal for negotiation, but the user still needs to leave the meetup.
     private func meetupSetView(state: TweenState) -> some View {
         VStack(spacing: Tokens.Spacing.s3) {
             HStack(spacing: Tokens.Spacing.s2) {
@@ -816,6 +819,28 @@ struct ExpandedView: View {
             }
             Spacer(minLength: Tokens.Spacing.s2)
             directionButtons(for: state)
+                .padding(.horizontal, Tokens.Spacing.s4)
+            Group {
+                if isUserIn {
+                    Button {
+                        sendTick += 1
+                        onImOut()
+                    } label: {
+                        Label("I'm out", systemImage: "location.slash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
+                    .accessibilityHint("Stops sharing you as active for this meetup")
+                } else {
+                    Button(action: onImIn) {
+                        Label("I'm in", systemImage: "location.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    .disabled(isSending)
+                    .accessibilityHint("Shares where you are for this meetup")
+                }
+            }
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.bottom, Tokens.Spacing.s4)
             .sensoryFeedback(.success, trigger: isMeetupSet)
@@ -939,9 +964,7 @@ struct ExpandedView: View {
                 .buttonStyle(.tweenPrimary())
                 .accessibilityHint("Drops \(draft.spotName) into your conversation")
             } else if isMeetupSet {
-                // Terminal state — meetupSetView above already renders the Get
-                // Directions button, so the CTA bar is empty here. Spacer keeps
-                // the bottom padding consistent.
+                // Terminal state actions live inside meetupSetView.
                 EmptyView()
             } else if let received, received.messageType == .agree {
                 // Group / partial-agree case: bubble carries an agree but not
@@ -1036,7 +1059,7 @@ struct ExpandedView: View {
     @ViewBuilder
     private var bottomAction: some View {
         if let received, received.kind == .place, received.isFullyAgreed {
-            EmptyView()
+            openFullAppButton
         } else if isUserIn {
             HStack(spacing: Tokens.Spacing.s2) {
                 openFullAppButton
