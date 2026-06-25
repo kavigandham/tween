@@ -329,6 +329,9 @@ struct OnboardingView: View {
                 // this bottom sheet, and a view can only present one sheet at a
                 // time — attaching these to the Map silently no-ops (Add Friend /
                 // Invite / the detail card never appeared).
+                .fullScreenCover(isPresented: $showTutorial) {
+                    OnboardingTutorialView(onDone: dismissTutorial)
+                }
                 .sheet(item: $activeSheet) { sheet in
                     switch sheet {
                     case .contacts:
@@ -366,9 +369,6 @@ struct OnboardingView: View {
                         )
                     }
                 }
-        }
-        .fullScreenCover(isPresented: $showTutorial) {
-            OnboardingTutorialView(onDone: dismissTutorial)
         }
         .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
             TextField("Name", text: $renameText)
