@@ -1867,9 +1867,11 @@ struct OnboardingView: View {
 
         guard let state = TweenState(url: url) else { return }
         logger.debug("Host opened Tween URL type=\(state.messageType.rawValue, privacy: .public) kind=\(state.kind.rawValue, privacy: .public)")
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let openedOwnProposal = state.kind == .place && state.senderName == myName
 
         // Save the sender's coord as peer so the map can frame both pings.
-        if let peer = state.participantCoordinate {
+        if !openedOwnProposal, let peer = state.participantCoordinate {
             LocationCache.savePeer(peer, isActive: true)
             peerCoordinate = peer
             logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
@@ -1877,7 +1879,6 @@ struct OnboardingView: View {
         // Refresh participants array too so the group view sees everyone "in".
         // A `.leave` message may intentionally carry an empty roster.
         if !state.participants.isEmpty || state.messageType == .leave {
-            let myName = UserProfile.displayName ?? UserName.fallback
             LocationCache.saveParticipantSnapshot(state.participants, localName: myName)
             if let firstRemote = state.participants.first(where: { $0.name != myName }) {
                 peerCoordinate = firstRemote.coordinate
@@ -1888,13 +1889,17 @@ struct OnboardingView: View {
         // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
         // proposals, and agrees from a peer. Plain `tween://search` deep links
         // (handled above) and self-opened URLs shouldn't inflate the banner.
-        if state.kind == .participant || state.messageType == .agree || state.messageType == .leave {
+        if !openedOwnProposal && (state.kind == .participant || state.messageType == .agree || state.messageType == .leave) {
             PingLog.lastIncomingReplyAt = Date()
             lastReplyAt = PingLog.lastIncomingReplyAt
         }
 
         switch state.messageType {
         case .propose, .counter:
+            if openedOwnProposal {
+                showOwnProposalOnMap(state)
+                return
+            }
             if state.messageType == .counter {
                 LocationCache.clearAgreedMeetup()
                 agreedMeetup = nil
@@ -1957,6 +1962,23 @@ struct OnboardingView: View {
         }
     }
 
+    private func showOwnProposalOnMap(_ state: TweenState) {
+        panelTab = .map
+        selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+        let placemark = MKPlacemark(coordinate: state.coordinate)
+        let item = MKMapItem(placemark: placemark)
+        item.name = state.text
+        selectedResult = item
+        activeSheet = nil
+        withAnimation(Tokens.Motion.gentle) {
+            position = Self.cameraPosition(
+                for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
+                padding: 1.45,
+                minSpan: 0.04)
+        }
+        showToast("Waiting for them to agree to \(state.text).")
+    }
+
     /// Sends an agree-bubble back to a friend after they proposed a place
     /// via `tween://` link. Uses the same MFMessageComposeViewController +
     /// MSMessage plumbing as the rich-bubble ping (Slice B), but with an
@@ -1980,7 +2002,7 @@ struct OnboardingView: View {
             text: selection.name,
             latitude: selection.coordinate.latitude,
             longitude: selection.coordinate.longitude,
-            senderName: UserProfile.displayName,
+            senderName: incoming.senderName ?? UserProfile.displayName,
             kind: .place,
             senderCoordinate: mySelf,
             action: .agree,
