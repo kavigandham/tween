@@ -30,6 +30,16 @@ struct OnboardingView: View {
     /// Prefilled body for an out-of-band SMS nudge to a friend.
     private static let inviteText =
         "Where should we meet? Open Tween and tap “I'm in” so we can find a fair spot. 📍"
+    private static let suggestedSpot = QuickSpotShortcut(
+        title: "Coffee near the midpoint",
+        subtitle: "Suggested spot",
+        query: "coffee",
+        systemImage: "sparkles")
+    private static let recentSpotShortcuts: [QuickSpotShortcut] = [
+        QuickSpotShortcut(title: "Lunch spots", subtitle: "Food nearby", query: "restaurants", systemImage: "fork.knife"),
+        QuickSpotShortcut(title: "Gas stations", subtitle: "Easy stop on the way", query: "gas", systemImage: "fuelpump.fill"),
+        QuickSpotShortcut(title: "Study spots", subtitle: "Quiet places to sit", query: "library cafe", systemImage: "book.fill")
+    ]
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -101,6 +111,7 @@ struct OnboardingView: View {
 
     // Hand-off / onboarding
     @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
+        && !CommandLine.arguments.contains("-SKIP_TUTORIAL")
 
     /// The single secondary sheet currently presented. Consolidated into one
     /// enum-driven `.sheet(item:)` because stacking multiple `.sheet` modifiers
@@ -225,6 +236,14 @@ struct OnboardingView: View {
                 return .hybrid(elevation: .flat, showsTraffic: true)
             }
         }
+    }
+
+    private struct QuickSpotShortcut: Identifiable {
+        let id = UUID()
+        let title: String
+        let subtitle: String
+        let query: String
+        let systemImage: String
     }
 
     init() {
@@ -867,7 +886,7 @@ struct OnboardingView: View {
         // and suggestions have room to appear.
         .onTapGesture { expandToSearchDetent() }
         .onChange(of: searchFocused) { _, focused in
-            if focused { expandToSearchDetent() }
+            if focused { focusSearchPanel() }
         }
     }
 
@@ -903,6 +922,7 @@ struct OnboardingView: View {
             VStack(spacing: Tokens.Spacing.s3) {
                 if searchState == .idle {
                     presenceControls
+                    discoverySections
                 } else if searchState == .results || isSearchLoading {
                     resultsList
                 }
@@ -954,6 +974,68 @@ struct OnboardingView: View {
                 .padding(.vertical, Tokens.Spacing.s2)
                 .background(.thinMaterial, in: Capsule())
                 .accessibilityLabel(peerDistanceText)
+        }
+    }
+
+    private var discoverySections: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
+            quickSpotSection(title: "Suggested Spot", shortcuts: [Self.suggestedSpot])
+            quickSpotSection(title: "Recent Spots", shortcuts: Self.recentSpotShortcuts)
+        }
+        .padding(.top, Tokens.Spacing.s2)
+    }
+
+    private func quickSpotSection(title: String, shortcuts: [QuickSpotShortcut]) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text(title)
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .textCase(.uppercase)
+                .padding(.horizontal, Tokens.Spacing.s1)
+
+            VStack(spacing: 0) {
+                ForEach(Array(shortcuts.enumerated()), id: \.element.id) { index, shortcut in
+                    Button {
+                        startShortcutSearch(shortcut)
+                    } label: {
+                        HStack(spacing: Tokens.Spacing.s3) {
+                            Image(systemName: shortcut.systemImage)
+                                .font(Tokens.Typography.headline)
+                                .foregroundStyle(Tokens.Palette.brand)
+                                .frame(width: 36, height: 36)
+                                .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(shortcut.title)
+                                    .font(Tokens.Typography.headline)
+                                    .foregroundStyle(Tokens.Palette.textPrimary)
+                                    .lineLimit(1)
+                                Text(shortcut.subtitle)
+                                    .font(Tokens.Typography.caption)
+                                    .foregroundStyle(Tokens.Palette.textSecondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Image(systemName: "chevron.right")
+                                .font(Tokens.Typography.captionBold)
+                                .foregroundStyle(Tokens.Palette.textTertiary)
+                        }
+                        .padding(Tokens.Spacing.s3)
+                        .frame(maxWidth: .infinity, minHeight: 58)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Searches for \(shortcut.query)")
+
+                    if index < shortcuts.count - 1 {
+                        Divider()
+                            .padding(.leading, 60)
+                    }
+                }
+            }
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         }
     }
 
@@ -1504,7 +1586,7 @@ struct OnboardingView: View {
     /// else feeds the completer immediately and launches a lightly debounced real
     /// local search so results appear without waiting for Return.
     private func handleQueryChange(_ query: String) {
-        expandToSearchDetent()
+        focusSearchPanel()
         // A programmatic commit (suggestion/category) already started its search;
         // don't let the resulting onChange cancel it or revert to suggestions.
         if suppressNextQueryChange {
@@ -1557,6 +1639,19 @@ struct OnboardingView: View {
         searchTask = Task { @MainActor in
             await runSearch(trimmed: trimmed, reframeMap: true)
         }
+    }
+
+    private func focusSearchPanel() {
+        panelTab = .map
+        expandToSearchDetent()
+    }
+
+    private func startShortcutSearch(_ shortcut: QuickSpotShortcut) {
+        suppressNextQueryChange = true
+        selectedCategory = nil
+        searchText = shortcut.query
+        focusSearchPanel()
+        commitSearch()
     }
 
     /// Clears results and returns `false` when there's nothing to search — an
