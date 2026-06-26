@@ -457,15 +457,17 @@ final class MessagesViewController: MSMessagesAppViewController {
             sendStatusMessage = "Leaving this meetup..."
             presentUI(for: presentationStyle)
 
-            let participants = participantListWithoutMe()
-            currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            let remainingParticipants = participantListWithoutMe()
+            currentParticipants = []
+            // The outgoing leave bubble carries the remaining roster for
+            // recipients, but this device should stop rendering the meetup.
+            LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
             LocationCache.deactivateSelf()
             LocationCache.clearAgreedMeetup()
             rankedSpots = []
 
             let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
-                ?? participants.first?.coordinate
+                ?? remainingParticipants.first?.coordinate
                 ?? MapGeometry.defaultCenter
             let state = TweenState(
                 text: "I'm out",
@@ -474,9 +476,9 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderName: UserProfile.displayName,
                 kind: .participant,
                 messageType: .leave,
-                participants: participants
+                participants: remainingParticipants
             )
-            logger.debug("Encoding I'm out reply participants=\(participants.count, privacy: .public)")
+            logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await insertBubble(for: state, dismissAfterInsert: true)
             isSending = false
             sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."

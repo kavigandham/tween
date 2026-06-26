@@ -1207,14 +1207,16 @@ struct OnboardingView: View {
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
             ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.coordinate
             ?? Self.defaultCenter
-        let participants = LocationCache.loadParticipants().filter { $0.name != myName }
-        LocationCache.saveParticipantSnapshot(participants, localName: myName)
+        let remainingParticipants = LocationCache.loadParticipants().filter { $0.name != myName }
+        // The outgoing leave bubble tells everyone else who remains in.
+        // Locally, leaving means this device is no longer watching the meetup.
+        LocationCache.saveParticipantSnapshot([], localName: myName)
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
         agreedMeetup = nil
         selectedResult = nil
         _ = refreshFromAppGroup()
-        presentLeaveMessage(participants: participants, fallbackCoordinate: fallbackCoordinate)
+        presentLeaveMessage(participants: remainingParticipants, fallbackCoordinate: fallbackCoordinate)
     }
 
     private func presentLeaveMessage(participants: [Participant],
