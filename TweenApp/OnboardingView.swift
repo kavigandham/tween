@@ -1583,8 +1583,8 @@ struct OnboardingView: View {
     }
 
     /// Reacts to each keystroke. An empty field returns to quick chips; anything
-    /// else feeds the completer immediately and launches a lightly debounced real
-    /// local search so results appear without waiting for Return.
+    /// else feeds the completer immediately. Full result cards only appear after
+    /// Return, a suggestion tap, or a category/shortcut tap.
     private func handleQueryChange(_ query: String) {
         focusSearchPanel()
         // A programmatic commit (suggestion/category) already started its search;
@@ -1608,15 +1608,9 @@ struct OnboardingView: View {
         searchResults = []
         rankedSpots = []
         isSearchActive = false
-        isSearchLoading = true
+        isSearchLoading = false
         searchState = .suggesting
         completer.update(query: trimmed, region: searchRegion)
-
-        searchTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            await runSearch(trimmed: trimmed, reframeMap: false)
-        }
     }
 
     /// Commits a suggestion as a full search.
@@ -1670,8 +1664,8 @@ struct OnboardingView: View {
     }
 
     /// Runs `MKLocalSearch`, surfaces raw hits immediately, then ranks the same
-    /// hits by fairness when both coordinates are known. Live typing keeps the
-    /// map still; committed searches (Return, suggestion, chip) may reframe it.
+    /// hits by fairness when both coordinates are known. Committed searches
+    /// (Return, suggestion, chip, shortcut) may reframe the map.
     @MainActor
     private func runSearch(trimmed: String, reframeMap: Bool) async {
         guard monitor.isOnline else {
