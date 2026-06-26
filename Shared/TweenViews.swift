@@ -679,20 +679,17 @@ struct ExpandedView: View {
             if let statusMessage, !isSending { statusBanner(statusMessage) }
             inviteBanner
 
-            // Split the space between the interactive map (~60%) and the
-            // scrollable spot list (~40%). The map can't live inside a vertical
-            // ScrollView — its pan gesture would fight the scroll — so it gets its
-            // own fixed slice here instead. When the meetup is set, the bottom
-            // half becomes a celebratory hero with map-app direction choices
-            // instead of the spot list (negotiation is over).
             GeometryReader { geo in
-                VStack(spacing: 0) {
-                    mapSection
-                        .frame(height: geo.size.height * 0.6)
-                    if isMeetupSet, let received {
-                        meetupSetView(state: received)
-                            .frame(height: geo.size.height * 0.4)
-                    } else {
+                if isMeetupSet, let received {
+                    meetupSetView(state: received)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    // Split the space between the interactive map (~60%) and the
+                    // scrollable spot list (~40%). The map can't live inside a
+                    // vertical ScrollView — its pan gesture would fight the scroll.
+                    VStack(spacing: 0) {
+                        mapSection
+                            .frame(height: geo.size.height * 0.6)
                         VStack(spacing: 0) {
                             proposedPlacePanel
                             spotList
@@ -702,11 +699,13 @@ struct ExpandedView: View {
                 }
             }
 
-            primaryCTA
-                .padding(Tokens.Spacing.s4)
-            bottomAction
-                .padding(.horizontal, Tokens.Spacing.s4)
-                .padding(.bottom, Tokens.Spacing.s3)
+            if !isMeetupSet {
+                primaryCTA
+                    .padding(Tokens.Spacing.s4)
+                bottomAction
+                    .padding(.horizontal, Tokens.Spacing.s4)
+                    .padding(.bottom, Tokens.Spacing.s3)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque background for the expanded surface for the same reason
@@ -723,7 +722,7 @@ struct ExpandedView: View {
     /// participants.count is 0 or 1 in those legacy bubbles.
     @ViewBuilder
     private var inviteBanner: some View {
-        if let received, let name = received.senderName, !name.isEmpty {
+        if let received, !isMeetupSet, let name = received.senderName, !name.isEmpty {
             let isPlace = received.kind == .place
             let isFullyAgreed = received.isFullyAgreed
             VStack(spacing: Tokens.Spacing.s1) {
@@ -1037,55 +1036,157 @@ struct ExpandedView: View {
     /// `.agree` and every non-proposer participant has agreed. Agreement is
     /// terminal for negotiation, but the user still needs to leave the meetup.
     private func meetupSetView(state: TweenState) -> some View {
-        VStack(spacing: Tokens.Spacing.s3) {
-            HStack(spacing: Tokens.Spacing.s2) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(Tokens.Typography.title2)
-                    .foregroundStyle(Tokens.Palette.success)
-                Text("It's a plan!")
-                    .font(Tokens.Typography.title2.weight(.semibold))
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-            }
-            VStack(spacing: 2) {
-                Text("Meeting at")
-                    .font(Tokens.Typography.callout)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(state.text)
-                    .font(Tokens.Typography.title)
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                    .multilineTextAlignment(.center)
-            }
-            Spacer(minLength: Tokens.Spacing.s2)
-            directionButtons(for: state)
-                .padding(.horizontal, Tokens.Spacing.s4)
-            Group {
-                if isUserIn {
-                    Button {
+        ZStack(alignment: .bottom) {
+            mapSection
+
+            VStack(spacing: Tokens.Spacing.s4) {
+                Capsule()
+                    .fill(Tokens.Palette.textTertiary.opacity(0.35))
+                    .frame(width: 42, height: 5)
+                    .accessibilityHidden(true)
+
+                HStack(alignment: .center, spacing: Tokens.Spacing.s3) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(Tokens.Typography.title)
+                        .foregroundStyle(Tokens.Palette.success)
+                        .symbolRenderingMode(.hierarchical)
+
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                        Text("It's a plan")
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                        Text(state.text)
+                            .font(Tokens.Typography.title.weight(.bold))
+                            .foregroundStyle(Tokens.Palette.textPrimary)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.72)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                VStack(spacing: Tokens.Spacing.s2) {
+                    directionRow(
+                        title: "Apple Maps",
+                        subtitle: "Open driving directions",
+                        systemImage: "map",
+                        foreground: .white,
+                        background: Tokens.Palette.brand
+                    ) {
                         sendTick += 1
-                        onImOut()
-                    } label: {
-                        Label("I'm out", systemImage: "location.slash")
+                        onOpenAppleMaps(state)
+                    }
+
+                    directionRow(
+                        title: "Google Maps",
+                        subtitle: "Open in Google Maps",
+                        systemImage: "globe",
+                        foreground: Tokens.Palette.brand,
+                        background: Tokens.Palette.brandLight
+                    ) {
+                        sendTick += 1
+                        onOpenGoogleMaps(state)
+                    }
+                }
+
+                HStack(spacing: Tokens.Spacing.s2) {
+                    if isUserIn {
+                        Button {
+                            sendTick += 1
+                            onImOut()
+                        } label: {
+                            Label("I'm out", systemImage: "location.slash")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.tweenPrimary(.subtle))
+                        .foregroundStyle(Tokens.Palette.destructive)
+                        .accessibilityHint("Stops sharing you as active for this meetup")
+                    } else {
+                        Button(action: onImIn) {
+                            Label("I'm in", systemImage: "location.fill")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.tweenPrimary())
+                        .disabled(isSending)
+                        .accessibilityHint("Shares where you are for this meetup")
+                    }
+
+                    Button(action: onOpenFullApp) {
+                        Label("Search", systemImage: "magnifyingglass")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.tweenPrimary(.subtle))
-                    .accessibilityHint("Stops sharing you as active for this meetup")
-                } else {
-                    Button(action: onImIn) {
-                        Label("I'm in", systemImage: "location.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.tweenPrimary())
-                    .disabled(isSending)
-                    .accessibilityHint("Shares where you are for this meetup")
+                    .accessibilityHint("Opens the full Tween app to search for places")
                 }
             }
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .padding(.bottom, Tokens.Spacing.s4)
+            .padding(Tokens.Spacing.s4)
+            .background(.regularMaterial, in: UnevenRoundedRectangle(
+                topLeadingRadius: Tokens.Radius.sheet,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: Tokens.Radius.sheet,
+                style: .continuous
+            ))
+            .overlay(alignment: .top) {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: Tokens.Radius.sheet,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: Tokens.Radius.sheet,
+                    style: .continuous
+                )
+                .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
+            }
+            .tweenElevation(.sheet)
             .sensoryFeedback(.success, trigger: isMeetupSet)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, Tokens.Spacing.s4)
-        .background(Tokens.Palette.success.opacity(0.10))
+        .background(Color(.systemBackground))
+    }
+
+    private func directionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        foreground: Color,
+        background: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: Tokens.Spacing.s3) {
+                Image(systemName: systemImage)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(foreground)
+                    .frame(width: 40, height: 40)
+                    .background(foreground.opacity(0.16), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(foreground)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(foreground.opacity(0.78))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(foreground.opacity(0.72))
+            }
+            .padding(Tokens.Spacing.s3)
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .background(background, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var spotList: some View {

@@ -39,6 +39,23 @@ struct HarnessView: View {
                     .frame(height: 520)
                     .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
                 }
+
+                section("Meetup Set View") {
+                    ExpandedView(
+                        received: DebugLaunchSeed.agreed,
+                        selfCoord: DebugLaunchSeed.selfCoordinate,
+                        rankedSpots: [],
+                        isUserIn: true,
+                        onImIn: {},
+                        onImOut: {},
+                        onSelectSpot: { _ in },
+                        onOpenFullApp: {},
+                        onOpenAppleMaps: { _ in },
+                        onOpenGoogleMaps: { _ in }
+                    )
+                    .frame(height: 620)
+                    .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                }
             }
             .padding(Tokens.Spacing.s4)
         }
@@ -69,6 +86,22 @@ enum DebugLaunchSeed {
         text: "Blue Bottle Coffee",
         latitude: friendCoordinate.latitude,
         longitude: friendCoordinate.longitude
+    )
+
+    static let agreed = TweenState(
+        text: "Shell",
+        latitude: 33.8536,
+        longitude: -79.4812,
+        senderName: "You",
+        kind: .place,
+        senderCoordinate: selfCoordinate,
+        action: .agree,
+        messageType: .agree,
+        participants: [
+            Participant(id: "You", name: "You", coordinate: selfCoordinate),
+            Participant(id: "Friend", name: "Friend", coordinate: friendCoordinate)
+        ],
+        agreedNames: ["Friend"]
     )
 
     static let rankedSpots: [RankedSpot] = [
