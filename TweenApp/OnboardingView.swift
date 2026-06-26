@@ -387,6 +387,7 @@ struct OnboardingView: View {
                     // launch fix just recenters the map on a self dot.
                     if awaitingImIn {
                         LocationCache.save(coord, isActive: true)
+                        saveLocalParticipant(coord)
                         isUserIn = true
                     }
                 }
@@ -1203,22 +1204,21 @@ struct OnboardingView: View {
     private func leave() {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
         let myName = UserProfile.displayName ?? UserName.fallback
+        let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
+            ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.coordinate
+            ?? Self.defaultCenter
         let participants = LocationCache.loadParticipants().filter { $0.name != myName }
-        LocationCache.saveParticipants(participants)
+        LocationCache.saveParticipantSnapshot(participants, localName: myName)
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
-        if participants.isEmpty {
-            LocationCache.setPeerActive(false)
-        }
         agreedMeetup = nil
         selectedResult = nil
-        presentLeaveMessage(participants: participants)
+        _ = refreshFromAppGroup()
+        presentLeaveMessage(participants: participants, fallbackCoordinate: fallbackCoordinate)
     }
 
-    private func presentLeaveMessage(participants: [Participant]) {
-        let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
-            ?? participants.first?.coordinate
-            ?? Self.defaultCenter
+    private func presentLeaveMessage(participants: [Participant],
+                                     fallbackCoordinate: CLLocationCoordinate2D) {
         let state = TweenState(
             text: "I'm out",
             latitude: fallbackCoordinate.latitude,
@@ -1254,6 +1254,14 @@ struct OnboardingView: View {
                 body: "I'm out of this meetup.",
                 message: message))
         }
+    }
+
+    private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let participants = LocationCache.loadParticipants().filter { $0.name != myName } + [
+            Participant(id: myName, name: myName, coordinate: coordinate)
+        ]
+        LocationCache.saveParticipantSnapshot(participants, localName: myName)
     }
 
     // MARK: - Hand-off
@@ -1867,13 +1875,11 @@ struct OnboardingView: View {
         // Refresh participants array too so the group view sees everyone "in".
         // A `.leave` message may intentionally carry an empty roster.
         if !state.participants.isEmpty || state.messageType == .leave {
-            LocationCache.saveParticipants(state.participants)
             let myName = UserProfile.displayName ?? UserName.fallback
+            LocationCache.saveParticipantSnapshot(state.participants, localName: myName)
             if let firstRemote = state.participants.first(where: { $0.name != myName }) {
-                LocationCache.savePeer(firstRemote.coordinate, isActive: true)
                 peerCoordinate = firstRemote.coordinate
             } else {
-                LocationCache.setPeerActive(false)
                 peerCoordinate = nil
             }
         }

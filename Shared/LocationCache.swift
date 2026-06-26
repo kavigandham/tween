@@ -110,6 +110,17 @@ enum LocationCache {
         defaults?.set(data, forKey: participantsKey)
     }
 
+    /// Saves the canonical roster and keeps the legacy single-peer projection
+    /// in sync for screens that still read `loadPeer` / `isPeerActive`.
+    static func saveParticipantSnapshot(_ participants: [Participant], localName: String) {
+        saveParticipants(participants)
+        if let firstRemote = participants.first(where: { $0.name != localName }) {
+            savePeer(firstRemote.coordinate, isActive: true)
+        } else {
+            setPeerActive(false)
+        }
+    }
+
     static func loadParticipants() -> [Participant] {
         guard let data = defaults?.data(forKey: participantsKey),
               let list = try? JSONDecoder().decode([Participant].self, from: data)

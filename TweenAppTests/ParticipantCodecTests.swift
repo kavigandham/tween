@@ -289,6 +289,32 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(LocationCache.loadParticipants(), [])
     }
 
+    func testParticipantSnapshotUpdatesLegacyPeerProjection() throws {
+        let participants = [
+            Participant(id: "Alice", name: "Alice", latitude: 38.84, longitude: -77.30),
+            Participant(id: "Bob", name: "Bob", latitude: 38.90, longitude: -77.35),
+            Participant(id: "Carol", name: "Carol", latitude: 38.82, longitude: -77.32)
+        ]
+
+        LocationCache.saveParticipantSnapshot(participants, localName: "Alice")
+
+        XCTAssertEqual(LocationCache.loadParticipants(), participants)
+        XCTAssertTrue(LocationCache.isPeerActive)
+        let peer = try XCTUnwrap(LocationCache.loadPeer())
+        XCTAssertEqual(peer.latitude, 38.90, accuracy: 1e-5)
+        XCTAssertEqual(peer.longitude, -77.35, accuracy: 1e-5)
+    }
+
+    func testParticipantSnapshotClearsLegacyPeerWhenNoRemoteRemains() {
+        LocationCache.savePeer(CLLocationCoordinate2D(latitude: 38.90, longitude: -77.35), isActive: true)
+
+        LocationCache.saveParticipantSnapshot([
+            Participant(id: "Alice", name: "Alice", latitude: 38.84, longitude: -77.30)
+        ], localName: "Alice")
+
+        XCTAssertFalse(LocationCache.isPeerActive)
+    }
+
     // MARK: - UserName persistence
 
     func testUserNameRoundTrip() {

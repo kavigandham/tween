@@ -62,6 +62,14 @@ struct OnboardingTutorialView: View {
     @State private var demoDirections = false
 
     private var isLastSlide: Bool { selection == Self.slides.count - 1 }
+    private var canAdvanceFromCurrentSlide: Bool {
+        switch Self.slides[selection].visual {
+        case .join:       return demoJoined
+        case .fairSpot:   return demoChosen
+        case .messages:   return demoSent
+        case .directions: return demoDirections
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -153,16 +161,37 @@ struct OnboardingTutorialView: View {
                 .buttonStyle(.tweenPrimary(.subtle))
                 .disabled(selection == 0)
 
-                Button {
-                    if isLastSlide {
+                if isLastSlide {
+                    Button {
                         onDone()
-                    } else {
-                        withAnimation(Tokens.Motion.snappy) { selection += 1 }
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
                     }
-                } label: {
-                    Label(isLastSlide ? "Done" : "Next", systemImage: isLastSlide ? "checkmark" : "chevron.right")
+                    .buttonStyle(.tweenPrimary())
+                } else {
+                    Button {
+                        guard canAdvanceFromCurrentSlide else { return }
+                        withAnimation(Tokens.Motion.snappy) {
+                            selection = min(Self.slides.count - 1, selection + 1)
+                        }
+                    } label: {
+                        Label("Next", systemImage: "chevron.right")
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(canAdvanceFromCurrentSlide ? .white : Tokens.Palette.textTertiary)
+                            .padding(.vertical, Tokens.Spacing.s3)
+                            .padding(.horizontal, Tokens.Spacing.s5)
+                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+                            .background(
+                                canAdvanceFromCurrentSlide ? Tokens.Palette.brand : Tokens.Palette.surfaceSecondary,
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canAdvanceFromCurrentSlide)
+                    .accessibilityHint(canAdvanceFromCurrentSlide
+                                       ? "Moves to the next guide step"
+                                       : "Try the action on this step first")
                 }
-                .buttonStyle(.tweenPrimary())
             }
             .padding(.horizontal, Tokens.Spacing.s5)
         }
@@ -246,7 +275,7 @@ private struct TutorialVisualCard: View {
             MiniMap(showSelf: true, showFriend: demoJoined, showMidpoint: demoJoined)
                 .frame(height: 150)
             Button {
-                withAnimation(Tokens.Motion.spring) { demoJoined.toggle() }
+                withAnimation(Tokens.Motion.spring) { demoJoined = true }
             } label: {
                 Label(demoJoined ? "You're in" : "Try I'm in", systemImage: demoJoined ? "checkmark.circle.fill" : "location.fill")
             }
@@ -261,7 +290,7 @@ private struct TutorialVisualCard: View {
             MiniMap(showSelf: true, showFriend: true, showMidpoint: true)
                 .frame(height: 128)
             Button {
-                withAnimation(Tokens.Motion.spring) { demoChosen.toggle() }
+                withAnimation(Tokens.Motion.spring) { demoChosen = true }
             } label: {
                 HStack {
                     Image(systemName: demoChosen ? "star.fill" : "star")
@@ -303,7 +332,7 @@ private struct TutorialVisualCard: View {
             .padding(Tokens.Spacing.s3)
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
             Button {
-                withAnimation(Tokens.Motion.spring) { demoSent.toggle() }
+                withAnimation(Tokens.Motion.spring) { demoSent = true }
             } label: {
                 Label(demoSent ? "Shared" : "Send to chat", systemImage: demoSent ? "checkmark" : "paperplane.fill")
             }

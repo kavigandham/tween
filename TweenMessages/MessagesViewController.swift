@@ -154,7 +154,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Roster snapshot: trust the incoming list verbatim.
         if !state.participants.isEmpty || state.messageType == .leave {
             currentParticipants = state.participants
-            LocationCache.saveParticipants(state.participants)
+            LocationCache.saveParticipantSnapshot(state.participants, localName: Self.localParticipantName())
         }
 
         // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
@@ -423,7 +423,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             let participants = self.nextParticipantList(myCoord: coordinate,
                                                        conversation: self.activeConversation)
             self.currentParticipants = participants
-            LocationCache.saveParticipants(participants)
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
 
             let state = TweenState(
                 text: "I'm in",
@@ -459,12 +459,9 @@ final class MessagesViewController: MSMessagesAppViewController {
 
             let participants = participantListWithoutMe()
             currentParticipants = participants
-            LocationCache.saveParticipants(participants)
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
             LocationCache.deactivateSelf()
             LocationCache.clearAgreedMeetup()
-            if participants.isEmpty {
-                LocationCache.setPeerActive(false)
-            }
             rankedSpots = []
 
             let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
@@ -501,7 +498,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants = currentParticipants
         }
         currentParticipants = participants
-        LocationCache.saveParticipants(participants)
+        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -547,7 +544,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 participants.append(Participant(id: myId, name: myName, coordinate: myCoord))
             }
             self.currentParticipants = participants
-            LocationCache.saveParticipants(participants)
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
 
             var agreed = proposed.agreedNames
             if !agreed.contains(myName) { agreed.append(myName) }
@@ -599,7 +596,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants = currentParticipants
         }
         currentParticipants = participants
-        LocationCache.saveParticipants(participants)
+        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -632,7 +629,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants = currentParticipants
         }
         currentParticipants = participants
-        LocationCache.saveParticipants(participants)
+        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
 
         let state = TweenState(
             text: draft.spotName,
