@@ -1208,8 +1208,7 @@ struct ExpandedView: View {
                                 .minimumScaleFactor(0.78)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.tweenPrimary(.subtle))
-                        .foregroundStyle(Tokens.Palette.destructive)
+                        .buttonStyle(.tweenPrimary(.destructive))
                         .accessibilityHint("Stops sharing you as active for this meetup")
                     } else {
                         Button(action: onImIn) {
@@ -1229,7 +1228,7 @@ struct ExpandedView: View {
                             .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.tweenPrimary(.subtle))
+                    .buttonStyle(.tweenPrimary(.neutral))
                     .accessibilityHint("Opens the full Tween app to search for places")
                 }
             }

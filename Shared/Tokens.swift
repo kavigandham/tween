@@ -23,10 +23,16 @@ enum Tokens {
         // Brand — deep teal #008C8C, brightened in dark mode for contrast.
         static let brand = dynamicColor(
             light: UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1),   // #008C8C
-            dark:  UIColor(red: 0.10, green: 0.722, blue: 0.722, alpha: 1))    // #19B8B8
+            dark:  UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1))    // #29C7C7
         static let brandLight = dynamicColor(
             light: UIColor(red: 0.878, green: 0.953, blue: 0.953, alpha: 1),   // #E0F3F3
-            dark:  UIColor(red: 0.063, green: 0.247, blue: 0.247, alpha: 1))   // #103F3F
+            dark:  UIColor(red: 0.082, green: 0.176, blue: 0.204, alpha: 1))   // #152D34
+        static let neutralAction = dynamicColor(
+            light: UIColor(red: 0.925, green: 0.941, blue: 0.957, alpha: 1),   // #ECF0F4
+            dark:  UIColor(red: 0.122, green: 0.137, blue: 0.165, alpha: 1))   // #1F232A
+        static let destructiveLight = dynamicColor(
+            light: UIColor(red: 1.000, green: 0.918, blue: 0.918, alpha: 1),   // #FFEAEA
+            dark:  UIColor(red: 0.282, green: 0.114, blue: 0.122, alpha: 1))   // #481D1F
 
         // Map pins — system colors so they track Increase Contrast and dark mode.
         // Each pin also carries a distinct glyph, so color is never the sole cue.
@@ -63,7 +69,11 @@ enum Tokens {
             static let pinClosest = UIColor.systemGreen
             static let pinResult = UIColor.systemTeal
             static let pinMidpoint = pinFair
-            static let brand = UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1)         // #008C8C
+            static let brand = UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1)       // #29C7C7
+                : UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1)       // #008C8C
+            }
         }
     }
 
@@ -190,6 +200,8 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
     enum Variant {
         case prominent
         case subtle
+        case neutral
+        case destructive
     }
 
     var variant: Variant = .prominent
@@ -209,6 +221,8 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
         switch variant {
         case .prominent: return .white
         case .subtle:    return Tokens.Palette.brand
+        case .neutral:   return Tokens.Palette.textPrimary
+        case .destructive: return Tokens.Palette.destructive
         }
     }
 
@@ -216,6 +230,8 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
         switch variant {
         case .prominent: return AnyShapeStyle(Tokens.Palette.brand)
         case .subtle:    return AnyShapeStyle(Tokens.Palette.brandLight)
+        case .neutral:   return AnyShapeStyle(Tokens.Palette.neutralAction)
+        case .destructive: return AnyShapeStyle(Tokens.Palette.destructiveLight)
         }
     }
 }
