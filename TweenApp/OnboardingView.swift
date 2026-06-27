@@ -1351,20 +1351,13 @@ struct OnboardingView: View {
     // MARK: - Hand-off
 
     /// Centers the map on a tapped result and drops the sheet to its peek so the
-    /// map is visible. Frames self, peer, and the spot together when both
-    /// participants are known; otherwise zooms tight on the spot.
+    /// map is visible. The first view should be the place itself; the reset-map
+    /// control can still pull back to show the whole route context.
     private func focusMap(on item: MKMapItem) {
-        let coords = [savedCoordinate, peerCoordinate, item.placemark.coordinate].compactMap { $0 }
-        if coords.count > 1 {
-            withAnimation(Tokens.Motion.gentle) {
-                position = Self.cameraPosition(for: coords, padding: 1.45, minSpan: 0.04)
-            }
-        } else {
-            withAnimation(Tokens.Motion.gentle) {
-                position = .region(MKCoordinateRegion(
-                    center: item.placemark.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
-            }
+        withAnimation(Tokens.Motion.gentle) {
+            position = .region(MKCoordinateRegion(
+                center: item.placemark.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
         }
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
     }
@@ -1415,13 +1408,16 @@ struct OnboardingView: View {
     private func sendToChat(_ selection: SpotSelection) {
         ensureNamed {
             let coord = selection.coordinate
+            let participants = proposalParticipantsForCurrentContext()
             let state = TweenState(
                 text: selection.name,
                 latitude: coord.latitude,
                 longitude: coord.longitude,
                 senderName: UserProfile.displayName,
                 kind: .place,
-                senderCoordinate: savedCoordinate)        // set by ensureNamed
+                senderCoordinate: savedCoordinate,        // set by ensureNamed
+                messageType: .propose,
+                participants: participants)
             guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
@@ -1447,6 +1443,15 @@ struct OnboardingView: View {
                 showToast("Message copied — paste it into your chat")
             }
         }
+    }
+
+    private func proposalParticipantsForCurrentContext() -> [Participant] {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        var participants = LocationCache.loadParticipants().filter { $0.name != myName }
+        if let savedCoordinate {
+            participants.append(Participant(id: myName, name: myName, coordinate: savedCoordinate))
+        }
+        return participants
     }
 
     /// Opens Apple Maps with driving directions to the chosen spot.
@@ -2011,10 +2016,9 @@ struct OnboardingView: View {
             activeSheet = .spot(selection)
             // Frame the map so the user can see the proposed spot in context.
             withAnimation(Tokens.Motion.gentle) {
-                position = Self.cameraPosition(
-                    for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
-                    padding: 1.45,
-                    minSpan: 0.04)
+                position = .region(MKCoordinateRegion(
+                    center: state.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
             }
 
         case .agree:
@@ -2026,10 +2030,9 @@ struct OnboardingView: View {
             // A friend's reply that they agree to a previously-proposed spot.
             // No interactive UI needed — just frame the map on it and toast.
             withAnimation(Tokens.Motion.gentle) {
-                position = Self.cameraPosition(
-                    for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
-                    padding: 1.45,
-                    minSpan: 0.04)
+                position = .region(MKCoordinateRegion(
+                    center: state.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
             }
             let who = state.senderName ?? "Your friend"
             showToast(state.isFullyAgreed
@@ -2060,10 +2063,9 @@ struct OnboardingView: View {
         selectedResult = item
         activeSheet = nil
         withAnimation(Tokens.Motion.gentle) {
-            position = Self.cameraPosition(
-                for: [savedCoordinate, peerCoordinate, state.coordinate].compactMap { $0 },
-                padding: 1.45,
-                minSpan: 0.04)
+            position = .region(MKCoordinateRegion(
+                center: state.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
         }
         showToast("Waiting for them to agree to \(state.text).")
     }
@@ -2086,6 +2088,10 @@ struct OnboardingView: View {
         var agreed = incoming.agreedNames
         if !agreed.contains(myName) { agreed.append(myName) }
         let mySelf = LocationCache.loadSelf()?.coordinate
+        var participants = incoming.participants.filter { $0.name != myName }
+        if let mySelf {
+            participants.append(Participant(id: myName, name: myName, coordinate: mySelf))
+        }
 
         let state = TweenState(
             text: selection.name,
@@ -2096,7 +2102,7 @@ struct OnboardingView: View {
             senderCoordinate: mySelf,
             action: .agree,
             messageType: .agree,
-            participants: incoming.participants,
+            participants: participants,
             agreedNames: agreed
         )
 

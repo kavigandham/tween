@@ -77,6 +77,8 @@ enum MapGeometry {
 struct TweenMapSnapshotView: View {
     let markers: [MapMarker]
     var cornerRadius: CGFloat = Tokens.Radius.card
+    var focusCoordinate: CLLocationCoordinate2D? = nil
+    var focusYOffsetRatio: CLLocationDegrees = 0
 
     @State private var image: UIImage?
 
@@ -128,7 +130,16 @@ struct TweenMapSnapshotView: View {
         guard size.width > 1, size.height > 1, !coordinates.isEmpty else { return }
 
         let options = MKMapSnapshotter.Options()
-        options.region = MapGeometry.region(for: coordinates)
+        if let focusCoordinate {
+            let span = MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045)
+            options.region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(
+                    latitude: focusCoordinate.latitude - (span.latitudeDelta * focusYOffsetRatio),
+                    longitude: focusCoordinate.longitude),
+                span: span)
+        } else {
+            options.region = MapGeometry.region(for: coordinates)
+        }
         options.size = size
         options.mapType = .standard
 
@@ -428,7 +439,10 @@ struct CompactView: View {
     @ViewBuilder
     private var thumbnail: some View {
         if let received {
-            TweenMapSnapshotView(markers: markers(for: received), cornerRadius: Tokens.Radius.card)
+            TweenMapSnapshotView(
+                markers: markers(for: received),
+                cornerRadius: Tokens.Radius.card,
+                focusCoordinate: received.kind == .place ? received.coordinate : nil)
                 .frame(width: 112, height: 92)
         } else {
             ZStack {
@@ -673,15 +687,22 @@ struct ExpandedView: View {
         return received.messageType == .agree && received.isFullyAgreed
     }
 
+    private var isInvitePrompt: Bool {
+        received?.messageType == .invite
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
             if let statusMessage, !isSending { statusBanner(statusMessage) }
-            inviteBanner
+            if !isInvitePrompt { inviteBanner }
 
             GeometryReader { geo in
                 if isMeetupSet, let received {
                     meetupSetView(state: received)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else if isInvitePrompt, let received {
+                    invitePromptView(state: received)
                         .frame(width: geo.size.width, height: geo.size.height)
                 } else {
                     // Split the space between the interactive map (~60%) and the
@@ -699,7 +720,7 @@ struct ExpandedView: View {
                 }
             }
 
-            if !isMeetupSet {
+            if !isMeetupSet && !isInvitePrompt {
                 primaryCTA
                     .padding(Tokens.Spacing.s4)
                 bottomAction
@@ -812,14 +833,92 @@ struct ExpandedView: View {
         return "You've been invited by \(name)"
     }
 
+    private func invitePromptView(state: TweenState) -> some View {
+        ZStack(alignment: .bottom) {
+            mapSection
+
+            VStack(spacing: Tokens.Spacing.s4) {
+                Capsule()
+                    .fill(Tokens.Palette.textTertiary.opacity(0.35))
+                    .frame(width: 42, height: 5)
+                    .accessibilityHidden(true)
+
+                VStack(spacing: Tokens.Spacing.s2) {
+                    Image(systemName: "person.2.fill")
+                        .font(Tokens.Typography.title2)
+                        .foregroundStyle(Tokens.Palette.brand)
+                        .frame(width: 48, height: 48)
+                        .background(Tokens.Palette.brandLight, in: Circle())
+
+                    Text("You've been invited")
+                        .font(Tokens.Typography.callout)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+
+                    Text(state.senderName ?? "Your friend")
+                        .font(Tokens.Typography.title.weight(.bold))
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+
+                    if let progress = groupProgress(for: state) {
+                        Text(progress)
+                            .font(Tokens.Typography.captionBold)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .padding(.horizontal, Tokens.Spacing.s3)
+                            .padding(.vertical, Tokens.Spacing.s1)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                }
+
+                Button(action: onImIn) {
+                    if isSending {
+                        HStack(spacing: Tokens.Spacing.s2) {
+                            ProgressView()
+                            Text(statusMessage ?? "Sharing...")
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        Label("I'm in", systemImage: "location.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.tweenPrimary())
+                .disabled(isSending)
+                .accessibilityHint("Shares where you are for this meetup")
+
+                Button(action: onOpenFullApp) {
+                    Label("Search in Tween", systemImage: "arrow.up.forward.app")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+                .accessibilityHint("Opens the full Tween app to search for places")
+            }
+            .padding(Tokens.Spacing.s4)
+            .background(.regularMaterial, in: UnevenRoundedRectangle(
+                topLeadingRadius: Tokens.Radius.sheet,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: Tokens.Radius.sheet,
+                style: .continuous
+            ))
+            .tweenElevation(.sheet)
+        }
+        .background(Color(.systemBackground))
+    }
+
     // MARK: Map
 
     @ViewBuilder
     private var mapSection: some View {
         if hasMapContent {
-            if useStaticMap {
+            if useStaticMap || usesStaticMapForCurrentState {
                 // Memory-pressure fallback: the cheap snapshot path, no MKMapView.
-                TweenMapSnapshotView(markers: staticMarkers, cornerRadius: 0)
+                TweenMapSnapshotView(
+                    markers: staticMarkers,
+                    cornerRadius: 0,
+                    focusCoordinate: receivedPlaceCoord ?? draft?.coordinate,
+                    focusYOffsetRatio: (receivedPlaceCoord != nil || draft != nil) ? 0.22 : 0)
             } else {
                 interactiveMap
             }
@@ -933,6 +1032,15 @@ struct ExpandedView: View {
     /// of tiles, while still letting users zoom in to street level.
     private var cameraBounds: MapCameraBounds {
         MapCameraBounds(minimumDistance: 400, maximumDistance: 200_000)
+    }
+
+    private var usesStaticMapForCurrentState: Bool {
+        if draft != nil { return true }
+        guard let received else { return false }
+        switch received.messageType {
+        case .invite, .propose, .counter, .agree, .leave:
+            return true
+        }
     }
 
     /// A ranked-spot map pin: a drive-time chip floating above a category

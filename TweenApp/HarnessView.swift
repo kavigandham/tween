@@ -13,48 +13,71 @@ import CoreLocation
 /// Reached only from `ContentView` when `-HARNESS` is present, and the whole
 /// file is excluded from release builds by the surrounding `#if DEBUG`.
 struct HarnessView: View {
+    var focus: HarnessFocus = .all
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s5) {
-                section("Compact View") {
-                    CompactView(
-                        received: DebugLaunchSeed.received,
-                        isUserIn: false,
-                        onImIn: {},
-                        onExpand: {}
-                    )
-                    .frame(height: 120)
-                    .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                if focus == .all {
+                    section("Compact View") {
+                        CompactView(
+                            received: DebugLaunchSeed.received,
+                            isUserIn: false,
+                            onImIn: {},
+                            onExpand: {}
+                        )
+                        .frame(height: 120)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+
+                    section("Expanded View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.received,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: DebugLaunchSeed.rankedSpots,
+                            isUserIn: true,
+                            onImIn: {},
+                            onSelectSpot: { _ in }
+                        )
+                        .frame(height: 520)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
                 }
 
-                section("Expanded View") {
-                    ExpandedView(
-                        received: DebugLaunchSeed.received,
-                        selfCoord: DebugLaunchSeed.selfCoordinate,
-                        rankedSpots: DebugLaunchSeed.rankedSpots,
-                        isUserIn: true,
-                        onImIn: {},
-                        onSelectSpot: { _ in }
-                    )
-                    .frame(height: 520)
-                    .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                if focus.includes(.invite) {
+                    section("Invite Prompt View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.invite,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: [],
+                            isUserIn: false,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onOpenFullApp: {}
+                        )
+                        .frame(height: 620)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
                 }
 
-                section("Meetup Set View") {
-                    ExpandedView(
-                        received: DebugLaunchSeed.agreed,
-                        selfCoord: DebugLaunchSeed.selfCoordinate,
-                        rankedSpots: [],
-                        isUserIn: true,
-                        onImIn: {},
-                        onImOut: {},
-                        onSelectSpot: { _ in },
-                        onOpenFullApp: {},
-                        onOpenAppleMaps: { _ in },
-                        onOpenGoogleMaps: { _ in }
-                    )
-                    .frame(height: 620)
-                    .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                if focus.includes(.meetup) {
+                    section("Meetup Set View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.agreed,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: [],
+                            isUserIn: true,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onOpenFullApp: {},
+                            onOpenAppleMaps: { _ in },
+                            onOpenGoogleMaps: { _ in }
+                        )
+                        .frame(height: 620)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
                 }
             }
             .padding(Tokens.Spacing.s4)
@@ -74,6 +97,22 @@ struct HarnessView: View {
     }
 }
 
+enum HarnessFocus: Equatable {
+    case all
+    case invite
+    case meetup
+
+    static var current: HarnessFocus {
+        if CommandLine.arguments.contains("-HARNESS_INVITE") { return .invite }
+        if CommandLine.arguments.contains("-HARNESS_MEETUP") { return .meetup }
+        return .all
+    }
+
+    func includes(_ focus: HarnessFocus) -> Bool {
+        self == .all || self == focus
+    }
+}
+
 /// Hardcoded fixtures that drive the harness. Kept separate from the view so the
 /// seed is easy to reuse and obviously test-only. DEBUG builds only.
 enum DebugLaunchSeed {
@@ -86,6 +125,20 @@ enum DebugLaunchSeed {
         text: "Blue Bottle Coffee",
         latitude: friendCoordinate.latitude,
         longitude: friendCoordinate.longitude
+    )
+
+    static let invite = TweenState(
+        text: "Kavi Gandham wants to meet",
+        latitude: friendCoordinate.latitude,
+        longitude: friendCoordinate.longitude,
+        senderName: "Kavi Gandham",
+        kind: .participant,
+        senderCoordinate: friendCoordinate,
+        messageType: .invite,
+        participants: [
+            Participant(id: "Kavi", name: "Kavi Gandham", coordinate: friendCoordinate),
+            Participant(id: "You", name: "You", coordinate: selfCoordinate)
+        ]
     )
 
     static let agreed = TweenState(

@@ -15,7 +15,7 @@ struct ContentView: View {
         // the host app so the collaborator can screenshot-verify them without
         // booting the Messages extension. Never compiled into a release build.
         if CommandLine.arguments.contains("-HARNESS") {
-            HarnessView()
+            HarnessView(focus: HarnessFocus.current)
         } else {
             OnboardingView()
         }
