@@ -100,7 +100,8 @@ struct SpotDetailCard: View {
     private var thumbnail: some View {
         TweenMapSnapshotView(
             markers: [MapMarker(coordinate: coordinate, role: .fairSpot)],
-            cornerRadius: Tokens.Radius.card
+            cornerRadius: Tokens.Radius.card,
+            focusCoordinate: coordinate
         )
         .frame(width: 200, height: 150)
         .frame(maxWidth: .infinity, alignment: .center)

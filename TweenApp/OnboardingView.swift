@@ -1355,9 +1355,7 @@ struct OnboardingView: View {
     /// control can still pull back to show the whole route context.
     private func focusMap(on item: MKMapItem) {
         withAnimation(Tokens.Motion.gentle) {
-            position = .region(MKCoordinateRegion(
-                center: item.placemark.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
+            position = Self.placeCameraPosition(for: item.placemark.coordinate)
         }
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
     }
@@ -1881,11 +1879,16 @@ struct OnboardingView: View {
     }
 
     private func reframe() {
+        if let agreedMeetup, agreedMeetup.kind == .place {
+            logger.debug("Map reframe centered on agreed meetup")
+            withAnimation(Tokens.Motion.gentle) {
+                position = Self.placeCameraPosition(for: agreedMeetup.coordinate)
+            }
+            return
+        }
+
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
-        if let agreedMeetup {
-            coords.append(agreedMeetup.coordinate)
-        }
         guard !coords.isEmpty else { return }
         logger.debug("Map reframe triggered for \(coords.count, privacy: .public) coordinate(s)")
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
@@ -2016,9 +2019,7 @@ struct OnboardingView: View {
             activeSheet = .spot(selection)
             // Frame the map so the user can see the proposed spot in context.
             withAnimation(Tokens.Motion.gentle) {
-                position = .region(MKCoordinateRegion(
-                    center: state.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
+                position = Self.placeCameraPosition(for: state.coordinate)
             }
 
         case .agree:
@@ -2030,9 +2031,7 @@ struct OnboardingView: View {
             // A friend's reply that they agree to a previously-proposed spot.
             // No interactive UI needed — just frame the map on it and toast.
             withAnimation(Tokens.Motion.gentle) {
-                position = .region(MKCoordinateRegion(
-                    center: state.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
+                position = Self.placeCameraPosition(for: state.coordinate)
             }
             let who = state.senderName ?? "Your friend"
             showToast(state.isFullyAgreed
@@ -2063,9 +2062,7 @@ struct OnboardingView: View {
         selectedResult = item
         activeSheet = nil
         withAnimation(Tokens.Motion.gentle) {
-            position = .region(MKCoordinateRegion(
-                center: state.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)))
+            position = Self.placeCameraPosition(for: state.coordinate)
         }
         showToast("Waiting for them to agree to \(state.text).")
     }
@@ -2138,10 +2135,7 @@ struct OnboardingView: View {
         selectedSheetDetent = .fraction(0.45)
         searchFocused = true
         withAnimation(Tokens.Motion.gentle) {
-            position = Self.cameraPosition(
-                for: [savedCoordinate, peerCoordinate, initialCoord].compactMap { $0 },
-                padding: 1.45,
-                minSpan: 0.04)
+            position = Self.placeCameraPosition(for: initialCoord, bottomBias: 0.12)
         }
     }
 
@@ -2203,6 +2197,22 @@ struct OnboardingView: View {
         return .region(MKCoordinateRegion(
             center: biasedCenter,
             span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)))
+    }
+
+    /// Opens concrete places tightly and a touch above center so the bottom
+    /// sheet does not hide the pin. Context framing is still available through
+    /// reset-map; initial place openings should never land on a midpoint.
+    static func placeCameraPosition(
+        for coordinate: CLLocationCoordinate2D,
+        span: CLLocationDegrees = 0.018,
+        bottomBias: CGFloat = 0.18
+    ) -> MapCameraPosition {
+        let center = CLLocationCoordinate2D(
+            latitude: coordinate.latitude - (span * Double(bottomBias)),
+            longitude: coordinate.longitude)
+        return .region(MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)))
     }
 }
 
