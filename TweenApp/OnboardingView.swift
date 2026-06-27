@@ -1425,18 +1425,35 @@ struct OnboardingView: View {
                 latitude: coord.latitude,
                 longitude: coord.longitude))
 
-            let who = UserProfile.displayName ?? "I"
-            let body = """
-            \(who) picked \(selection.name) on Tween.
-            Open this in Tween to share your ping:
-            \(appURL.absoluteString)
-            """
-
             if MFMessageComposeViewController.canSendText() {
-                // Route through the existing enum-driven sheet; empty recipients so
-                // the user picks who in Messages (no selected-friend concept here).
-                activeSheet = .message(PendingMessage(recipients: [], body: body))
+                Task { @MainActor in
+                    let image = await BubbleImageRenderer.makeImage(
+                        state: state,
+                        participants: state.participants,
+                        localName: UserProfile.displayName ?? UserName.fallback)
+
+                    let layout = MSMessageTemplateLayout()
+                    layout.image = image
+                    BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
+
+                    let message = MSMessage()
+                    message.url = appURL
+                    message.layout = layout
+
+                    // Route through the existing enum-driven sheet; empty recipients so
+                    // the user picks who in Messages (no selected-friend concept here).
+                    activeSheet = .message(PendingMessage(
+                        recipients: [],
+                        body: "Let's go to \(selection.name).",
+                        message: message))
+                }
             } else {
+                let who = UserProfile.displayName ?? "I"
+                let body = """
+                \(who) picked \(selection.name) on Tween.
+                Open this in Tween to share your ping:
+                \(appURL.absoluteString)
+                """
                 UIPasteboard.general.string = body
                 showToast("Message copied — paste it into your chat")
             }
