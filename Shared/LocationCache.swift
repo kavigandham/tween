@@ -161,6 +161,13 @@ enum LocationCache {
 
     // MARK: - Lifecycle
 
+    static func startFreshMeetup() {
+        defaults?.set(false, forKey: selfActiveKey)
+        defaults?.set(false, forKey: peerActiveKey)
+        defaults?.removeObject(forKey: participantsKey)
+        defaults?.removeObject(forKey: agreedMeetupKey)
+    }
+
     static func clearAll() {
         defaults?.removeObject(forKey: selfKey)
         defaults?.removeObject(forKey: peerKey)

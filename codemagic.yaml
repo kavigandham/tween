@@ -42,6 +42,7 @@ workflows:
           # 1.0.1 is a fresh version train, so build numbers restart cleanly;
           # $BUILD_NUMBER guarantees each upload is higher than the last.
           plutil -replace CFBundleVersion -string "$BUILD_NUMBER" TweenApp/Info.plist
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" TweenMessages/Info.plist
 
       - name: Set up code signing (uses cert + profiles uploaded via Codemagic UI)
         script: |

@@ -611,6 +611,7 @@ struct ExpandedView: View {
     let selfCoord: CLLocationCoordinate2D?
     let rankedSpots: [RankedSpot]
     let isUserIn: Bool
+    var totalSeats: Int = 1
     /// Additive to the spec's parameter list so the offline banner has a source.
     var isOnline: Bool = true
     /// When true, the live `Map` is replaced by the static `MKMapSnapshotter`-backed
@@ -688,7 +689,16 @@ struct ExpandedView: View {
     }
 
     private var isInvitePrompt: Bool {
-        received?.messageType == .invite
+        received?.messageType == .invite && !isUserIn && !inviteHasEnoughPeopleForSpots
+    }
+
+    private var inviteHasEnoughPeopleForSpots: Bool {
+        guard let received, received.messageType == .invite else { return false }
+        return received.participants.count >= 2
+    }
+
+    private var canSendSpotFromCurrentPeople: Bool {
+        isUserIn || inviteHasEnoughPeopleForSpots
     }
 
     var body: some View {
@@ -812,7 +822,8 @@ struct ExpandedView: View {
         let count = state.participants.count
         switch state.messageType {
         case .invite where count >= 2:
-            return "\(count) ready"
+            let notInYet = max(totalSeats - count, 0)
+            return notInYet > 0 ? "\(count) ready now · \(notInYet) not in yet" : "\(count) ready"
         case .leave:
             return count > 0 ? "\(count) still ready" : "No one is in"
         case .agree where !state.agreedNames.isEmpty && !state.isFullyAgreed:
@@ -1414,25 +1425,72 @@ struct ExpandedView: View {
                 EmptyView()
             } else if let received, received.messageType == .agree {
                 // Group / partial-agree case: bubble carries an agree but not
-                // everyone's in yet. The local user can't agree again to their
-                // own outgoing agree, and the negotiation isn't done — so we
-                // show a disabled "waiting for X" pill rather than the Agree
-                // / Change pair.
+                // everyone currently in has agreed yet. People who still need
+                // to agree get the same Agree / Change controls as a proposal;
+                // people who already agreed get a wait state without blocking
+                // the rest of the spot flow.
                 let myName = UserProfile.displayName ?? UserName.fallback
-                let missing = received.participants
-                    .map(\.name)
-                    .filter { $0 != received.senderName && !received.agreedNames.contains($0) && $0 != myName }
-                Button {} label: {
-                    Label(missing.isEmpty
-                            ? "Waiting for your friend"
-                            : "Waiting for \(missing.joined(separator: ", "))",
-                          systemImage: "hourglass")
-                        .lineLimit(1)
+                let needsMyAgreement = received.senderName != myName && !received.agreedNames.contains(myName)
+                if needsMyAgreement {
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        Button {
+                            sendTick += 1
+                            onAgreePlace(received)
+                        } label: {
+                            Label("Agree", systemImage: "checkmark.circle.fill")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary())
+                        .accessibilityHint("Sends that you agree to meet at \(received.text)")
+
+                        Button {
+                            sendTick += 1
+                            if let spot = selectedSpot {
+                                onSelectSpot(spot)
+                            } else if let first = rankedSpots.first {
+                                select(first, animateMap: true)
+                            }
+                        } label: {
+                            Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary(.subtle))
+                        .disabled(rankedSpots.isEmpty)
+                        .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+                    }
+                } else {
+                    let missing = received.participants
+                        .map(\.name)
+                        .filter { $0 != received.senderName && !received.agreedNames.contains($0) && $0 != myName }
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        Label(missing.isEmpty
+                                ? "Waiting for your friend"
+                                : "Waiting for \(missing.joined(separator: ", "))",
+                              systemImage: "hourglass")
+                            .lineLimit(1)
+                            .font(Tokens.Typography.subheadline.weight(.semibold))
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .padding(.horizontal, Tokens.Spacing.s3)
+                            .frame(minHeight: Tokens.Layout.minTapTarget)
+                            .background(Tokens.Palette.surfaceSecondary, in: Capsule())
+
+                        Button {
+                            sendTick += 1
+                            if let spot = selectedSpot {
+                                onSelectSpot(spot)
+                            } else if let first = rankedSpots.first {
+                                select(first, animateMap: true)
+                            }
+                        } label: {
+                            Label(selectedSpot == nil ? "Find fair spots" : "Send change",
+                                  systemImage: selectedSpot == nil ? "mappin.and.ellipse" : "paperplane.fill")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary())
+                        .disabled(rankedSpots.isEmpty)
+                        .accessibilityHint(selectedSpot == nil ? "Shows fair options for the people who are in" : "Sends the selected spot")
+                    }
                 }
-                .buttonStyle(.tweenPrimary())
-                .disabled(true)
-                .opacity(0.6)
-                .accessibilityHint("Negotiation in progress — no action needed from you")
             } else if let received, received.kind == .place {
                 if received.isFullyAgreed {
                     directionButtons(for: received)
@@ -1464,6 +1522,25 @@ struct ExpandedView: View {
                         .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
                     }
                 }
+            } else if canSendSpotFromCurrentPeople {
+                if let spot = selectedSpot {
+                    Button { sendTick += 1; onSelectSpot(spot) } label: {
+                        Label("Send \(spot.item?.name ?? "Spot")", systemImage: "paperplane.fill")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    .accessibilityHint("Drops this spot into your conversation")
+                } else {
+                    Button {} label: {
+                        Label(rankedSpots.isEmpty ? "Finding fair spots..." : "Pick a spot to send",
+                              systemImage: "mappin.and.ellipse")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    .disabled(true)
+                    .opacity(0.5)
+                    .accessibilityHint("Tap a spot on the map or list to choose where to meet")
+                }
             } else if !isUserIn {
                 Button(action: onImIn) {
                     if isSending {
@@ -1478,25 +1555,6 @@ struct ExpandedView: View {
                 .buttonStyle(.tweenPrimary())
                 .disabled(isSending)
                 .accessibilityHint("Shares where you are with your friend")
-            } else if let spot = selectedSpot {
-                Button { sendTick += 1; onSelectSpot(spot) } label: {
-                    Label("Send \(spot.item?.name ?? "Spot")", systemImage: "paperplane.fill")
-                        .lineLimit(1)
-                }
-                .buttonStyle(.tweenPrimary())
-                .accessibilityHint("Drops this spot into your conversation")
-            } else {
-                // No spot picked yet: a disabled prompt that adapts while the
-                // ranking is still loading.
-                Button {} label: {
-                    Label(rankedSpots.isEmpty ? "Finding fair spots…" : "Pick a spot to send",
-                          systemImage: "mappin.and.ellipse")
-                        .lineLimit(1)
-                }
-                .buttonStyle(.tweenPrimary())
-                .disabled(true)
-                .opacity(0.5)
-                .accessibilityHint("Tap a spot on the map or list to choose where to meet")
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)

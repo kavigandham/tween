@@ -25,6 +25,7 @@ struct OnboardingView: View {
 
     /// A reply banner shows only while the last inbound bubble is this fresh.
     private static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
+    private static var didStartFreshMeetup = false
     private let logger = Logger(subsystem: "com.kavigandham.TweenApp", category: "Host")
 
     /// Prefilled body for an out-of-band SMS nudge to a friend.
@@ -247,10 +248,14 @@ struct OnboardingView: View {
     }
 
     init() {
+        if !Self.didStartFreshMeetup {
+            LocationCache.startFreshMeetup()
+            Self.didStartFreshMeetup = true
+        }
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
-        _isUserIn = State(initialValue: cached != nil && LocationCache.isActive)
-        _agreedMeetup = State(initialValue: LocationCache.loadAgreedMeetup())
+        _isUserIn = State(initialValue: false)
+        _agreedMeetup = State(initialValue: nil)
         _position = State(initialValue: Self.cameraPosition(for: [cached?.coordinate ?? Self.defaultCenter]))
     }
 
@@ -1405,6 +1410,7 @@ struct OnboardingView: View {
     /// opened a blank composer, so the friend received nothing.
     private func sendToChat(_ selection: SpotSelection) {
         ensureNamed {
+            autoJoinForOutgoingMessage()
             let coord = selection.coordinate
             let participants = proposalParticipantsForCurrentContext()
             let state = TweenState(
@@ -1458,6 +1464,16 @@ struct OnboardingView: View {
                 showToast("Message copied — paste it into your chat")
             }
         }
+    }
+
+    private func autoJoinForOutgoingMessage() {
+        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else { return }
+        withAnimation(Tokens.Motion.spring) {
+            savedCoordinate = coordinate
+            isUserIn = true
+        }
+        LocationCache.save(coordinate, isActive: true)
+        saveLocalParticipant(coordinate)
     }
 
     private func proposalParticipantsForCurrentContext() -> [Participant] {
@@ -2101,6 +2117,7 @@ struct OnboardingView: View {
         let myName = UserProfile.displayName ?? UserName.fallback
         var agreed = incoming.agreedNames
         if !agreed.contains(myName) { agreed.append(myName) }
+        autoJoinForOutgoingMessage()
         let mySelf = LocationCache.loadSelf()?.coordinate
         var participants = incoming.participants.filter { $0.name != myName }
         if let mySelf {

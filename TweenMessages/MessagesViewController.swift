@@ -76,6 +76,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         draft = OutgoingDraftStore.load()
         if draft != nil || received != nil {
             requestPresentationStyle(.expanded)
+            kickOffRanking()
         }
         presentUI(for: presentationStyle)
     }
@@ -264,6 +265,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     selfCoord: LocationCache.loadSelf()?.coordinate,
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
+                    totalSeats: totalConversationParticipants,
                     isOnline: networkMonitor.isOnline,
                     useStaticMap: mapDegraded,
                     draft: draft,

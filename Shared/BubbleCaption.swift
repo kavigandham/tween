@@ -22,7 +22,7 @@ enum BubbleCaption {
                 layout.subcaption = "Tap to find a fair spot"
             } else {
                 layout.caption = "\(name) is in! (\(inCount) of \(totalKnown) ready)"
-                layout.subcaption = "Tap to join"
+                layout.subcaption = "Tap to find fair spots"
             }
 
         case .leave:
