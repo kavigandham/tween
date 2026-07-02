@@ -469,7 +469,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 participants: participants
             )
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
-            let didSend = await insertBubble(for: state, dismissAfterInsert: true)
+            let didSend = await sendBubbleNow(for: state)
             isSending = false
             sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
             presentUI(for: presentationStyle)
@@ -513,7 +513,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 participants: remainingParticipants
             )
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
-            let didSend = await insertBubble(for: state, dismissAfterInsert: true)
+            let didSend = await sendBubbleNow(for: state)
             isSending = false
             sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
             presentUI(for: presentationStyle)
@@ -607,7 +607,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             // "It's a plan!" with map-app direction choices, rather than being
             // bounced back to the iMessage thread. The receiver gets the same
             // view via didReceive → presentUI.
-            await insertBubble(for: state, dismissAfterInsert: false)
+            await sendBubbleNow(for: state)
             // Persist the agreement so re-opening the extension (after iOS
             // dispose, or after the user collapses + re-taps) re-renders
             // MEETUP SET instead of the propose's Agree/Change buttons.
@@ -685,15 +685,30 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func sendBubble(state: TweenState) {
         sendTask?.cancel()
-        sendTask = Task { @MainActor in await insertBubble(for: state, dismissAfterInsert: true) }
+        sendTask = Task { @MainActor in await sendBubbleNow(for: state) }
     }
 
 
-    /// Encodes the state into a bubble, renders its image, and stages it in the
-    /// conversation. Staying on the same `MSSession` keeps the thread collapsed
-    /// to a single evolving bubble rather than a stack of new ones.
+    /// Encodes the state into a bubble, renders its image, and sends/stages it
+    /// in the conversation. Staying on the same `MSSession` keeps the thread
+    /// collapsed to a single evolving bubble rather than a stack of new ones.
+    @discardableResult
+    private func sendBubbleNow(for state: TweenState) async -> Bool {
+        await deliverBubble(for: state, mode: .send)
+    }
+
     @discardableResult
     private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async -> Bool {
+        await deliverBubble(for: state, mode: .insert(dismissAfterInsert: dismissAfterInsert))
+    }
+
+    private enum BubbleDeliveryMode {
+        case send
+        case insert(dismissAfterInsert: Bool)
+    }
+
+    @discardableResult
+    private func deliverBubble(for state: TweenState, mode: BubbleDeliveryMode) async -> Bool {
         guard let conversation = activeConversation, let url = state.encodedURL() else { return false }
 
         let localName = UserProfile.displayName
@@ -714,17 +729,21 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         guard !Task.isCancelled else { return false }
         do {
-            try await conversation.insert(message)
-            logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
-            if dismissAfterInsert {
-                dismiss()
+            switch mode {
+            case .send:
+                try await conversation.send(message)
+                logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+            case .insert(let dismissAfterInsert):
+                try await conversation.insert(message)
+                logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                if dismissAfterInsert {
+                    dismiss()
+                }
             }
             return true
         } catch {
-            logger.error("Failed to insert outgoing Tween bubble: \(String(describing: error), privacy: .public)")
+            logger.error("Failed to deliver outgoing Tween bubble: \(String(describing: error), privacy: .public)")
             sendStatusMessage = "Couldn't send the Tween message. Try again."
-            // Swallow errors in the extension context; insertion can fail if the
-            // conversation is no longer active or the extension is backgrounding.
             return false
         }
     }
