@@ -11,6 +11,7 @@ struct TweenPin: View {
         case selfDot
         case selfActive
         case friend
+        case rideNeeded
         case fairSpot
         case closestToUser
         case result
@@ -21,6 +22,7 @@ struct TweenPin: View {
             case .selfDot:       return Tokens.Palette.pinSelf
             case .selfActive:    return Tokens.Palette.pinSelfActive
             case .friend:        return Tokens.Palette.pinFriend
+            case .rideNeeded:    return Tokens.Palette.pinRideNeeded
             case .fairSpot:      return Tokens.Palette.pinFair
             case .closestToUser: return Tokens.Palette.pinClosest
             case .result:        return Tokens.Palette.pinResult
@@ -33,6 +35,7 @@ struct TweenPin: View {
             case .selfDot:       return "circle.fill"
             case .selfActive:    return "checkmark"
             case .friend:        return "square.fill"
+            case .rideNeeded:    return "figure.wave"
             case .fairSpot:      return "star.fill"
             case .closestToUser: return "location.fill"
             case .result:        return "mappin"
@@ -46,6 +49,7 @@ struct TweenPin: View {
             case .selfDot:       return "Your location"
             case .selfActive:    return "Your shared location"
             case .friend:        return "Your friend's location"
+            case .rideNeeded:    return "Participant needs a ride"
             case .fairSpot:      return "Best fair meetup spot"
             case .closestToUser: return "Place closest to you"
             case .result:        return "Search result"
@@ -111,6 +115,7 @@ struct TweenPin: View {
         TweenPin(role: .selfDot)
         TweenPin(role: .selfActive)
         TweenPin(role: .friend)
+        TweenPin(role: .rideNeeded)
         TweenPin(role: .fairSpot)
         TweenPin(role: .closestToUser)
         TweenPin(role: .result)

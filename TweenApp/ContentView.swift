@@ -14,7 +14,11 @@ struct ContentView: View {
         // A UI-test entry point: `-HARNESS` renders the extension surfaces inside
         // the host app so the collaborator can screenshot-verify them without
         // booting the Messages extension. Never compiled into a release build.
-        if CommandLine.arguments.contains("-HARNESS") {
+        if CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
+            || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
+            || CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP") {
+            OnboardingView()
+        } else if CommandLine.arguments.contains("-HARNESS") {
             HarnessView(focus: HarnessFocus.current)
         } else {
             OnboardingView()

@@ -242,7 +242,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
         let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
         let others = source.filter { $0.name != myName }
-        let me = Participant(id: myId, name: myName, coordinate: myCoord)
+        let needsRide = source.first(where: { $0.name == myName })?.needsRide ?? false
+        let me = Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide)
         return others + [me]
     }
 
@@ -417,7 +418,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         source = source.filter { $0.name != myName }
         if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
             let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
-            source.append(Participant(id: myId, name: myName, coordinate: mySelf))
+            let needsRide = currentParticipants.first(where: { $0.name == myName })?.needsRide
+                ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide
+                ?? false
+            source.append(Participant(id: myId, name: myName, coordinate: mySelf, needsRide: needsRide))
         }
         return source
     }
@@ -577,7 +581,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             if let myCoord = senderCoordinate {
                 participants = participants.filter { $0.name != myName }
                 let myId = self.activeConversation?.localParticipantIdentifier.uuidString ?? myName
-                participants.append(Participant(id: myId, name: myName, coordinate: myCoord))
+                let needsRide = proposed.participants.first(where: { $0.name == myName })?.needsRide
+                    ?? self.currentParticipants.first(where: { $0.name == myName })?.needsRide
+                    ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide
+                    ?? false
+                participants.append(Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide))
             }
             self.currentParticipants = participants
             LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())

@@ -644,13 +644,16 @@ struct ExpandedView: View {
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
+    private var myName: String {
+        UserProfile.displayName ?? UserName.fallback
+    }
+
     /// Every "in" participant other than the local user, drawn from the
     /// received bubble's roster. The 2-person fallback (no participants array
     /// on the bubble, or only legacy info present) still resolves to a single
     /// peer via the existing single-peer cache so prior conversations look
     /// identical.
     private var otherParticipants: [Participant] {
-        let myName = UserProfile.displayName ?? UserName.fallback
         if let received, !received.participants.isEmpty {
             return received.participants.filter { $0.name != myName }
         }
@@ -1101,10 +1104,11 @@ struct ExpandedView: View {
     private var staticMarkers: [MapMarker] {
         var result: [MapMarker] = []
         if let selfCoord {
-            result.append(MapMarker(coordinate: selfCoord, role: isUserIn ? .selfActive : .selfDot))
+            let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide ?? false
+            result.append(MapMarker(coordinate: selfCoord, role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot)))
         }
         for participant in otherParticipants {
-            result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
+            result.append(MapMarker(coordinate: participant.coordinate, role: participant.needsRide ? .rideNeeded : .friend))
         }
         if allMeetupCoords.count >= 2 {
             result.append(MapMarker(coordinate: MapGeometry.centroid(of: allMeetupCoords), role: .midpoint))
@@ -1127,8 +1131,9 @@ struct ExpandedView: View {
         Map(position: $mapPosition, bounds: cameraBounds) {
             // Your location pin
             if let selfCoord {
+                let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide ?? false
                 Annotation("You", coordinate: selfCoord) {
-                    TweenPin(role: isUserIn ? .selfActive : .selfDot, animated: false)
+                    TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot), animated: false)
                 }
             }
 
@@ -1137,7 +1142,7 @@ struct ExpandedView: View {
             // when their device is the local "self").
             ForEach(otherParticipants) { participant in
                 Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: .friend, animated: false)
+                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend, animated: false)
                 }
             }
 

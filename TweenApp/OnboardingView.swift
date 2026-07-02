@@ -26,6 +26,11 @@ struct OnboardingView: View {
     /// A reply banner shows only while the last inbound bubble is this fresh.
     private static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
     private static var didStartFreshMeetup = false
+    private static var isHostTabHarness: Bool {
+        CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
+        || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
+        || CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP")
+    }
     private let logger = Logger(subsystem: "com.kavigandham.TweenApp", category: "Host")
 
     /// Prefilled body for an out-of-band SMS nudge to a friend.
@@ -51,6 +56,10 @@ struct OnboardingView: View {
     /// only populated in group chats (3+ people). Empty for DMs, preserving
     /// the original 2-person behaviour. Refreshed each tick of `pollPeer`.
     @State private var additionalParticipants: [Participant] = []
+    @State private var currentParticipants: [Participant] = []
+    @State private var peerDisplayName = "Friend"
+    @State private var peerNeedsRide = false
+    @State private var localNeedsRide = false
     @State private var isUserIn = false
     /// True while we're waiting on the location fix the user explicitly asked
     /// for via "I'm in"; distinguishes that from the silent launch-time fix that
@@ -247,35 +256,68 @@ struct OnboardingView: View {
         let systemImage: String
     }
 
+    private static let hostTabHarnessParticipants: [Participant] = [
+        Participant(id: "You", name: "You",
+                    latitude: 37.3382, longitude: -121.8863,
+                    needsRide: true),
+        Participant(id: "Kavi", name: "Kavi Gandham",
+                    latitude: 37.4419, longitude: -122.1430),
+        Participant(id: "Maya", name: "Maya",
+                    latitude: 37.5483, longitude: -121.9886,
+                    needsRide: true)
+    ]
+
     init() {
-        if !Self.didStartFreshMeetup {
+        if !Self.didStartFreshMeetup && !Self.isHostTabHarness {
             LocationCache.startFreshMeetup()
             Self.didStartFreshMeetup = true
         }
+
+        let harnessParticipants = Self.isHostTabHarness ? Self.hostTabHarnessParticipants : []
+        if Self.isHostTabHarness {
+            LocationCache.save(harnessParticipants[0].coordinate, isActive: true)
+            LocationCache.saveParticipantSnapshot(harnessParticipants, localName: "You")
+        }
+
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
-        _isUserIn = State(initialValue: false)
+        _currentParticipants = State(initialValue: harnessParticipants)
+        _peerCoordinate = State(initialValue: harnessParticipants.dropFirst().first?.coordinate)
+        _peerDisplayName = State(initialValue: harnessParticipants.dropFirst().first?.name ?? "Friend")
+        _peerNeedsRide = State(initialValue: harnessParticipants.dropFirst().first?.needsRide ?? false)
+        _additionalParticipants = State(initialValue: Array(harnessParticipants.dropFirst(2)))
+        _localNeedsRide = State(initialValue: harnessParticipants.first?.needsRide ?? false)
+        _isUserIn = State(initialValue: Self.isHostTabHarness)
+        _panelTab = State(initialValue: Self.isHostTabHarness ? .waiting : .map)
+        _friendsPanelTab = State(initialValue: CommandLine.arguments.contains("-HARNESS_HOST_RIDES") ? .rides : .people)
+        let hostHarnessDetent: PresentationDetent = CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP")
+            ? .height(Tokens.Layout.sheetPeekHeight)
+            : .fraction(0.90)
+        _selectedSheetDetent = State(initialValue: Self.isHostTabHarness ? hostHarnessDetent : .fraction(0.45))
         _agreedMeetup = State(initialValue: nil)
-        _position = State(initialValue: Self.cameraPosition(for: [cached?.coordinate ?? Self.defaultCenter]))
+        let initialCoords = Self.isHostTabHarness
+            ? harnessParticipants.map(\.coordinate)
+            : [cached?.coordinate ?? Self.defaultCenter]
+        _position = State(initialValue: Self.cameraPosition(for: initialCoords))
     }
 
     var body: some View {
         Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
                 Annotation("You", coordinate: coord) {
-                    TweenPin(role: isUserIn ? .selfActive : .selfDot)
+                    TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot))
                 }
             }
             if let peer = peerCoordinate {
-                Annotation("Friend", coordinate: peer) {
-                    TweenPin(role: .friend)
+                Annotation(peerDisplayName, coordinate: peer) {
+                    TweenPin(role: peerNeedsRide ? .rideNeeded : .friend)
                 }
             }
             // Additional remote participants (groups of 3+). Each is named so
             // the map matches what the iMessage bubble shows.
             ForEach(additionalParticipants) { participant in
                 Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: .friend)
+                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend)
                 }
             }
             if let midpoint {
@@ -797,11 +839,13 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
 
+            meetupStatusSection
+
             if friends.isEmpty {
                 ContentUnavailableView(
-                    "No Friends Yet",
+                    "No Saved Friends",
                     systemImage: "person.2",
-                    description: Text("Add someone to ping them when you're ready to meet up."))
+                    description: Text("Add contacts here, or open a Tween iMessage to see the live meetup roster above."))
                     .frame(maxHeight: .infinity)
             } else {
                 List {
@@ -829,15 +873,180 @@ struct OnboardingView: View {
         }
     }
 
-    private var ridesPanel: some View {
-        VStack(spacing: Tokens.Spacing.s4) {
-            ContentUnavailableView(
-                "No Rides Yet",
-                systemImage: "car.2",
-                description: Text("Group pickup planning will appear here."))
-                .frame(maxHeight: .infinity)
+    private var meetupStatusSection: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            HStack {
+                Label("Current meetup", systemImage: "person.2.fill")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .textCase(.uppercase)
+                Spacer(minLength: 0)
+                Text("\(activeParticipantsForDisplay.count) in")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.brand)
+            }
+
+            if activeParticipantsForDisplay.isEmpty {
+                Text("No one is in yet. People invited from Messages appear here as they join.")
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Tokens.Spacing.s3)
+                    .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(activeParticipantsForDisplay.enumerated()), id: \.element.id) { index, participant in
+                        participantStatusRow(participant)
+                        if index < activeParticipantsForDisplay.count - 1 {
+                            Divider().padding(.leading, 48)
+                        }
+                    }
+                }
+                .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            }
         }
         .padding(.horizontal)
+    }
+
+    private func participantStatusRow(_ participant: Participant) -> some View {
+        let isLocal = participant.name == (UserProfile.displayName ?? UserName.fallback)
+        return HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: participant.needsRide ? "figure.wave" : "checkmark.circle.fill")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.success)
+                .frame(width: 36, height: 36)
+                .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.success).opacity(0.14),
+                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isLocal ? "You" : participant.name)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+                Text(participant.needsRide ? "Needs pickup" : "Can meet there")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            Spacer(minLength: 0)
+            Text(isLocal ? "You" : "In")
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+        }
+        .padding(Tokens.Spacing.s3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var ridesPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+                rideRequestCard
+
+                if activeParticipantsForDisplay.isEmpty {
+                    ContentUnavailableView(
+                        "No Meetup Yet",
+                        systemImage: "car.2",
+                        description: Text("Tap I'm in or open a Tween iMessage so ride planning has people to work with."))
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else if pickupRiders.isEmpty {
+                    ContentUnavailableView(
+                        "No Pickup Requests",
+                        systemImage: "checkmark.circle",
+                        description: Text("Everyone in the meetup can get to the spot for now."))
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    rideSection(title: "Needs pickup", participants: pickupRiders, emptyText: nil)
+                    rideSection(title: "Can drive or meet there", participants: rideDrivers, emptyText: "No available drivers yet.")
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
+        }
+    }
+
+    private var rideRequestCard: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+            HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
+                Image(systemName: localNeedsRide ? "figure.wave" : "car.fill")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand)
+                    .frame(width: 40, height: 40)
+                    .background((localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
+                                in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                    Text(localNeedsRide ? "You need a ride" : "Ride status")
+                        .font(Tokens.Typography.headline)
+                    Text(localNeedsRide ? "Your map pin is green so friends know to pick you up." : "Mark yourself if someone should pick you up before the meetup.")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Button {
+                setNeedsRide(!localNeedsRide)
+            } label: {
+                Label(localNeedsRide ? "I don't need a ride" : "I need a ride",
+                      systemImage: localNeedsRide ? "checkmark.circle" : "figure.wave")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(localNeedsRide ? .tweenPrimary(.subtle) : .tweenPrimary())
+            .disabled(savedCoordinate == nil && !isUserIn)
+            .accessibilityHint("Updates your meetup pin and ride status")
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+    }
+
+    private func rideSection(title: String, participants: [Participant], emptyText: String?) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text(title)
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .textCase(.uppercase)
+
+            if participants.isEmpty, let emptyText {
+                Text(emptyText)
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .padding(Tokens.Spacing.s3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(participants.enumerated()), id: \.element.id) { index, participant in
+                        rideParticipantRow(participant)
+                        if index < participants.count - 1 {
+                            Divider().padding(.leading, 48)
+                        }
+                    }
+                }
+                .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            }
+        }
+    }
+
+    private func rideParticipantRow(_ participant: Participant) -> some View {
+        let isLocal = participant.name == (UserProfile.displayName ?? UserName.fallback)
+        return HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: participant.needsRide ? "figure.wave" : "car.fill")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand)
+                .frame(width: 36, height: 36)
+                .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
+                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isLocal ? "You" : participant.name)
+                    .font(Tokens.Typography.headline)
+                    .lineLimit(1)
+                Text(rideSubtitle(for: participant))
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Tokens.Spacing.s3)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -1233,6 +1442,66 @@ struct OnboardingView: View {
         return "Tap “I'm in” to share where you are and find fair places to meet."
     }
 
+    private var activeParticipantsForDisplay: [Participant] {
+        var participants = currentParticipants
+        let myName = UserProfile.displayName ?? UserName.fallback
+        if isUserIn, let coordinate = savedCoordinate, !participants.contains(where: { $0.name == myName }) {
+            participants.append(Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide))
+        }
+        if let peerCoordinate, !participants.contains(where: { $0.name == peerDisplayName }) {
+            participants.append(Participant(id: peerDisplayName, name: peerDisplayName, coordinate: peerCoordinate, needsRide: peerNeedsRide))
+        }
+        return participants.sorted { lhs, rhs in
+            if lhs.name == myName { return true }
+            if rhs.name == myName { return false }
+            if lhs.needsRide != rhs.needsRide { return lhs.needsRide && !rhs.needsRide }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var pickupRiders: [Participant] {
+        activeParticipantsForDisplay.filter(\.needsRide)
+    }
+
+    private var rideDrivers: [Participant] {
+        activeParticipantsForDisplay.filter { !$0.needsRide }
+    }
+
+    private func rideSubtitle(for participant: Participant) -> String {
+        if participant.needsRide {
+            if let driver = nearestDriver(to: participant) {
+                let distance = ABDistanceLabel.formatDistance(from: participant.coordinate, to: driver.coordinate)
+                return "Closest pickup: \(driver.name), \(distance) away"
+            }
+            return "Waiting for someone who can drive"
+        }
+        if pickupRiders.isEmpty {
+            return "No pickup requests"
+        }
+        if let rider = nearestRider(for: participant) {
+            let distance = ABDistanceLabel.formatDistance(from: participant.coordinate, to: rider.coordinate)
+            return "Nearest pickup: \(rider.name), \(distance) away"
+        }
+        return "Available for pickup"
+    }
+
+    private func nearestDriver(to rider: Participant) -> Participant? {
+        rideDrivers.min { lhs, rhs in
+            distance(from: lhs.coordinate, to: rider.coordinate) < distance(from: rhs.coordinate, to: rider.coordinate)
+        }
+    }
+
+    private func nearestRider(for driver: Participant) -> Participant? {
+        pickupRiders.min { lhs, rhs in
+            distance(from: lhs.coordinate, to: driver.coordinate) < distance(from: rhs.coordinate, to: driver.coordinate)
+        }
+    }
+
+    private func distance(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> CLLocationDistance {
+        CLLocation(latitude: a.latitude, longitude: a.longitude)
+            .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+    }
+
     private var peerDistanceText: String? {
         guard let savedCoordinate, let peerCoordinate else { return nil }
         let distance = ABDistanceLabel.formatDistance(from: savedCoordinate, to: peerCoordinate)
@@ -1290,6 +1559,7 @@ struct OnboardingView: View {
 
     private func leave() {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
+        localNeedsRide = false
         let myName = UserProfile.displayName ?? UserName.fallback
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
             ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.coordinate
@@ -1348,9 +1618,25 @@ struct OnboardingView: View {
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
         let participants = LocationCache.loadParticipants().filter { $0.name != myName } + [
-            Participant(id: myName, name: myName, coordinate: coordinate)
+            Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
         ]
         LocationCache.saveParticipantSnapshot(participants, localName: myName)
+        currentParticipants = participants
+    }
+
+    private func setNeedsRide(_ needsRide: Bool) {
+        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else {
+            showToast("Tap I'm in first so friends know where to pick you up")
+            return
+        }
+        localNeedsRide = needsRide
+        if !isUserIn {
+            withAnimation(Tokens.Motion.spring) { isUserIn = true }
+            LocationCache.save(coordinate, isActive: true)
+        }
+        saveLocalParticipant(coordinate)
+        _ = refreshFromAppGroup()
+        showToast(needsRide ? "Ride request added to the meetup" : "Ride request cleared")
     }
 
     // MARK: - Hand-off
@@ -1480,7 +1766,7 @@ struct OnboardingView: View {
         let myName = UserProfile.displayName ?? UserName.fallback
         var participants = LocationCache.loadParticipants().filter { $0.name != myName }
         if let savedCoordinate {
-            participants.append(Participant(id: myName, name: myName, coordinate: savedCoordinate))
+            participants.append(Participant(id: myName, name: myName, coordinate: savedCoordinate, needsRide: localNeedsRide))
         }
         return participants
     }
@@ -1535,7 +1821,7 @@ struct OnboardingView: View {
             senderName: UserProfile.displayName,
             kind: .participant,
             messageType: .invite,
-            participants: [Participant(id: myName, name: myName, coordinate: myCoord)]
+            participants: [Participant(id: myName, name: myName, coordinate: myCoord, needsRide: localNeedsRide)]
         )
 
         // Render the bubble image off the main actor (it's an MKMapSnapshotter
@@ -1836,18 +2122,41 @@ struct OnboardingView: View {
         let myName = UserProfile.displayName ?? UserName.fallback
         let roster = LocationCache.loadParticipants()
         let remotes = roster.filter { $0.name != myName }
+        let localParticipant = roster.first { $0.name == myName }
 
         let newPeer: CLLocationCoordinate2D?
+        let newPeerName: String
+        let newPeerNeedsRide: Bool
         let newExtras: [Participant]
         if let firstRemote = remotes.first {
             newPeer = firstRemote.coordinate
+            newPeerName = firstRemote.name
+            newPeerNeedsRide = firstRemote.needsRide
             newExtras = Array(remotes.dropFirst())
         } else {
             newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
+            newPeerName = "Friend"
+            newPeerNeedsRide = false
             newExtras = []
         }
 
         var didChange = false
+        if currentParticipants != roster {
+            currentParticipants = roster
+            didChange = true
+        }
+        if peerDisplayName != newPeerName {
+            peerDisplayName = newPeerName
+            didChange = true
+        }
+        if peerNeedsRide != newPeerNeedsRide {
+            peerNeedsRide = newPeerNeedsRide
+            didChange = true
+        }
+        if localNeedsRide != (localParticipant?.needsRide ?? false) {
+            localNeedsRide = localParticipant?.needsRide ?? false
+            didChange = true
+        }
         if !same(peerCoordinate, newPeer) {
             peerCoordinate = newPeer
             didChange = true
@@ -2121,7 +2430,7 @@ struct OnboardingView: View {
         let mySelf = LocationCache.loadSelf()?.coordinate
         var participants = incoming.participants.filter { $0.name != myName }
         if let mySelf {
-            participants.append(Participant(id: myName, name: myName, coordinate: mySelf))
+            participants.append(Participant(id: myName, name: myName, coordinate: mySelf, needsRide: localNeedsRide))
         }
 
         let state = TweenState(

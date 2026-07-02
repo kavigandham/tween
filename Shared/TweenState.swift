@@ -143,20 +143,22 @@ struct TweenState: Equatable {
     static func encodeParticipants(_ participants: [Participant]) -> String {
         participants.map { p in
             let name = p.name.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? p.name
-            return "\(name):\(coordinateString(p.latitude)):\(coordinateString(p.longitude))"
+            let base = "\(name):\(coordinateString(p.latitude)):\(coordinateString(p.longitude))"
+            return p.needsRide ? "\(base):ride" : base
         }.joined(separator: ",")
     }
 
     static func decodeParticipants(_ raw: String) -> [Participant] {
         raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry in
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
-            guard parts.count == 3,
+            guard (parts.count == 3 || parts.count == 4),
                   let lat = Double(parts[1]),
                   let lon = Double(parts[2])
             else { return nil }
             let raw = String(parts[0])
             let name = raw.removingPercentEncoding ?? raw
-            return Participant(id: name, name: name, latitude: lat, longitude: lon)
+            let needsRide = parts.count == 4 && parts[3] == "ride"
+            return Participant(id: name, name: name, latitude: lat, longitude: lon, needsRide: needsRide)
         }
     }
 

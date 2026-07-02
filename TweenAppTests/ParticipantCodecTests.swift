@@ -36,6 +36,37 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(decoded.messageType, .invite)
     }
 
+    func testParticipantRideRequestDefaultsToFalseWhenMissing() throws {
+        let legacyJSON = """
+        {"id":"Alice","name":"Alice","latitude":38.84,"longitude":-77.30}
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(Participant.self, from: legacyJSON)
+
+        XCTAssertFalse(decoded.needsRide)
+    }
+
+    func testParticipantRideRequestRoundTripsThroughURL() throws {
+        let participants = [
+            Participant(id: "Alice", name: "Alice", latitude: 38.84, longitude: -77.30, needsRide: true),
+            Participant(id: "Bob", name: "Bob", latitude: 38.90, longitude: -77.35)
+        ]
+        let state = TweenState(
+            text: "I'm in",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .participant,
+            messageType: .invite,
+            participants: participants
+        )
+
+        let decoded = try XCTUnwrap(TweenState(url: try XCTUnwrap(state.encodedURL())))
+
+        XCTAssertTrue(try XCTUnwrap(decoded.participants.first { $0.name == "Alice" }).needsRide)
+        XCTAssertFalse(try XCTUnwrap(decoded.participants.first { $0.name == "Bob" }).needsRide)
+    }
+
     func testFiveParticipantsRoundTrip() throws {
         let participants = (0..<5).map { i in
             Participant(id: "P\(i)", name: "Person\(i)", latitude: 38.0 + Double(i) * 0.01, longitude: -77.0 - Double(i) * 0.01)
