@@ -116,6 +116,25 @@ struct HarnessView: View {
                         .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
                     }
                 }
+
+                if focus.includes(.twoReadyNoResults) {
+                    section("Two Ready No Results View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.invite,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: [],
+                            isUserIn: true,
+                            totalSeats: 2,
+                            isRanking: false,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onOpenFullApp: {}
+                        )
+                        .frame(height: 760)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+                }
             }
             .padding(Tokens.Spacing.s4)
         }
@@ -140,12 +159,14 @@ enum HarnessFocus: Equatable {
     case meetup
     case proposalDraft
     case soloWaiting
+    case twoReadyNoResults
 
     static var current: HarnessFocus {
         if CommandLine.arguments.contains("-HARNESS_INVITE") { return .invite }
         if CommandLine.arguments.contains("-HARNESS_MEETUP") { return .meetup }
         if CommandLine.arguments.contains("-HARNESS_PROPOSAL_DRAFT") { return .proposalDraft }
         if CommandLine.arguments.contains("-HARNESS_SOLO_WAITING") { return .soloWaiting }
+        if CommandLine.arguments.contains("-HARNESS_TWO_READY_NO_RESULTS") { return .twoReadyNoResults }
         return .all
     }
 

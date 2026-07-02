@@ -35,6 +35,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private var rankingTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
+    private var isRanking = false
     private var isSending = false
     private var sendStatusMessage: String?
 
@@ -87,6 +88,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             kickOffRanking()
         } else {
             rankingTask?.cancel()
+            isRanking = false
             // Collapsing already frees the map (CompactView has none); clear the
             // degrade flag so the next expansion gets the live map back.
             mapDegraded = false
@@ -266,6 +268,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
                     totalSeats: totalConversationParticipants,
+                    isRanking: isRanking,
                     isOnline: networkMonitor.isOnline,
                     useStaticMap: mapDegraded,
                     draft: draft,
@@ -345,22 +348,18 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func kickOffRanking() {
         rankingTask?.cancel()
 
-        // Build the ranking participants array: my cached coord plus everyone
-        // else in currentParticipants (filtered to avoid duplicating me).
-        let myName = Self.localParticipantName()
-        let others = currentParticipants.filter { $0.name != myName }
-        var participants = others
-        if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
-            let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
-            participants.append(Participant(id: myId, name: myName, coordinate: mySelf))
-        }
+        let participants = rankingParticipants()
         guard participants.count >= 2 else {
+            isRanking = false
             if !rankedSpots.isEmpty {
                 rankedSpots = []
-                presentUI(for: presentationStyle)
             }
+            presentUI(for: presentationStyle)
             return
         }
+
+        isRanking = true
+        presentUI(for: presentationStyle)
 
         let center = MapGeometry.centroid(of: participants)
         // Search radius widens as the group spreads out.
@@ -378,16 +377,49 @@ final class MessagesViewController: MSMessagesAppViewController {
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
 
-            guard let response = try? await MKLocalSearch(request: request).start(),
-                  !Task.isCancelled else { return }
+            let response = try? await MKLocalSearch(request: request).start()
+            guard !Task.isCancelled else { return }
+            guard let response else {
+                self.isRanking = false
+                self.rankedSpots = []
+                self.presentUI(for: self.presentationStyle)
+                return
+            }
 
             let ranked = await FairnessRanker.rank(
                 candidates: response.mapItems, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
 
             self.rankedSpots = ranked
+            self.isRanking = false
             self.presentUI(for: self.presentationStyle)
         }
+    }
+
+    private func rankingParticipants() -> [Participant] {
+        let myName = Self.localParticipantName()
+        var source: [Participant]
+        if let received, received.participants.count >= 2, currentParticipants.count < 2 {
+            source = received.participants
+        } else if !currentParticipants.isEmpty {
+            source = currentParticipants
+        } else if let received, !received.participants.isEmpty {
+            source = received.participants
+        } else {
+            source = LocationCache.loadParticipants()
+        }
+
+        if currentParticipants.isEmpty, !source.isEmpty {
+            currentParticipants = source
+            LocationCache.saveParticipantSnapshot(source, localName: myName)
+        }
+
+        source = source.filter { $0.name != myName }
+        if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
+            let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
+            source.append(Participant(id: myId, name: myName, coordinate: mySelf))
+        }
+        return source
     }
 
     // MARK: - Sending

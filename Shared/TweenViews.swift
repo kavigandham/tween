@@ -612,6 +612,10 @@ struct ExpandedView: View {
     let rankedSpots: [RankedSpot]
     let isUserIn: Bool
     var totalSeats: Int = 1
+    /// True only while the extension has an active ranking task. Empty results
+    /// alone are not enough to imply loading because MapKit can legitimately
+    /// return nothing or ranking can be blocked by missing participants.
+    var isRanking: Bool = false
     /// Additive to the spec's parameter list so the offline banner has a source.
     var isOnline: Bool = true
     /// When true, the live `Map` is replaced by the static `MKMapSnapshotter`-backed
@@ -1351,15 +1355,13 @@ struct ExpandedView: View {
 
     private var emptySpotListState: some View {
         VStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: hasEnoughPeopleForSpots ? "mappin.and.ellipse" : "person.2")
+            Image(systemName: emptySpotListIcon)
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
-            Text(hasEnoughPeopleForSpots ? "Finding fair spots..." : "Waiting for someone else")
+            Text(emptySpotListTitle)
                 .font(Tokens.Typography.subheadline.weight(.semibold))
                 .foregroundStyle(Tokens.Palette.textPrimary)
-            Text(hasEnoughPeopleForSpots
-                 ? "Hang tight while Tween ranks nearby places."
-                 : "Fair spots appear once at least two people are in.")
+            Text(emptySpotListSubtitle)
                 .font(Tokens.Typography.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Tokens.Palette.textSecondary)
@@ -1368,6 +1370,25 @@ struct ExpandedView: View {
         .padding(Tokens.Spacing.s4)
         .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
         .accessibilityElement(children: .combine)
+    }
+
+    private var emptySpotListIcon: String {
+        if !hasEnoughPeopleForSpots { return "person.2" }
+        return isRanking ? "mappin.and.ellipse" : "magnifyingglass"
+    }
+
+    private var emptySpotListTitle: String {
+        if !hasEnoughPeopleForSpots { return "Waiting for someone else" }
+        return isRanking ? "Finding fair spots..." : "No fair spots found"
+    }
+
+    private var emptySpotListSubtitle: String {
+        if !hasEnoughPeopleForSpots {
+            return "Fair spots appear once at least two people are in."
+        }
+        return isRanking
+            ? "Hang tight while Tween ranks nearby places."
+            : "Try Search in Tween to pick a spot manually."
     }
 
     private func spotRow(_ spot: RankedSpot) -> some View {
@@ -1527,15 +1548,27 @@ struct ExpandedView: View {
                     .buttonStyle(.tweenPrimary())
                     .accessibilityHint("Drops this spot into your conversation")
                 } else {
-                    Button {} label: {
-                        Label(rankedSpots.isEmpty ? "Finding fair spots..." : "Pick a spot to send",
-                              systemImage: "mappin.and.ellipse")
-                            .lineLimit(1)
+                    if isRanking {
+                        Button {} label: {
+                            Label("Finding fair spots...", systemImage: "mappin.and.ellipse")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary())
+                        .disabled(true)
+                        .opacity(0.5)
+                        .accessibilityHint("Tween is ranking fair places for everyone who is in")
+                    } else if rankedSpots.isEmpty {
+                        EmptyView()
+                    } else {
+                        Button {} label: {
+                            Label("Pick a spot to send", systemImage: "mappin.and.ellipse")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.tweenPrimary())
+                        .disabled(true)
+                        .opacity(0.5)
+                        .accessibilityHint("Tap a spot on the map or list to choose where to meet")
                     }
-                    .buttonStyle(.tweenPrimary())
-                    .disabled(true)
-                    .opacity(0.5)
-                    .accessibilityHint("Tap a spot on the map or list to choose where to meet")
                 }
             } else if isUserIn {
                 Label("Waiting for someone else", systemImage: "person.2")

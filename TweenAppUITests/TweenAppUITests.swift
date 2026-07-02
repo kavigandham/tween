@@ -37,6 +37,17 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Waiting for someone else"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
     }
+
+    func testTwoReadyNoResultsDoesNotShowEndlessFindingState() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HARNESS", "-HARNESS_TWO_READY_NO_RESULTS"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Two Ready No Results View"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No fair spots found"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Search in Tween"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
+    }
 }
 
 final class TweenAppUITestsLaunchTests: XCTestCase {
