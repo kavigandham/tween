@@ -9,6 +9,7 @@ enum PingLog {
     static let storageKey = "pingLog"
     static let lastReplyKey = "lastIncomingReplyAt"
     static let genericInviteKey = "lastGenericInviteAt"
+    static let genericInviteCountKey = "lastGenericInviteCount"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
@@ -53,14 +54,21 @@ enum PingLog {
         }
     }
 
-    static func logGenericInvite(at date: Date = Date()) {
+    static var lastGenericInviteCount: Int {
+        let count = defaults?.integer(forKey: genericInviteCountKey) ?? 0
+        return max(count, 1)
+    }
+
+    static func logGenericInvite(at date: Date = Date(), count: Int = 1) {
         lastGenericInviteAt = date
+        defaults?.set(max(count, 1), forKey: genericInviteCountKey)
     }
 
     static func clear() {
         defaults?.removeObject(forKey: storageKey)
         defaults?.removeObject(forKey: lastReplyKey)
         defaults?.removeObject(forKey: genericInviteKey)
+        defaults?.removeObject(forKey: genericInviteCountKey)
     }
 
     // MARK: - Atomic single-key codec

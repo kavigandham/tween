@@ -793,11 +793,23 @@ final class MessagesViewController: MSMessagesAppViewController {
                     dismiss()
                 }
             }
+            recordPendingInviteIfNeeded(for: state)
             return true
         } catch {
             logger.error("Failed to deliver outgoing Tween bubble: \(String(describing: error), privacy: .public)")
             sendStatusMessage = "Couldn't send the Tween message. Try again."
             return false
+        }
+    }
+
+    private func recordPendingInviteIfNeeded(for state: TweenState) {
+        switch state.messageType {
+        case .invite, .propose, .counter:
+            let pendingCount = max(totalConversationParticipants - state.participants.count, 0)
+            guard pendingCount > 0 else { return }
+            PingLog.logGenericInvite(count: pendingCount)
+        case .agree, .leave:
+            return
         }
     }
 

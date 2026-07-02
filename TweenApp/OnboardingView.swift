@@ -147,6 +147,7 @@ struct OnboardingView: View {
         let id: String
         let name: String
         let sentAt: Date
+        let count: Int
         let isGeneric: Bool
     }
 
@@ -895,7 +896,7 @@ struct OnboardingView: View {
                 Spacer(minLength: 0)
                 Text(pendingInvitesForDisplay.isEmpty
                      ? "\(activeParticipantsForDisplay.count) in"
-                     : "\(activeParticipantsForDisplay.count) in · \(pendingInvitesForDisplay.count) pending")
+                     : "\(activeParticipantsForDisplay.count) in · \(pendingInvitePersonCount) pending")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.brand)
             }
@@ -971,7 +972,7 @@ struct OnboardingView: View {
                     .foregroundStyle(Tokens.Palette.textPrimary)
                     .lineLimit(1)
                 Text(invite.isGeneric
-                     ? "Waiting for them to open Tween"
+                     ? "Sent from iMessage - waiting for them to tap I'm in"
                      : "Invite sent \(RelativeTime.string(from: invite.sentAt))")
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textSecondary)
@@ -1519,19 +1520,26 @@ struct OnboardingView: View {
                 id: friend.id.uuidString,
                 name: friend.name,
                 sentAt: sentAt,
+                count: 1,
                 isGeneric: false)
         }
 
         if let genericSentAt = lastGenericInviteAt,
            lastReplyAt.map({ genericSentAt > $0 }) ?? true {
+            let pendingCount = PingLog.lastGenericInviteCount
             rows.append(PendingInviteRow(
                 id: "generic-\(genericSentAt.timeIntervalSince1970)",
-                name: "Invited from Messages",
+                name: pendingCount == 1 ? "Waiting for someone else" : "Waiting for \(pendingCount) people",
                 sentAt: genericSentAt,
+                count: pendingCount,
                 isGeneric: true))
         }
 
         return rows.sorted { $0.sentAt > $1.sentAt }
+    }
+
+    private var pendingInvitePersonCount: Int {
+        pendingInvitesForDisplay.reduce(0) { $0 + $1.count }
     }
 
     private var pickupRiders: [Participant] {

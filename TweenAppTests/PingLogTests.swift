@@ -56,10 +56,11 @@ final class PingLogTests: XCTestCase {
         XCTAssertNil(PingLog.lastGenericInviteAt)
 
         let stamp = Date(timeIntervalSince1970: 1_800_000_000)
-        PingLog.logGenericInvite(at: stamp)
+        PingLog.logGenericInvite(at: stamp, count: 3)
 
         XCTAssertEqual(try XCTUnwrap(PingLog.lastGenericInviteAt).timeIntervalSince1970,
                        stamp.timeIntervalSince1970,
                        accuracy: 1.0)
+        XCTAssertEqual(PingLog.lastGenericInviteCount, 3)
     }
 }
