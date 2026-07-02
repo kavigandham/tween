@@ -724,7 +724,7 @@ struct ExpandedView: View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
             if let statusMessage, !isSending { statusBanner(statusMessage) }
-            if !isInvitePrompt { inviteBanner }
+            if !isInvitePrompt { meetupStatusCard }
 
             GeometryReader { geo in
                 if isMeetupSet, let received {
@@ -740,10 +740,7 @@ struct ExpandedView: View {
                     VStack(spacing: 0) {
                         mapSection
                             .frame(height: geo.size.height * 0.6)
-                        VStack(spacing: 0) {
-                            proposedPlacePanel
-                            spotList
-                        }
+                        spotList
                             .frame(height: geo.size.height * 0.4)
                     }
                 }
@@ -766,43 +763,169 @@ struct ExpandedView: View {
 
     // MARK: Invitation
 
-    /// Shown when this surface opened from an invite that named its sender.
-    /// Picks up group-chat copy from `state.messageType` and `state.participants`
-    /// — the 2-person path collapses to the original behaviour because
-    /// participants.count is 0 or 1 in those legacy bubbles.
     @ViewBuilder
-    private var inviteBanner: some View {
-        if let received, !isMeetupSet, let name = received.senderName, !name.isEmpty {
-            let isPlace = received.kind == .place
-            let isFullyAgreed = received.isFullyAgreed
-            VStack(spacing: Tokens.Spacing.s1) {
-                Text(bannerHeadline(state: received, name: name, isFullyAgreed: isFullyAgreed))
-                    .font(Tokens.Typography.callout)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(isPlace ? received.text : name)
-                    .font(Tokens.Typography.title)
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                if isPlace {
-                    Text(bannerSubcopy(state: received, isFullyAgreed: isFullyAgreed))
-                        .font(Tokens.Typography.subheadline)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
+    private var meetupStatusCard: some View {
+        if shouldShowStatusCard {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+                HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
+                    Image(systemName: statusIcon)
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(statusColor)
+                        .frame(width: 40, height: 40)
+                        .background(statusColor.opacity(0.14), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                        Text(statusEyebrow)
+                            .font(Tokens.Typography.captionBold)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .textCase(.uppercase)
+                        Text(statusTitle)
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textPrimary)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                        Text(statusSubtitle)
+                            .font(Tokens.Typography.caption)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .lineLimit(2)
+                    }
+
+                    Spacer(minLength: 0)
                 }
-                // Group-aware "X of Y ready" or "X of Y agreed".
-                if let progress = groupProgress(for: received) {
-                    Text(progress)
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
+
+                readinessRow
             }
-            .padding(Tokens.Spacing.s4)
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .padding(.vertical, Tokens.Spacing.s3)
             .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial)
+            .background(Tokens.Palette.surfaceSecondary)
             .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
             .padding(.horizontal, Tokens.Spacing.s4)
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(bannerAccessibilityLabel(state: received, name: name, isFullyAgreed: isFullyAgreed))
+            .accessibilityLabel("\(statusEyebrow), \(statusTitle), \(statusSubtitle)")
         }
+    }
+
+    private var shouldShowStatusCard: Bool {
+        received != nil || isUserIn || draft != nil
+    }
+
+    private var statusIcon: String {
+        if let received {
+            switch received.messageType {
+            case .invite: return "person.2.fill"
+            case .leave: return "location.slash"
+            case .propose, .counter: return "mappin.and.ellipse"
+            case .agree where received.isFullyAgreed: return "checkmark.seal.fill"
+            case .agree: return "checkmark.circle.fill"
+            }
+        }
+        return isUserIn ? "checkmark.circle.fill" : "location.circle"
+    }
+
+    private var statusColor: Color {
+        if let received {
+            switch received.messageType {
+            case .leave: return Tokens.Palette.destructive
+            case .agree where received.isFullyAgreed: return Tokens.Palette.success
+            case .propose, .counter, .agree: return Tokens.Palette.pinFair
+            case .invite: return Tokens.Palette.brand
+            }
+        }
+        return isUserIn ? Tokens.Palette.success : Tokens.Palette.brand
+    }
+
+    private var statusEyebrow: String {
+        guard let received else {
+            return isUserIn ? "You're in" : "Tween"
+        }
+        let name = received.senderName ?? "Your friend"
+        switch received.messageType {
+        case .invite: return "Invite"
+        case .leave: return "\(name) left"
+        case .propose: return "\(name) chose"
+        case .counter: return "\(name) suggests"
+        case .agree where received.isFullyAgreed: return "Meetup set"
+        case .agree: return "Agreement"
+        }
+    }
+
+    private var statusTitle: String {
+        if let draft, received == nil {
+            return "Ready to send \(draft.spotName)"
+        }
+        guard let received else {
+            return isUserIn ? "Waiting for someone else" : "Find a fair spot"
+        }
+        if received.kind == .place {
+            return received.text
+        }
+        if let sender = received.senderName, !sender.isEmpty {
+            return sender
+        }
+        return received.text
+    }
+
+    private var statusSubtitle: String {
+        if draft != nil, received == nil {
+            return "Send it to the chat or browse other spots."
+        }
+        guard let received else {
+            return isUserIn ? "Fair spots appear when another person joins." : "Share your location to start."
+        }
+        switch received.messageType {
+        case .invite:
+            return hasEnoughPeopleForSpots ? "Ready to pick a fair spot." : "Share where you are to join."
+        case .leave:
+            return "They are no longer active for this meetup."
+        case .propose:
+            return "Agree, or choose a fair alternative."
+        case .counter:
+            return "Review the new suggestion."
+        case .agree where received.isFullyAgreed:
+            return "Open directions or keep browsing."
+        case .agree:
+            return "Waiting for the remaining people to agree."
+        }
+    }
+
+    private var readinessRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Tokens.Spacing.s2) {
+                if isUserIn || selfCoord != nil {
+                    readinessChip("You", systemImage: "checkmark.circle.fill", color: Tokens.Palette.success)
+                }
+
+                ForEach(otherParticipants.prefix(6)) { participant in
+                    readinessChip(participant.name, systemImage: "checkmark.circle.fill", color: Tokens.Palette.success)
+                }
+
+                if otherParticipants.count > 6 {
+                    readinessChip("+\(otherParticipants.count - 6)", systemImage: "ellipsis", color: Tokens.Palette.textSecondary)
+                }
+
+                let waitingCount = max(totalSeats - activeParticipantCount, 0)
+                if waitingCount > 0 {
+                    readinessChip("Waiting \(waitingCount)", systemImage: "hourglass", color: Tokens.Palette.textSecondary)
+                }
+
+                if activeParticipantCount == 0 {
+                    readinessChip("Waiting on you", systemImage: "location.circle", color: Tokens.Palette.brand)
+                }
+            }
+        }
+        .accessibilityLabel("Readiness")
+    }
+
+    private func readinessChip(_ title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(Tokens.Typography.captionBold)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s2)
+            .frame(minHeight: 28)
+            .background(color.opacity(0.12), in: Capsule())
     }
 
     private func bannerHeadline(state: TweenState, name: String, isFullyAgreed: Bool) -> String {
@@ -918,7 +1041,7 @@ struct ExpandedView: View {
                 .accessibilityHint("Shares where you are for this meetup")
 
                 Button(action: onOpenFullApp) {
-                    Label("Search in Tween", systemImage: "arrow.up.forward.app")
+                    Label("Browse spots", systemImage: "arrow.up.forward.app")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))
@@ -1388,60 +1511,69 @@ struct ExpandedView: View {
         }
         return isRanking
             ? "Hang tight while Tween ranks nearby places."
-            : "Try Search in Tween to pick a spot manually."
+            : "Try Browse spots to pick a place manually."
     }
 
     private func spotRow(_ spot: RankedSpot) -> some View {
         let isSelected = selectedSpotID == spot.id
+        let isBestFair = rankedSpots.first?.id == spot.id
         let name = spot.item?.name ?? "Unknown"
-        return HStack {
-            Image(systemName: "fork.knife")
-                .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 32)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(Tokens.Typography.headline)
-                    .lineLimit(1)
-                Text(spot.item?.placemark.title ?? "")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .lineLimit(1)
+        return HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous)
+                    .fill(isBestFair ? Tokens.Palette.pinFair.opacity(0.22) : Tokens.Palette.brandLight)
+                Image(systemName: isBestFair ? "star.fill" : "fork.knife")
+                    .font(Tokens.Typography.callout.weight(.semibold))
+                    .foregroundStyle(isBestFair ? Tokens.Palette.pinFair : Tokens.Palette.brand)
             }
+            .frame(width: 40, height: 40)
 
-            Spacer()
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.s2) {
+                    Text(name)
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                        .lineLimit(1)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                if spot.etas.isEmpty {
-                    // Legacy 2-person fallback path.
-                    Text("A \(formatETA(spot.etaFromA))")
-                        .font(Tokens.Typography.captionBold)
-                    Text("B \(formatETA(spot.etaFromB))")
-                        .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                } else if spot.etas.count <= 4 {
-                    ForEach(spot.etas) { participantETA in
-                        HStack(spacing: 4) {
-                            Text(participantETA.name)
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                            Text(formatETA(participantETA.eta))
-                        }
-                        .font(Tokens.Typography.captionBold)
+                    if isBestFair {
+                        Text("Best balance")
+                            .font(Tokens.Typography.captionBold)
+                            .foregroundStyle(Tokens.Palette.brand)
+                            .padding(.horizontal, Tokens.Spacing.s2)
+                            .frame(minHeight: 22)
+                            .background(Tokens.Palette.brandLight, in: Capsule())
                     }
-                } else {
-                    // 5+ participants: compact minutes-only row.
-                    Text(spot.etas.map { formatETA($0.eta) }.joined(separator: " / "))
-                        .font(Tokens.Typography.captionBold)
-                        .multilineTextAlignment(.trailing)
-                    Text("Longest: \(formatETA(spot.worstETA))")
+                }
+
+                if let title = spot.item?.placemark.title, !title.isEmpty {
+                    Text(title)
                         .font(Tokens.Typography.caption)
                         .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: Tokens.Spacing.s1) {
+                    let chips = etaChipItems(for: spot)
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        etaChip(label: chip.0, value: chip.1)
+                    }
+
+                    if spot.etas.count > 4 {
+                        etaChip(label: "Longest", value: formatETA(spot.worstETA))
+                    }
                 }
             }
+
+            Spacer(minLength: 0)
         }
-        .padding(Tokens.Spacing.s3)
-        .background(isSelected ? Tokens.Palette.brand.opacity(0.1) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.chip))
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .padding(.vertical, Tokens.Spacing.s3)
+        .background(isSelected ? Tokens.Palette.brand.opacity(0.12) : Tokens.Palette.surfaceSecondary,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                .strokeBorder(isSelected ? Tokens.Palette.brand.opacity(0.45) : Color.clear, lineWidth: 1)
+        }
         .contentShape(Rectangle())
         // Tapping a row animates the map to this spot and highlights its pin.
         .onTapGesture { select(spot, animateMap: true) }
@@ -1449,6 +1581,32 @@ struct ExpandedView: View {
         .accessibilityLabel("\(name), \(Self.compactETALabel(for: spot))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func etaChipItems(for spot: RankedSpot) -> [(String, String)] {
+        if spot.etas.isEmpty {
+            return [("A", formatETA(spot.etaFromA)), ("B", formatETA(spot.etaFromB))]
+        }
+        if spot.etas.count <= 4 {
+            return spot.etas.map { ($0.name, formatETA($0.eta)) }
+        }
+        return spot.etas.prefix(4).map { ("", formatETA($0.eta)) }
+    }
+
+    private func etaChip(label: String, value: String) -> some View {
+        HStack(spacing: 3) {
+            if !label.isEmpty {
+                Text(label)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            Text(value)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+        }
+        .font(Tokens.Typography.captionBold)
+        .lineLimit(1)
+        .padding(.horizontal, Tokens.Spacing.s2)
+        .frame(minHeight: 24)
+        .background(Tokens.Palette.surface, in: Capsule())
     }
 
     /// Single point of truth for selection. Always updates `selectedSpotID`
@@ -1688,7 +1846,7 @@ struct ExpandedView: View {
 
     private var openFullAppButton: some View {
         Button(action: onOpenFullApp) {
-            Label("Search in Tween", systemImage: "arrow.up.forward.app")
+            Label("Browse spots", systemImage: "arrow.up.forward.app")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.tweenPrimary(.subtle))

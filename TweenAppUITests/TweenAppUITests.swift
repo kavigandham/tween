@@ -45,7 +45,7 @@ final class TweenAppUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Two Ready No Results View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No fair spots found"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Search in Tween"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Browse spots"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
     }
 }
