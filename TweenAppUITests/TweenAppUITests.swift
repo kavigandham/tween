@@ -27,6 +27,16 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Send McDonald's instead"].waitForExistence(timeout: 5))
     }
+
+    func testSoloUserDoesNotShowEndlessFindingState() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HARNESS", "-HARNESS_SOLO_WAITING"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Solo Waiting View"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Waiting for someone else"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
+    }
 }
 
 final class TweenAppUITestsLaunchTests: XCTestCase {

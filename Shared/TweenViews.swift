@@ -697,8 +697,23 @@ struct ExpandedView: View {
         return received.participants.count >= 2
     }
 
+    private var activeParticipantCount: Int {
+        var count = otherParticipants.count
+        if isUserIn || selfCoord != nil {
+            count += 1
+        }
+        if inviteHasEnoughPeopleForSpots, let received {
+            count = max(count, received.participants.count)
+        }
+        return count
+    }
+
+    private var hasEnoughPeopleForSpots: Bool {
+        activeParticipantCount >= 2 || inviteHasEnoughPeopleForSpots
+    }
+
     private var canSendSpotFromCurrentPeople: Bool {
-        isUserIn || inviteHasEnoughPeopleForSpots
+        hasEnoughPeopleForSpots
     }
 
     var body: some View {
@@ -1311,9 +1326,13 @@ struct ExpandedView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: Tokens.Spacing.s2) {
-                    ForEach(rankedSpots) { spot in
-                        spotRow(spot)
-                            .id(spot.id)
+                    if rankedSpots.isEmpty {
+                        emptySpotListState
+                    } else {
+                        ForEach(rankedSpots) { spot in
+                            spotRow(spot)
+                                .id(spot.id)
+                        }
                     }
                 }
                 .padding(.horizontal, Tokens.Spacing.s4)
@@ -1328,6 +1347,27 @@ struct ExpandedView: View {
             }
             .sensoryFeedback(.selection, trigger: selectedSpotID)
         }
+    }
+
+    private var emptySpotListState: some View {
+        VStack(spacing: Tokens.Spacing.s2) {
+            Image(systemName: hasEnoughPeopleForSpots ? "mappin.and.ellipse" : "person.2")
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+            Text(hasEnoughPeopleForSpots ? "Finding fair spots..." : "Waiting for someone else")
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(Tokens.Palette.textPrimary)
+            Text(hasEnoughPeopleForSpots
+                 ? "Hang tight while Tween ranks nearby places."
+                 : "Fair spots appear once at least two people are in.")
+                .font(Tokens.Typography.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding(Tokens.Spacing.s4)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+        .accessibilityElement(children: .combine)
     }
 
     private func spotRow(_ spot: RankedSpot) -> some View {
@@ -1497,6 +1537,14 @@ struct ExpandedView: View {
                     .opacity(0.5)
                     .accessibilityHint("Tap a spot on the map or list to choose where to meet")
                 }
+            } else if isUserIn {
+                Label("Waiting for someone else", systemImage: "person.2")
+                    .lineLimit(1)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                    .background(Tokens.Palette.surfaceSecondary, in: Capsule())
+                    .accessibilityHint("Fair spots appear once at least two people are in")
             } else if !isUserIn {
                 Button(action: onImIn) {
                     if isSending {
