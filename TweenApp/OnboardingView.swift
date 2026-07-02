@@ -107,6 +107,7 @@ struct OnboardingView: View {
     @State private var friends: [TweenFriend] = FriendRoster.load()
     @State private var editorMode: FriendEditor?
     @State private var lastReplyAt: Date? = PingLog.lastIncomingReplyAt
+    @State private var lastGenericInviteAt: Date? = PingLog.lastGenericInviteAt
     @State private var pingTick = 0
     @State private var renameText = ""
     @State private var toast: String?
@@ -140,6 +141,13 @@ struct OnboardingView: View {
         let body: String
         var message: MSMessage? = nil
         var onSent: (() -> Void)? = nil
+    }
+
+    private struct PendingInviteRow: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let sentAt: Date
+        let isGeneric: Bool
     }
 
     /// A tapped search result staged for the detail card. Carries the map item
@@ -885,13 +893,15 @@ struct OnboardingView: View {
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .textCase(.uppercase)
                 Spacer(minLength: 0)
-                Text("\(activeParticipantsForDisplay.count) in")
+                Text(pendingInvitesForDisplay.isEmpty
+                     ? "\(activeParticipantsForDisplay.count) in"
+                     : "\(activeParticipantsForDisplay.count) in · \(pendingInvitesForDisplay.count) pending")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.brand)
             }
 
-            if activeParticipantsForDisplay.isEmpty {
-                Text("No one is in yet. People invited from Messages appear here as they join.")
+            if activeParticipantsForDisplay.isEmpty, pendingInvitesForDisplay.isEmpty {
+                Text("No one is in yet. People invited from Messages appear here as pending once you send the invite.")
                     .font(Tokens.Typography.footnote)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -901,7 +911,13 @@ struct OnboardingView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(activeParticipantsForDisplay.enumerated()), id: \.element.id) { index, participant in
                         participantStatusRow(participant)
-                        if index < activeParticipantsForDisplay.count - 1 {
+                        if index < activeParticipantsForDisplay.count - 1 || !pendingInvitesForDisplay.isEmpty {
+                            Divider().padding(.leading, 48)
+                        }
+                    }
+                    ForEach(Array(pendingInvitesForDisplay.enumerated()), id: \.element.id) { index, invite in
+                        pendingInviteStatusRow(invite)
+                        if index < pendingInvitesForDisplay.count - 1 {
                             Divider().padding(.leading, 48)
                         }
                     }
@@ -935,6 +951,36 @@ struct OnboardingView: View {
             Text(isLocal ? "You" : "In")
                 .font(Tokens.Typography.captionBold)
                 .foregroundStyle(Tokens.Palette.textSecondary)
+        }
+        .padding(Tokens.Spacing.s3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func pendingInviteStatusRow(_ invite: PendingInviteRow) -> some View {
+        HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: invite.isGeneric ? "paperplane.circle.fill" : "hourglass.circle.fill")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.warning)
+                .frame(width: 36, height: 36)
+                .background(Tokens.Palette.warning.opacity(0.14),
+                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(invite.name)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+                Text(invite.isGeneric
+                     ? "Waiting for them to open Tween"
+                     : "Invite sent \(RelativeTime.string(from: invite.sentAt))")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Text("Pending")
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.warning)
         }
         .padding(Tokens.Spacing.s3)
         .accessibilityElement(children: .combine)
@@ -1463,6 +1509,31 @@ struct OnboardingView: View {
         }
     }
 
+    private var pendingInvitesForDisplay: [PendingInviteRow] {
+        let activeNames = Set(activeParticipantsForDisplay.map { $0.name.lowercased() })
+        var rows = friends.compactMap { friend -> PendingInviteRow? in
+            guard let sentAt = PingLog.lastPing(for: friend.id),
+                  !activeNames.contains(friend.name.lowercased())
+            else { return nil }
+            return PendingInviteRow(
+                id: friend.id.uuidString,
+                name: friend.name,
+                sentAt: sentAt,
+                isGeneric: false)
+        }
+
+        if let genericSentAt = lastGenericInviteAt,
+           lastReplyAt.map({ genericSentAt > $0 }) ?? true {
+            rows.append(PendingInviteRow(
+                id: "generic-\(genericSentAt.timeIntervalSince1970)",
+                name: "Invited from Messages",
+                sentAt: genericSentAt,
+                isGeneric: true))
+        }
+
+        return rows.sorted { $0.sentAt > $1.sentAt }
+    }
+
     private var pickupRiders: [Participant] {
         activeParticipantsForDisplay.filter(\.needsRide)
     }
@@ -1789,6 +1860,8 @@ struct OnboardingView: View {
                         body: "Let's go to \(selection.name).",
                         message: message,
                         onSent: {
+                            PingLog.logGenericInvite()
+                            lastGenericInviteAt = PingLog.lastGenericInviteAt
                             showOwnProposalOnMap(state)
                         }))
                 }
@@ -1848,7 +1921,6 @@ struct OnboardingView: View {
     /// the bubble, (b) MSMessage rendering fails, or (c) the device can't send
     /// text at all (no SIM / no iMessage).
     private func pingFriend(_ friend: TweenFriend) {
-        PingLog.logPing(for: friend.id)
         pingTick += 1
 
         guard let handle = friend.handle, MFMessageComposeViewController.canSendText() else {
@@ -1862,7 +1934,14 @@ struct OnboardingView: View {
         // composer immediately — no point waiting on a snapshot for an empty
         // map. The user can still tap "I'm in" themselves once they open Tween.
         guard let myCoord = LocationCache.loadSelf()?.coordinate else {
-            activeSheet = .message(PendingMessage(recipients: [handle], body: Self.inviteText))
+            activeSheet = .message(PendingMessage(
+                recipients: [handle],
+                body: Self.inviteText,
+                onSent: {
+                    PingLog.logPing(for: friend.id)
+                    pingTick += 1
+                    showToast("\(friend.name) is pending")
+                }))
             return
         }
 
@@ -1897,7 +1976,12 @@ struct OnboardingView: View {
             activeSheet = .message(PendingMessage(
                 recipients: [handle],
                 body: Self.inviteText,
-                message: message))
+                message: message,
+                onSent: {
+                    PingLog.logPing(for: friend.id)
+                    pingTick += 1
+                    showToast("\(friend.name) is pending")
+                }))
         }
     }
 
@@ -2250,6 +2334,7 @@ struct OnboardingView: View {
         }
 
         lastReplyAt = PingLog.lastIncomingReplyAt
+        lastGenericInviteAt = PingLog.lastGenericInviteAt
         if didChange {
             reframe()
         }

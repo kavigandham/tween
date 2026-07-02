@@ -8,6 +8,7 @@ import Foundation
 enum PingLog {
     static let storageKey = "pingLog"
     static let lastReplyKey = "lastIncomingReplyAt"
+    static let genericInviteKey = "lastGenericInviteAt"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
@@ -39,9 +40,27 @@ enum PingLog {
         }
     }
 
+    /// Timestamp for a sent invite where Apple Messages did not expose a named
+    /// recipient back to Tween, such as when the user typed a handle manually.
+    static var lastGenericInviteAt: Date? {
+        get { defaults?.object(forKey: genericInviteKey) as? Date }
+        set {
+            if let newValue {
+                defaults?.set(newValue, forKey: genericInviteKey)
+            } else {
+                defaults?.removeObject(forKey: genericInviteKey)
+            }
+        }
+    }
+
+    static func logGenericInvite(at date: Date = Date()) {
+        lastGenericInviteAt = date
+    }
+
     static func clear() {
         defaults?.removeObject(forKey: storageKey)
         defaults?.removeObject(forKey: lastReplyKey)
+        defaults?.removeObject(forKey: genericInviteKey)
     }
 
     // MARK: - Atomic single-key codec

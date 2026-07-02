@@ -50,4 +50,16 @@ final class PingLogTests: XCTestCase {
                        stamp.timeIntervalSince1970,
                        accuracy: 1.0)
     }
+
+    // 4. Generic invites cover Messages sends where iOS does not expose a name.
+    func testGenericInviteRoundTrips() {
+        XCTAssertNil(PingLog.lastGenericInviteAt)
+
+        let stamp = Date(timeIntervalSince1970: 1_800_000_000)
+        PingLog.logGenericInvite(at: stamp)
+
+        XCTAssertEqual(try XCTUnwrap(PingLog.lastGenericInviteAt).timeIntervalSince1970,
+                       stamp.timeIntervalSince1970,
+                       accuracy: 1.0)
+    }
 }
