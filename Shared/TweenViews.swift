@@ -1413,14 +1413,7 @@ struct ExpandedView: View {
     @ViewBuilder
     private var primaryCTA: some View {
         Group {
-            if let draft {
-                Button { sendTick += 1; onSendDraft() } label: {
-                    Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
-                        .lineLimit(1)
-                }
-                .buttonStyle(.tweenPrimary())
-                .accessibilityHint("Drops \(draft.spotName) into your conversation")
-            } else if isMeetupSet {
+            if isMeetupSet {
                 // Terminal state actions live inside meetupSetView.
                 EmptyView()
             } else if let received, received.messageType == .agree {
@@ -1432,31 +1425,9 @@ struct ExpandedView: View {
                 let myName = UserProfile.displayName ?? UserName.fallback
                 let needsMyAgreement = received.senderName != myName && !received.agreedNames.contains(myName)
                 if needsMyAgreement {
-                    HStack(spacing: Tokens.Spacing.s2) {
-                        Button {
-                            sendTick += 1
-                            onAgreePlace(received)
-                        } label: {
-                            Label("Agree", systemImage: "checkmark.circle.fill")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.tweenPrimary())
-                        .accessibilityHint("Sends that you agree to meet at \(received.text)")
-
-                        Button {
-                            sendTick += 1
-                            if let spot = selectedSpot {
-                                onSelectSpot(spot)
-                            } else if let first = rankedSpots.first {
-                                select(first, animateMap: true)
-                            }
-                        } label: {
-                            Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.tweenPrimary(.subtle))
-                        .disabled(rankedSpots.isEmpty)
-                        .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+                    VStack(spacing: Tokens.Spacing.s2) {
+                        agreeChangeRow(for: received)
+                        draftAlternateButton
                     }
                 } else {
                     let missing = received.participants
@@ -1495,33 +1466,18 @@ struct ExpandedView: View {
                 if received.isFullyAgreed {
                     directionButtons(for: received)
                 } else {
-                    HStack(spacing: Tokens.Spacing.s2) {
-                        Button {
-                            sendTick += 1
-                            onAgreePlace(received)
-                        } label: {
-                            Label("Agree", systemImage: "checkmark.circle.fill")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.tweenPrimary())
-                        .accessibilityHint("Sends that you agree to meet at \(received.text)")
-
-                        Button {
-                            sendTick += 1
-                            if let spot = selectedSpot {
-                                onSelectSpot(spot)
-                            } else if let first = rankedSpots.first {
-                                select(first, animateMap: true)
-                            }
-                        } label: {
-                            Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.tweenPrimary(.subtle))
-                        .disabled(rankedSpots.isEmpty)
-                        .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+                    VStack(spacing: Tokens.Spacing.s2) {
+                        agreeChangeRow(for: received)
+                        draftAlternateButton
                     }
                 }
+            } else if let draft {
+                Button { sendTick += 1; onSendDraft() } label: {
+                    Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityHint("Drops \(draft.spotName) into your conversation")
             } else if canSendSpotFromCurrentPeople {
                 if let spot = selectedSpot {
                     Button { sendTick += 1; onSelectSpot(spot) } label: {
@@ -1558,6 +1514,52 @@ struct ExpandedView: View {
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)
+    }
+
+    private func agreeChangeRow(for received: TweenState) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Button {
+                sendTick += 1
+                onAgreePlace(received)
+            } label: {
+                Label("Agree", systemImage: "checkmark.circle.fill")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary())
+            .accessibilityHint("Sends that you agree to meet at \(received.text)")
+
+            Button {
+                sendTick += 1
+                if let spot = selectedSpot {
+                    onSelectSpot(spot)
+                } else if let first = rankedSpots.first {
+                    select(first, animateMap: true)
+                }
+            } label: {
+                Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .disabled(rankedSpots.isEmpty)
+            .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+        }
+    }
+
+    @ViewBuilder
+    private var draftAlternateButton: some View {
+        if let draft {
+            Button {
+                sendTick += 1
+                onSendDraft()
+            } label: {
+                Label("Send \(draft.spotName) instead", systemImage: "paperplane.fill")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.tweenPrimary(.neutral))
+            .accessibilityHint("Sends your preloaded spot instead of the received proposal")
+        }
     }
 
     @ViewBuilder

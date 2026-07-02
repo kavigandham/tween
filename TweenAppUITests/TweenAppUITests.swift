@@ -15,6 +15,18 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Compact View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Expanded View"].waitForExistence(timeout: 5))
     }
+
+    func testProposalDraftShowsAgreeBeforeDraftSend() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HARNESS", "-HARNESS_PROPOSAL_DRAFT"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Proposal With Draft View"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Hangry Joe's Hot Chicken"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Agree"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Send McDonald's instead"].waitForExistence(timeout: 5))
+    }
 }
 
 final class TweenAppUITestsLaunchTests: XCTestCase {

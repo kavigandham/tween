@@ -79,6 +79,26 @@ struct HarnessView: View {
                         .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
                     }
                 }
+
+                if focus.includes(.proposalDraft) {
+                    section("Proposal With Draft View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.incomingProposal,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: DebugLaunchSeed.rankedSpots,
+                            isUserIn: true,
+                            draft: DebugLaunchSeed.draft,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onAgreePlace: { _ in },
+                            onSendDraft: {},
+                            onOpenFullApp: {}
+                        )
+                        .frame(height: 760)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+                }
             }
             .padding(Tokens.Spacing.s4)
         }
@@ -101,10 +121,12 @@ enum HarnessFocus: Equatable {
     case all
     case invite
     case meetup
+    case proposalDraft
 
     static var current: HarnessFocus {
         if CommandLine.arguments.contains("-HARNESS_INVITE") { return .invite }
         if CommandLine.arguments.contains("-HARNESS_MEETUP") { return .meetup }
+        if CommandLine.arguments.contains("-HARNESS_PROPOSAL_DRAFT") { return .proposalDraft }
         return .all
     }
 
@@ -155,6 +177,27 @@ enum DebugLaunchSeed {
             Participant(id: "Friend", name: "Friend", coordinate: friendCoordinate)
         ],
         agreedNames: ["Friend"]
+    )
+
+    static let incomingProposal = TweenState(
+        text: "Hangry Joe's Hot Chicken",
+        latitude: 32.0810,
+        longitude: -81.1007,
+        senderName: "Hassan",
+        kind: .place,
+        senderCoordinate: friendCoordinate,
+        action: .invite,
+        messageType: .propose,
+        participants: [
+            Participant(id: "Hassan", name: "Hassan", coordinate: friendCoordinate),
+            Participant(id: "Kavi", name: "Kavi Gandham", coordinate: selfCoordinate)
+        ]
+    )
+
+    static let draft = OutgoingDraft(
+        spotName: "McDonald's",
+        latitude: 32.0854,
+        longitude: -81.0912
     )
 
     static let rankedSpots: [RankedSpot] = [
