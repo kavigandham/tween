@@ -624,6 +624,9 @@ struct ExpandedView: View {
     var useStaticMap: Bool = false
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
+    /// Spot name the extension just sent with `MSConversation.send`, used to
+    /// keep the CTA from looking tappable while Messages has already queued it.
+    var recentlySentSpotName: String? = nil
     var onImIn: () -> Void
     var onImOut: () -> Void = {}
     var onSelectSpot: (RankedSpot) -> Void
@@ -1696,19 +1699,34 @@ struct ExpandedView: View {
                     }
                 }
             } else if let draft {
-                Button { sendTick += 1; onSendDraft() } label: {
-                    Label("Send \(draft.spotName)", systemImage: "paperplane.fill")
+                let didSend = recentlySentSpotName == draft.spotName
+                Button {
+                    guard !didSend else { return }
+                    sendTick += 1
+                    onSendDraft()
+                } label: {
+                    Label(didSend ? "Sent \(draft.spotName)" : "Send \(draft.spotName)",
+                          systemImage: didSend ? "checkmark.circle.fill" : "paperplane.fill")
                         .lineLimit(1)
                 }
                 .buttonStyle(.tweenPrimary())
+                .disabled(isSending || didSend)
                 .accessibilityHint("Drops \(draft.spotName) into your conversation")
             } else if canSendSpotFromCurrentPeople {
                 if let spot = selectedSpot {
-                    Button { sendTick += 1; onSelectSpot(spot) } label: {
-                        Label("Send \(spot.item?.name ?? "Spot")", systemImage: "paperplane.fill")
+                    let spotName = spot.item?.name ?? "Spot"
+                    let didSend = recentlySentSpotName == spotName
+                    Button {
+                        guard !didSend else { return }
+                        sendTick += 1
+                        onSelectSpot(spot)
+                    } label: {
+                        Label(didSend ? "Sent \(spotName)" : "Send \(spotName)",
+                              systemImage: didSend ? "checkmark.circle.fill" : "paperplane.fill")
                             .lineLimit(1)
                     }
                     .buttonStyle(.tweenPrimary())
+                    .disabled(isSending || didSend)
                     .accessibilityHint("Drops this spot into your conversation")
                 } else {
                     if isRanking {
@@ -1792,16 +1810,20 @@ struct ExpandedView: View {
     @ViewBuilder
     private var draftAlternateButton: some View {
         if let draft {
+            let didSend = recentlySentSpotName == draft.spotName
             Button {
+                guard !didSend else { return }
                 sendTick += 1
                 onSendDraft()
             } label: {
-                Label("Send \(draft.spotName) instead", systemImage: "paperplane.fill")
+                Label(didSend ? "Sent \(draft.spotName)" : "Send \(draft.spotName) instead",
+                      systemImage: didSend ? "checkmark.circle.fill" : "paperplane.fill")
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.tweenPrimary(.neutral))
+            .disabled(isSending || didSend)
             .accessibilityHint("Sends your preloaded spot instead of the received proposal")
         }
     }

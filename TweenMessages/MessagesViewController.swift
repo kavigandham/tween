@@ -38,6 +38,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     private var isRanking = false
     private var isSending = false
     private var sendStatusMessage: String?
+    private var recentlySentSpotName: String?
 
     private let locationProvider = LocationProvider()
     private let networkMonitor = NetworkMonitor()
@@ -99,6 +100,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
         let savedPeer = decodeAndCache(message, in: conversation)
+        recentlySentSpotName = nil
         // Stamp the inbound bubble so the host app can surface a "they replied"
         // banner across its sheet, but only once the peer coordinate is usable.
         if savedPeer {
@@ -273,6 +275,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     isOnline: networkMonitor.isOnline,
                     useStaticMap: mapDegraded,
                     draft: draft,
+                    recentlySentSpotName: recentlySentSpotName,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },
                     onSelectSpot: { [weak self] spot in
@@ -693,7 +696,49 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func sendBubble(state: TweenState) {
         sendTask?.cancel()
-        sendTask = Task { @MainActor in await sendBubbleNow(for: state) }
+        sendTask = Task { @MainActor in
+            isSending = true
+            sendStatusMessage = sendingMessage(for: state)
+            presentUI(for: presentationStyle)
+
+            let didSend = await sendBubbleNow(for: state)
+            isSending = false
+            if didSend {
+                if state.kind == .place {
+                    recentlySentSpotName = state.text
+                }
+                sendStatusMessage = sentMessage(for: state)
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
+            presentUI(for: presentationStyle)
+        }
+    }
+
+    private func sendingMessage(for state: TweenState) -> String {
+        switch state.messageType {
+        case .propose, .counter:
+            return "Sending \(state.text)..."
+        case .agree:
+            return "Sending your agreement..."
+        case .leave:
+            return "Leaving this meetup..."
+        case .invite:
+            return "Sharing your location..."
+        }
+    }
+
+    private func sentMessage(for state: TweenState) -> String {
+        switch state.messageType {
+        case .propose, .counter:
+            return "Sent \(state.text) to the chat"
+        case .agree:
+            return "Agreement sent"
+        case .leave:
+            return "You're out"
+        case .invite:
+            return "You're in"
+        }
     }
 
 

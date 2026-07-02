@@ -283,7 +283,7 @@ struct MessageComposeSheet: UIViewControllerRepresentable {
     let recipients: [String]
     let body: String
     var message: MSMessage? = nil
-    let onFinish: () -> Void
+    let onFinish: (MessageComposeResult) -> Void
 
     func makeUIViewController(context: Context) -> MFMessageComposeViewController {
         let controller = MFMessageComposeViewController()
@@ -301,12 +301,12 @@ struct MessageComposeSheet: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
 
     final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
-        let onFinish: () -> Void
-        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+        let onFinish: (MessageComposeResult) -> Void
+        init(onFinish: @escaping (MessageComposeResult) -> Void) { self.onFinish = onFinish }
 
         func messageComposeViewController(_ controller: MFMessageComposeViewController,
                                           didFinishWith result: MessageComposeResult) {
-            onFinish()
+            onFinish(result)
         }
     }
 }

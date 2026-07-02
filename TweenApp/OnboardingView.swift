@@ -139,6 +139,7 @@ struct OnboardingView: View {
         let recipients: [String]
         let body: String
         var message: MSMessage? = nil
+        var onSent: (() -> Void)? = nil
     }
 
     /// A tapped search result staged for the detail card. Carries the map item
@@ -411,8 +412,11 @@ struct OnboardingView: View {
                     case .message(let pending):
                         MessageComposeSheet(recipients: pending.recipients,
                                             body: pending.body,
-                                            message: pending.message) {
+                                            message: pending.message) { result in
                             activeSheet = nil
+                            if result == .sent {
+                                pending.onSent?()
+                            }
                         }
                     case .spot(let selection):
                         SpotDetailCard(
@@ -1636,7 +1640,53 @@ struct OnboardingView: View {
         }
         saveLocalParticipant(coordinate)
         _ = refreshFromAppGroup()
-        showToast(needsRide ? "Ride request added to the meetup" : "Ride request cleared")
+        presentRideStatusMessage(needsRide: needsRide, coordinate: coordinate)
+        showToast(needsRide ? "Ride request ready to send" : "Ride update ready to send")
+    }
+
+    private func presentRideStatusMessage(needsRide: Bool, coordinate: CLLocationCoordinate2D) {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let participants = LocationCache.loadParticipants()
+        let state = TweenState(
+            text: needsRide ? "I need a ride" : "I can meet there",
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            senderName: UserProfile.displayName,
+            kind: .participant,
+            messageType: .invite,
+            participants: participants
+        )
+
+        guard MFMessageComposeViewController.canSendText() else {
+            UIPasteboard.general.string = needsRide
+                ? "\(myName) needs a ride for this Tween meetup."
+                : "\(myName) can meet there for this Tween meetup."
+            showToast("Messages unavailable - copied the ride update")
+            return
+        }
+
+        Task { @MainActor in
+            let image = await BubbleImageRenderer.makeImage(
+                state: state,
+                participants: state.participants,
+                localName: myName)
+
+            let layout = MSMessageTemplateLayout()
+            layout.image = image
+            BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
+
+            let message = MSMessage()
+            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.layout = layout
+
+            activeSheet = .message(PendingMessage(
+                recipients: [],
+                body: needsRide ? "\(myName) needs a ride." : "\(myName) can meet there.",
+                message: message,
+                onSent: {
+                    showToast(needsRide ? "Ride request sent" : "Ride update sent")
+                }))
+        }
     }
 
     // MARK: - Hand-off
@@ -1737,7 +1787,10 @@ struct OnboardingView: View {
                     activeSheet = .message(PendingMessage(
                         recipients: [],
                         body: "Let's go to \(selection.name).",
-                        message: message))
+                        message: message,
+                        onSent: {
+                            showOwnProposalOnMap(state)
+                        }))
                 }
             } else {
                 let who = UserProfile.displayName ?? "I"
