@@ -43,11 +43,9 @@ enum BubbleCaption {
                 // caption so users see who just confirmed.
                 let agreer = state.agreedNames.last ?? "Your friend"
                 let needed = max(state.participants.count - 1, 1)
-                let have = state.agreedNames.count
+                let have = state.agreedIDs.isEmpty ? state.agreedNames.count : state.agreedIDs.count
                 layout.caption = "\(agreer) agrees to \(state.text) (\(have) of \(needed))"
-                let missing = state.participants
-                    .map(\.name)
-                    .filter { $0 != state.senderName && !state.agreedNames.contains($0) }
+                let missing = state.missingAgreementNames(excluding: nil, name: "")
                 if !missing.isEmpty {
                     layout.subcaption = "Waiting for \(missing.joined(separator: ", "))"
                 } else {

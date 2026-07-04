@@ -91,6 +91,27 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(decoded.messageType, .propose)
     }
 
+    func testParticipantIDsRoundTripThroughURL() throws {
+        let participants = [
+            Participant(id: "uuid-a", name: "Hassan", latitude: 38.84, longitude: -77.30),
+            Participant(id: "uuid-b", name: "Hassan", latitude: 38.90, longitude: -77.35)
+        ]
+        let state = TweenState(
+            text: "I'm in",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Hassan",
+            senderID: "uuid-a",
+            kind: .participant,
+            participants: participants)
+
+        let decoded = try XCTUnwrap(TweenState(url: try XCTUnwrap(state.encodedURL())))
+
+        XCTAssertEqual(decoded.senderID, "uuid-a")
+        XCTAssertEqual(decoded.participants.map(\.id), ["uuid-a", "uuid-b"])
+        XCTAssertEqual(decoded.participants.map(\.name), ["Hassan", "Hassan"])
+    }
+
     func testTenParticipantUrlStaysUnder5000Chars() throws {
         let participants = (0..<10).map { i in
             Participant(id: "Participant\(i)", name: "Participant\(i)Surname",
@@ -208,6 +229,28 @@ final class ParticipantCodecTests: XCTestCase {
             agreedNames: ["Bob"]
         )
         XCTAssertFalse(state.isFullyAgreed)
+    }
+
+    func testAgreementUsesParticipantIDsWhenNamesCollide() throws {
+        let participants = [
+            Participant(id: "proposer", name: "Hassan", latitude: 0, longitude: 0),
+            Participant(id: "agreeing", name: "Hassan", latitude: 0, longitude: 0),
+            Participant(id: "waiting", name: "Hassan", latitude: 0, longitude: 0)
+        ]
+        let state = TweenState(
+            text: "Cafe",
+            latitude: 0, longitude: 0,
+            senderName: "Hassan",
+            senderID: "proposer",
+            kind: .place,
+            messageType: .agree,
+            participants: participants,
+            agreedNames: ["Hassan"],
+            agreedIDs: ["agreeing"]
+        )
+
+        XCTAssertFalse(state.isFullyAgreed)
+        XCTAssertEqual(state.missingAgreementNames(excluding: "agreeing", name: "Hassan"), ["Hassan"])
     }
 
     func testInviteIsNeverFullyAgreed() throws {

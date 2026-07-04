@@ -169,7 +169,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         // non-nil name wins the != comparison and the first entry — possibly
         // the LOCAL user — leaks into the peer cache. That was Bug #4.
         let myName = Self.localParticipantName()
-        if let peer = state.participants.first(where: { $0.name != myName }) {
+        let myId = localParticipantID()
+        if let peer = state.participants.first(where: { !$0.matches(id: myId, name: myName) }) {
             LocationCache.savePeer(peer.coordinate, isActive: true)
             logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
             return true
@@ -193,6 +194,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// "me" — drifting between call sites was the root of Bug #4.
     static func localParticipantName() -> String {
         UserProfile.displayName ?? UserName.fallback
+    }
+
+    private func localParticipantID() -> String {
+        activeConversation?.localParticipantIdentifier.uuidString ?? Self.localParticipantName()
     }
 
     // MARK: - Effective received state
@@ -235,24 +240,25 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     /// Builds the next outgoing participant list by removing any prior entry
-    /// for the local user (matched by name) and appending a fresh one with the
-    /// current coordinate. Cross-message identity is by name because the
-    /// conversation-scoped UUID can't be carried inside the URL.
+    /// for the local user and appending a fresh one with the current coordinate.
+    /// New payloads preserve the iMessage participant UUID, with name fallback
+    /// only for legacy bubbles.
     private func nextParticipantList(myCoord: CLLocationCoordinate2D,
                                      conversation: MSConversation?) -> [Participant] {
         let myName = Self.localParticipantName()
         let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
         let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
-        let others = source.filter { $0.name != myName }
-        let needsRide = source.first(where: { $0.name == myName })?.needsRide ?? false
+        let others = source.filter { !$0.matches(id: myId, name: myName) }
+        let needsRide = source.first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
         let me = Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide)
         return others + [me]
     }
 
     private func participantListWithoutMe() -> [Participant] {
         let myName = Self.localParticipantName()
+        let myId = localParticipantID()
         let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
-        return source.filter { $0.name != myName }
+        return source.filter { !$0.matches(id: myId, name: myName) }
     }
 
     // MARK: - Hosting
@@ -275,6 +281,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     isOnline: networkMonitor.isOnline,
                     useStaticMap: mapDegraded,
                     draft: draft,
+                    localParticipantID: localParticipantID(),
                     recentlySentSpotName: recentlySentSpotName,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },
@@ -299,6 +306,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 CompactView(
                     received: received,
                     isUserIn: isUserIn,
+                    localParticipantID: localParticipantID(),
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
@@ -418,11 +426,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             LocationCache.saveParticipantSnapshot(source, localName: myName)
         }
 
-        source = source.filter { $0.name != myName }
+        let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
+        source = source.filter { !$0.matches(id: myId, name: myName) }
         if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
-            let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
-            let needsRide = currentParticipants.first(where: { $0.name == myName })?.needsRide
-                ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide
+            let needsRide = currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
+                ?? LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                 ?? false
             source.append(Participant(id: myId, name: myName, coordinate: mySelf, needsRide: needsRide))
         }
@@ -471,6 +479,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
                 senderName: UserProfile.displayName,
+                senderID: self.localParticipantID(),
                 kind: .participant,
                 messageType: .invite,
                 participants: participants
@@ -515,6 +524,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 latitude: fallbackCoordinate.latitude,
                 longitude: fallbackCoordinate.longitude,
                 senderName: UserProfile.displayName,
+                senderID: self.localParticipantID(),
                 kind: .participant,
                 messageType: .leave,
                 participants: remainingParticipants
@@ -548,6 +558,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             senderName: UserProfile.displayName,
+            senderID: localParticipantID(),
             kind: .place,
             senderCoordinate: mySelf,
             messageType: .propose,
@@ -557,7 +568,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     /// Agrees to a previously proposed place. Carries the participants forward
-    /// and appends this user's name to `agreedNames`; the receiver decides if
+    /// and appends this user's identity to the agreement list; the receiver decides if
     /// that's enough for full consensus via `state.isFullyAgreed`.
     private func sendAgreedPlace(_ proposed: TweenState) {
         sendTask?.cancel()
@@ -582,11 +593,11 @@ final class MessagesViewController: MSMessagesAppViewController {
                 ? self.currentParticipants
                 : proposed.participants
             if let myCoord = senderCoordinate {
-                participants = participants.filter { $0.name != myName }
-                let myId = self.activeConversation?.localParticipantIdentifier.uuidString ?? myName
-                let needsRide = proposed.participants.first(where: { $0.name == myName })?.needsRide
-                    ?? self.currentParticipants.first(where: { $0.name == myName })?.needsRide
-                    ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide
+                let myId = self.localParticipantID()
+                participants = participants.filter { !$0.matches(id: myId, name: myName) }
+                let needsRide = proposed.participants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
+                    ?? self.currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
+                    ?? LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                     ?? false
                 participants.append(Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide))
             }
@@ -595,22 +606,25 @@ final class MessagesViewController: MSMessagesAppViewController {
 
             var agreed = proposed.agreedNames
             if !agreed.contains(myName) { agreed.append(myName) }
+            let myId = self.localParticipantID()
+            var agreedIDs = proposed.agreedIDs
+            if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
 
-            // Preserve the ORIGINAL proposer's name in senderName so the
-            // receiving end's `isFullyAgreed` (which derives the proposer
-            // from senderName) computes correctly. The agreer's identity
-            // travels in agreedNames — last entry is the most recent agreer.
+            // Preserve the original proposer so consensus is calculated
+            // against every other participant, not the most recent agreer.
             let state = TweenState(
                 text: proposed.text,
                 latitude: proposed.latitude,
                 longitude: proposed.longitude,
                 senderName: proposed.senderName ?? UserProfile.displayName,
+                senderID: proposed.senderID ?? self.localParticipantID(),
                 kind: .place,
                 senderCoordinate: senderCoordinate,
                 action: .agree,
                 messageType: .agree,
                 participants: participants,
-                agreedNames: agreed
+                agreedNames: agreed,
+                agreedIDs: agreedIDs
             )
             logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
             // Don't dismiss after an agree send — instead, lock in the local
@@ -650,6 +664,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             senderName: UserProfile.displayName,
+            senderID: localParticipantID(),
             kind: .place,
             senderCoordinate: mySelf,
             messageType: .counter,
@@ -683,6 +698,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             latitude: draft.latitude,
             longitude: draft.longitude,
             senderName: UserProfile.displayName,
+            senderID: localParticipantID(),
             kind: .place,
             senderCoordinate: mySelf,
             messageType: .propose,
@@ -768,6 +784,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             participants: state.participants,
+            localID: localParticipantID(),
             localName: localName)
         guard !Task.isCancelled else { return false }
 

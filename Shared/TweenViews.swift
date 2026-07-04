@@ -185,6 +185,7 @@ struct TweenMapSnapshotView: View {
 struct CompactView: View {
     let received: TweenState?
     let isUserIn: Bool
+    var localParticipantID: String? = nil
     var isSending: Bool = false
     var statusMessage: String?
     var onImIn: () -> Void
@@ -479,11 +480,12 @@ struct CompactView: View {
     /// The received payload plus fresh participant cache when available. In a
     /// group chat the bubble carries everyone who's "in" via
     /// `state.participants`; render a friend pin for each. Self is rendered
-    /// separately from the local cache, deduped by name so I don't double-pin
+    /// separately from the local cache, deduped by participant identity so I don't double-pin
     /// when I'm in the received roster.
     private func markers(for state: TweenState) -> [MapMarker] {
         var result: [MapMarker] = []
         let myName = UserProfile.displayName ?? UserName.fallback
+        let myId = localParticipantID ?? myName
 
         if state.kind == .place {
             // The place itself.
@@ -491,7 +493,7 @@ struct CompactView: View {
         }
 
         // Every "in" participant other than me from the group roster.
-        for participant in state.participants where participant.name != myName {
+        for participant in state.participants where !participant.matches(id: myId, name: myName) {
             result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
         }
         // For legacy bubbles (kind=.participant, empty participants[]) the
@@ -624,6 +626,7 @@ struct ExpandedView: View {
     var useStaticMap: Bool = false
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
+    var localParticipantID: String? = nil
     /// Spot name the extension just sent with `MSConversation.send`, used to
     /// keep the CTA from looking tappable while Messages has already queued it.
     var recentlySentSpotName: String? = nil
@@ -658,7 +661,8 @@ struct ExpandedView: View {
     /// identical.
     private var otherParticipants: [Participant] {
         if let received, !received.participants.isEmpty {
-            return received.participants.filter { $0.name != myName }
+            let myId = localParticipantID ?? myName
+            return received.participants.filter { !$0.matches(id: myId, name: myName) }
         }
         // Legacy fallback: only one peer's worth of info.
         if let legacyPeer = legacyPeerCoord {
@@ -974,9 +978,10 @@ struct ExpandedView: View {
             return notInYet > 0 ? "\(count) ready now · \(notInYet) not in yet" : "\(count) ready"
         case .leave:
             return count > 0 ? "\(count) still ready" : "No one is in"
-        case .agree where !state.agreedNames.isEmpty && !state.isFullyAgreed:
+        case .agree where (!state.agreedNames.isEmpty || !state.agreedIDs.isEmpty) && !state.isFullyAgreed:
             let needed = max(count - 1, 1)
-            return "\(state.agreedNames.count) of \(needed) agreed"
+            let agreedCount = state.agreedIDs.isEmpty ? state.agreedNames.count : state.agreedIDs.count
+            return "\(agreedCount) of \(needed) agreed"
         default:
             return nil
         }
@@ -1107,7 +1112,8 @@ struct ExpandedView: View {
     private var staticMarkers: [MapMarker] {
         var result: [MapMarker] = []
         if let selfCoord {
-            let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide ?? false
+            let myId = localParticipantID ?? myName
+            let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
             result.append(MapMarker(coordinate: selfCoord, role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot)))
         }
         for participant in otherParticipants {
@@ -1134,7 +1140,8 @@ struct ExpandedView: View {
         Map(position: $mapPosition, bounds: cameraBounds) {
             // Your location pin
             if let selfCoord {
-                let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.name == myName })?.needsRide ?? false
+                let myId = localParticipantID ?? myName
+                let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
                 Annotation("You", coordinate: selfCoord) {
                     TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot), animated: false)
                 }
@@ -1650,16 +1657,15 @@ struct ExpandedView: View {
                 // people who already agreed get a wait state without blocking
                 // the rest of the spot flow.
                 let myName = UserProfile.displayName ?? UserName.fallback
-                let needsMyAgreement = received.senderName != myName && !received.agreedNames.contains(myName)
+                let needsMyAgreement = !received.isProposer(participantID: localParticipantID, name: myName)
+                    && !received.hasAgreed(participantID: localParticipantID, name: myName)
                 if needsMyAgreement {
                     VStack(spacing: Tokens.Spacing.s2) {
                         agreeChangeRow(for: received)
                         draftAlternateButton
                     }
                 } else {
-                    let missing = received.participants
-                        .map(\.name)
-                        .filter { $0 != received.senderName && !received.agreedNames.contains($0) && $0 != myName }
+                    let missing = received.missingAgreementNames(excluding: localParticipantID, name: myName)
                     HStack(spacing: Tokens.Spacing.s2) {
                         Label(missing.isEmpty
                                 ? "Waiting for your friend"

@@ -13,8 +13,9 @@ import CoreLocation
 ///   * `participants` carries everyone who has tapped "I'm in" so far. Each
 ///     received bubble is treated as the canonical roster snapshot, so the
 ///     latest message reconstructs the whole conversation state.
-///   * `agreedNames` lists who has agreed to the current proposal; combined
-///     with the proposer (implicitly agreed) it yields full consensus.
+///   * `agreedIDs` lists who has agreed to the current proposal; combined
+///     with the proposer (implicitly agreed) it yields full consensus. Names
+///     are still emitted for display and older builds.
 struct TweenState: Equatable {
     enum Kind: String {
         case participant
@@ -40,6 +41,10 @@ struct TweenState: Equatable {
     /// Display name of whoever composed this bubble, so the recipient can see
     /// who invited them. Optional so bubbles from older builds still decode.
     let senderName: String?
+    /// Stable iMessage participant identity for whoever composed the bubble.
+    /// New group-capable builds use this for roster replacement and agreement
+    /// consensus; older bubbles fall back to `senderName`.
+    let senderID: String?
     /// What the coordinate represents. Older bubbles lacked this field; those
     /// decode as `.participant` only when they are the legacy "I'm in" payload.
     let kind: Kind
@@ -61,6 +66,9 @@ struct TweenState: Equatable {
     /// Names of participants (excluding the proposer) who have agreed to the
     /// place in `text`/`coordinate`. Empty for `.invite`/`.propose`/`.counter`.
     let agreedNames: [String]
+    /// Stable participant IDs that have agreed. Mirrors `agreedNames` for
+    /// display/backward compatibility, but drives group consensus when present.
+    let agreedIDs: [String]
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -84,10 +92,40 @@ struct TweenState: Equatable {
     /// proposal. Returns false for non-proposal message types.
     var isFullyAgreed: Bool {
         guard messageType == .agree, !participants.isEmpty else { return false }
-        let proposer = senderName ?? ""
-        let needToAgree = participants.map(\.name).filter { $0 != proposer }
+        let proposer = senderID ?? senderName ?? ""
+        let useIDs = senderID != nil || !agreedIDs.isEmpty
+        let needToAgree = participants.map { useIDs ? $0.id : $0.name }.filter { $0 != proposer }
         guard !needToAgree.isEmpty else { return false }
-        return needToAgree.allSatisfy { agreedNames.contains($0) }
+        let agreed = Set(useIDs ? agreedIDs : agreedNames)
+        return needToAgree.allSatisfy { agreed.contains($0) }
+    }
+
+    func isProposer(participantID: String?, name: String) -> Bool {
+        if let senderID, let participantID {
+            return senderID == participantID
+        }
+        return senderName == name
+    }
+
+    func hasAgreed(participantID: String?, name: String) -> Bool {
+        if let participantID, !agreedIDs.isEmpty {
+            return agreedIDs.contains(participantID)
+        }
+        return agreedNames.contains(name)
+    }
+
+    func missingAgreementNames(excluding participantID: String?, name: String) -> [String] {
+        participants.filter { participant in
+            let isExcluded: Bool
+            if let participantID {
+                isExcluded = participant.id == participantID
+            } else {
+                isExcluded = participant.name == name
+            }
+            return !isProposer(participantID: participant.id, name: participant.name)
+            && !hasAgreed(participantID: participant.id, name: participant.name)
+            && !isExcluded
+        }.map(\.name)
     }
 
     func encodedURL(scheme: String = "https", host: String = "tween.app") -> URL? {
@@ -109,6 +147,9 @@ struct TweenState: Equatable {
         if let senderName {
             items.append(URLQueryItem(name: "from", value: senderName))
         }
+        if let senderID {
+            items.append(URLQueryItem(name: "fromId", value: senderID))
+        }
         if let senderLatitude, let senderLongitude {
             items.append(URLQueryItem(name: "slat", value: Self.coordinateString(senderLatitude)))
             items.append(URLQueryItem(name: "slon", value: Self.coordinateString(senderLongitude)))
@@ -117,10 +158,17 @@ struct TweenState: Equatable {
         items.append(URLQueryItem(name: "type", value: messageType.rawValue))
         if !participants.isEmpty {
             items.append(URLQueryItem(name: "p", value: Self.encodeParticipants(participants)))
+            if let encoded = Self.encodeParticipantJSON(participants) {
+                items.append(URLQueryItem(name: "pj", value: encoded))
+            }
         }
         if !agreedNames.isEmpty {
             items.append(URLQueryItem(name: "agreed",
                                       value: Self.encodeNames(agreedNames)))
+        }
+        if !agreedIDs.isEmpty {
+            items.append(URLQueryItem(name: "agreedIds",
+                                      value: Self.encodeNames(agreedIDs)))
         }
         components.queryItems = items
         guard let url = components.url, url.absoluteString.count <= 5000 else { return nil }
@@ -162,6 +210,16 @@ struct TweenState: Equatable {
         }
     }
 
+    static func encodeParticipantJSON(_ participants: [Participant]) -> String? {
+        guard let data = try? JSONEncoder().encode(participants) else { return nil }
+        return data.base64EncodedString()
+    }
+
+    static func decodeParticipantJSON(_ raw: String) -> [Participant]? {
+        guard let data = Data(base64Encoded: raw) else { return nil }
+        return try? JSONDecoder().decode([Participant].self, from: data)
+    }
+
     static func encodeNames(_ names: [String]) -> String {
         names.map { name in
             name.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? name
@@ -180,17 +238,20 @@ struct TweenState: Equatable {
         latitude: Double,
         longitude: Double,
         senderName: String? = nil,
+        senderID: String? = nil,
         kind: Kind? = nil,
         senderCoordinate: CLLocationCoordinate2D? = nil,
         action: Action = .invite,
         messageType: MessageType? = nil,
         participants: [Participant] = [],
-        agreedNames: [String] = []
+        agreedNames: [String] = [],
+        agreedIDs: [String] = []
     ) {
         self.text = text
         self.latitude = latitude
         self.longitude = longitude
         self.senderName = senderName
+        self.senderID = senderID
         let resolvedKind = kind ?? (text == "I'm in" ? .participant : .place)
         self.kind = resolvedKind
         self.senderLatitude = senderCoordinate?.latitude
@@ -199,6 +260,7 @@ struct TweenState: Equatable {
         self.messageType = messageType ?? Self.inferMessageType(kind: resolvedKind, action: action)
         self.participants = participants
         self.agreedNames = agreedNames
+        self.agreedIDs = agreedIDs
     }
 
     init?(url: URL) {
@@ -215,6 +277,7 @@ struct TweenState: Equatable {
         self.longitude = lon
         let senderName = items.first(where: { $0.name == "from" })?.value
         self.senderName = senderName
+        self.senderID = items.first(where: { $0.name == "fromId" })?.value
         let resolvedKind: Kind
         if let rawKind = items.first(where: { $0.name == "kind" })?.value,
            let kind = Kind(rawValue: rawKind) {
@@ -247,7 +310,10 @@ struct TweenState: Equatable {
             self.messageType = Self.inferMessageType(kind: resolvedKind, action: resolvedAction)
         }
 
-        if let rawP = items.first(where: { $0.name == "p" })?.value, !rawP.isEmpty {
+        if let rawPJ = items.first(where: { $0.name == "pj" })?.value,
+           let decoded = Self.decodeParticipantJSON(rawPJ) {
+            self.participants = decoded
+        } else if let rawP = items.first(where: { $0.name == "p" })?.value, !rawP.isEmpty {
             self.participants = Self.decodeParticipants(rawP)
         } else if isGroupAwareURL {
             // New-format URL deliberately carried no participants.
@@ -272,6 +338,11 @@ struct TweenState: Equatable {
             self.agreedNames = Self.decodeNames(rawAgreed)
         } else {
             self.agreedNames = []
+        }
+        if let rawAgreedIDs = items.first(where: { $0.name == "agreedIds" })?.value, !rawAgreedIDs.isEmpty {
+            self.agreedIDs = Self.decodeNames(rawAgreedIDs)
+        } else {
+            self.agreedIDs = []
         }
     }
 

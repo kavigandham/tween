@@ -24,12 +24,13 @@ enum BubbleImageRenderer {
     /// Falls back to a drawn image if the snapshot fails (offline, throttled,
     /// or cancelled).
     ///
-    /// `localName` lets us colour the local user's pin distinctly from the
-    /// others. Pass nil when rendering for the host app or in unit tests
-    /// where local identity is unknown.
+    /// `localID`/`localName` let us colour the local user's pin distinctly
+    /// from the others. Pass nil when rendering for the host app or in unit
+    /// tests where local identity is unknown.
     static func makeImage(
         state: TweenState,
         participants: [Participant],
+        localID: String? = nil,
         localName: String? = nil
     ) async -> UIImage {
         let placeCoord = state.kind == .place ? state.coordinate : nil
@@ -45,9 +46,9 @@ enum BubbleImageRenderer {
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
-            return fallbackImage(state: state, participants: participants, localName: localName)
+            return fallbackImage(state: state, participants: participants, localID: localID, localName: localName)
         }
-        return composite(snapshot: snapshot, state: state, participants: participants, localName: localName)
+        return composite(snapshot: snapshot, state: state, participants: participants, localID: localID, localName: localName)
     }
 
     /// Legacy 2-person entry point. Existing internal callers (and any caller
@@ -83,6 +84,7 @@ enum BubbleImageRenderer {
         snapshot: MKMapSnapshotter.Snapshot,
         state: TweenState,
         participants: [Participant],
+        localID: String? = nil,
         localName: String? = nil
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
@@ -108,10 +110,9 @@ enum BubbleImageRenderer {
                 ctx.restoreGState()
             }
 
-            // Pin halos: every participant, with the local user (matched by
-            // name) coloured distinctly.
+            // Pin halos: every participant, with the local user coloured distinctly.
             for participant in participants {
-                let color = (localName != nil && participant.name == localName)
+                let color = isLocal(participant, localID: localID, localName: localName)
                     ? Tokens.Palette.UI.pinSelf
                     : Tokens.Palette.UI.pinFriend
                 drawHalo(color, at: snapshot.point(for: participant.coordinate), in: ctx)
@@ -138,6 +139,7 @@ enum BubbleImageRenderer {
     static func fallbackImage(
         state: TweenState,
         participants: [Participant] = [],
+        localID: String? = nil,
         localName: String? = nil
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
@@ -196,7 +198,7 @@ enum BubbleImageRenderer {
 
             for (i, point) in points.enumerated() {
                 let participant = i < participants.count ? participants[i] : nil
-                let color = (participant?.name == localName)
+                let color = participant.map { isLocal($0, localID: localID, localName: localName) } == true
                     ? Tokens.Palette.UI.pinSelf
                     : (i == 0 ? Tokens.Palette.UI.pinSelf : Tokens.Palette.UI.pinFriend)
                 drawHalo(color, at: point, in: ctx)
@@ -210,6 +212,14 @@ enum BubbleImageRenderer {
     }
 
     // MARK: - Primitives
+
+    private static func isLocal(_ participant: Participant, localID: String?, localName: String?) -> Bool {
+        if let localID {
+            return participant.id == localID
+        }
+        guard let localName else { return false }
+        return participant.id == participant.name && participant.name == localName
+    }
 
     private static func drawHalo(_ color: UIColor, at point: CGPoint, in ctx: CGContext, emphasized: Bool = false) {
         let d: CGFloat = emphasized ? 30 : 22

@@ -49,4 +49,8 @@ struct Participant: Codable, Equatable, Identifiable, Hashable {
         longitude = try container.decode(Double.self, forKey: .longitude)
         needsRide = try container.decodeIfPresent(Bool.self, forKey: .needsRide) ?? false
     }
+
+    func matches(id otherID: String, name otherName: String) -> Bool {
+        id == otherID || (id == name && name == otherName)
+    }
 }
