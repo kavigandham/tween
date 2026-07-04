@@ -258,7 +258,7 @@ struct CompactView: View {
     var onExpand: () -> Void
 
     var body: some View {
-        VStack(spacing: Tokens.Spacing.s4) {
+        VStack(spacing: Tokens.Spacing.s3) {
             if received == nil {
                 launcherState
             } else {
@@ -280,19 +280,59 @@ struct CompactView: View {
     }
 
     private var launcherState: some View {
-        VStack(spacing: Tokens.Spacing.s4) {
-            compactHeader
-            bottomActionRow(
-                title: isUserIn ? "Waiting for your friend" : "Start from this chat",
-                subtitle: isUserIn ? "You are already in. Open Tween to watch fair spots appear." : "Tap I'm in to share your side of the meetup.",
-                control: { imInControl }
-            )
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+            HStack(spacing: Tokens.Spacing.s3) {
+                compactAppIcon
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isUserIn ? "You're in" : "Start a meetup")
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                    Text(isUserIn ? "Waiting for others." : "Share in this chat.")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                rosterCountPill
+            }
+
+            compactPrimaryAction
+
+            HStack(spacing: Tokens.Spacing.s2) {
+                Button(action: onExpand) {
+                    Label("Browse", systemImage: "arrow.up.forward.app")
+                        .font(Tokens.Typography.captionBold)
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+
+                if isUserIn {
+                    Button(action: onImOut) {
+                        Label("I'm out", systemImage: "location.slash")
+                            .font(Tokens.Typography.captionBold)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                    }
+                    .buttonStyle(.tweenPrimary(.neutral))
+                    .accessibilityHint("Stops sharing you as active for this meetup")
+                } else {
+                    Button(action: onExpand) {
+                        Label("Details", systemImage: "person.2")
+                            .font(Tokens.Typography.captionBold)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                    }
+                    .buttonStyle(.tweenPrimary(.neutral))
+                }
+            }
         }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
     }
 
     private var activeMeetupState: some View {
-        VStack(spacing: Tokens.Spacing.s4) {
-            compactHeader
+        VStack(spacing: Tokens.Spacing.s3) {
             Button(action: onExpand) {
                 HStack(spacing: Tokens.Spacing.s4) {
                     thumbnail
@@ -307,7 +347,12 @@ struct CompactView: View {
                             .foregroundStyle(Tokens.Palette.textSecondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
-                        statusPill
+                        HStack(spacing: Tokens.Spacing.s2) {
+                            statusPill
+                            if let count = received?.participants.count, count > 1 {
+                                rosterPill("\(count) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
+                            }
+                        }
                     }
                     Spacer(minLength: 0)
                 }
@@ -320,71 +365,88 @@ struct CompactView: View {
             }
             .buttonStyle(.plain)
 
-            bottomActionRow(
-                title: received?.kind == .place ? "Ready when you are" : "Join the meetup",
-                subtitle: received?.kind == .place ? "Open the card for maps, agreement, and directions." : "Share where you are so Tween can find fair places.",
-                control: { imInControl }
-            )
+            compactPrimaryAction
+
+            HStack(spacing: Tokens.Spacing.s2) {
+                Button(action: onExpand) {
+                    Label(received?.kind == .place ? "Review spot" : "Browse spots",
+                          systemImage: received?.kind == .place ? "checkmark.bubble" : "arrow.up.forward.app")
+                        .font(Tokens.Typography.captionBold)
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+
+                if isUserIn {
+                    Button(action: onImOut) {
+                        Label("I'm out", systemImage: "location.slash")
+                            .font(Tokens.Typography.captionBold)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                    }
+                    .buttonStyle(.tweenPrimary(.neutral))
+                    .accessibilityHint("Stops sharing you as active for this meetup")
+                }
+            }
         }
     }
 
-    private var compactHeader: some View {
-        HStack(spacing: Tokens.Spacing.s3) {
-            ZStack {
-                Circle()
-                    .fill(Tokens.Palette.brandLight)
-                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                    .font(Tokens.Typography.headline)
-                    .foregroundStyle(Tokens.Palette.brand)
-            }
-            .frame(width: 42, height: 42)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Tween")
-                    .font(Tokens.Typography.headline)
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                Text("Meet halfway in Messages")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            HStack(spacing: Tokens.Spacing.s1) {
-                Text("Open")
-                    .font(Tokens.Typography.captionBold)
-                Image(systemName: "chevron.up")
-                    .font(Tokens.Typography.captionBold)
-            }
-            .foregroundStyle(Tokens.Palette.brand)
-            .padding(.horizontal, Tokens.Spacing.s3)
-            .frame(minHeight: 34)
-            .background(Tokens.Palette.brandLight, in: Capsule())
+    private var compactAppIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Tokens.Palette.brandLight)
+            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.brand)
         }
+        .frame(width: 42, height: 42)
     }
 
-    private func bottomActionRow<Control: View>(
-        title: String,
-        subtitle: String,
-        @ViewBuilder control: () -> Control
-    ) -> some View {
-        HStack(spacing: Tokens.Spacing.s3) {
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                Text(title)
+    private var rosterCountPill: some View {
+        rosterPill(isUserIn ? "1 in" : "0 in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
+    }
+
+    private func rosterPill(_ title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(Tokens.Typography.captionBold)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s2)
+            .frame(minHeight: 30)
+            .background(color.opacity(0.12), in: Capsule())
+    }
+
+    @ViewBuilder
+    private var compactPrimaryAction: some View {
+        if isUserIn {
+            HStack(spacing: Tokens.Spacing.s2) {
+                Image(systemName: "checkmark.circle.fill")
                     .font(Tokens.Typography.headline)
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .lineLimit(2)
+                Text("You're in")
+                    .font(Tokens.Typography.headline)
+                Spacer(minLength: 0)
+                Text("Sent to chat")
+                    .font(Tokens.Typography.captionBold)
             }
-            Spacer(minLength: Tokens.Spacing.s2)
-            control()
+            .foregroundStyle(Tokens.Palette.success)
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+            .background(Tokens.Palette.success.opacity(0.12), in: Capsule())
+        } else if isSending {
+            HStack(spacing: Tokens.Spacing.s2) {
+                ProgressView()
+                Text(statusMessage ?? "Sharing...")
+                    .font(Tokens.Typography.headline)
+            }
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+            .background(Tokens.Palette.neutralAction, in: Capsule())
+        } else {
+            Button(action: onImIn) {
+                Label("I'm in", systemImage: "location.fill")
+                    .font(Tokens.Typography.headline)
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+            }
+            .buttonStyle(.tweenPrimary())
+            .accessibilityHint("Shares where you are with your friend")
         }
-        .padding(Tokens.Spacing.s3)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
     }
 
     @ViewBuilder
@@ -469,7 +531,7 @@ struct CompactView: View {
             return isUserIn ? "It's a plan — tap for directions" : "It's a plan — tap “I'm in” to rejoin"
         }
         if received?.kind == .place {
-            return isUserIn ? "Tap to view this meetup spot" : "Tap “I'm in” to share where you are"
+            return isUserIn ? "Review maps and agreement" : "Tap “I'm in” to share"
         }
         if received?.senderName != nil {
             return "Tap to find a fair spot"
@@ -1186,10 +1248,10 @@ struct ExpandedView: View {
         if etas.isEmpty {
             return "A \(formatETA(spot.etaFromA)) · B \(formatETA(spot.etaFromB))"
         }
-        if etas.count <= 4 {
+        if etas.count <= 2 {
             return etas.map { "\($0.name) \(formatETA($0.eta))" }.joined(separator: " · ")
         }
-        return etas.map { formatETA($0.eta) }.joined(separator: " / ")
+        return "\(etas.count) people · \(formatETA(spot.fairnessSpread)) spread"
     }
 
     // MARK: Spot list
@@ -1501,15 +1563,18 @@ struct ExpandedView: View {
                         .lineLimit(1)
                 }
 
-                HStack(spacing: Tokens.Spacing.s1) {
-                    let chips = etaChipItems(for: spot)
-                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                        etaChip(label: chip.0, value: chip.1)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Tokens.Spacing.s1) {
+                        let chips = etaChipItems(for: spot)
+                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                            etaChip(label: chip.0, value: chip.1)
+                        }
                     }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if spot.etas.count > 4 {
-                        etaChip(label: "Longest", value: formatETA(spot.worstETA))
-                    }
+                if spot.etas.count > 2 {
+                    driveBalanceStrip(for: spot)
                 }
             }
 
@@ -1536,10 +1601,16 @@ struct ExpandedView: View {
         if spot.etas.isEmpty {
             return [("A", formatETA(spot.etaFromA)), ("B", formatETA(spot.etaFromB))]
         }
-        if spot.etas.count <= 4 {
+        if spot.etas.count <= 3 {
             return spot.etas.map { ($0.name, formatETA($0.eta)) }
         }
-        return spot.etas.prefix(4).map { ("", formatETA($0.eta)) }
+        let sorted = spot.etas.sorted { $0.eta < $1.eta }
+        let median = sorted[sorted.count / 2]
+        return [
+            ("Best", formatETA(spot.bestETA)),
+            ("Typical", formatETA(median.eta)),
+            ("Long", formatETA(spot.worstETA))
+        ]
     }
 
     private func etaChip(label: String, value: String) -> some View {
@@ -1553,9 +1624,117 @@ struct ExpandedView: View {
         }
         .font(Tokens.Typography.captionBold)
         .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, Tokens.Spacing.s2)
         .frame(minHeight: 24)
         .background(Tokens.Palette.surface, in: Capsule())
+    }
+
+    private func driveBalanceStrip(for spot: RankedSpot) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Drive balance")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                Spacer(minLength: 0)
+                Text(Self.fairnessSummary(for: spot))
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(fairnessColor(for: spot))
+            }
+
+            GeometryReader { proxy in
+                let visible = Self.visibleETAs(for: spot)
+                let trackWidth = max(proxy.size.width - 22, 1)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Tokens.Palette.neutralAction)
+                        .frame(height: 8)
+                        .offset(y: 11)
+
+                    Capsule()
+                        .fill(fairnessColor(for: spot).opacity(0.22))
+                        .frame(width: Self.spreadWidth(for: spot, trackWidth: trackWidth), height: 8)
+                        .offset(x: Self.spreadStart(for: spot, trackWidth: trackWidth), y: 11)
+
+                    ForEach(visible) { eta in
+                        let xOffset = Self.position(for: eta, in: spot, trackWidth: trackWidth)
+                        Text(Self.initials(for: eta.name))
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(Tokens.Palette.brand, in: Circle())
+                            .overlay(Circle().strokeBorder(Tokens.Palette.surface, lineWidth: 2))
+                            .offset(x: xOffset)
+                            .accessibilityLabel("\(eta.name), \(formatETA(eta.eta))")
+                    }
+
+                    if spot.etas.count > visible.count {
+                        Text("+\(spot.etas.count - visible.count)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .frame(width: 28, height: 22)
+                            .background(Tokens.Palette.surface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1))
+                            .offset(x: max(trackWidth - 28, 0))
+                    }
+                }
+            }
+            .frame(height: 32)
+        }
+        .padding(Tokens.Spacing.s2)
+        .background(Tokens.Palette.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func fairnessColor(for spot: RankedSpot) -> Color {
+        switch spot.fairnessSpread {
+        case ..<300: return Tokens.Palette.fairnessGood
+        case ..<900: return Tokens.Palette.fairnessOkay
+        default: return Tokens.Palette.fairnessPoor
+        }
+    }
+
+    private static func visibleETAs(for spot: RankedSpot) -> [ParticipantETA] {
+        guard spot.etas.count > 6 else { return spot.etas }
+        let sorted = spot.etas.sorted { $0.eta < $1.eta }
+        var visible = Array(sorted.prefix(5))
+        if let longest = sorted.last, !visible.contains(where: { $0.id == longest.id }) {
+            visible.append(longest)
+        }
+        return visible
+    }
+
+    private static func fairnessSummary(for spot: RankedSpot) -> String {
+        if spot.fairnessSpread < 300 {
+            return "Very even"
+        }
+        return "\(formatETA(spot.fairnessSpread)) spread"
+    }
+
+    private static func initials(for name: String) -> String {
+        let words = name.split(separator: " ")
+        let letters = words.prefix(2).compactMap { $0.first }
+        let result = String(letters).uppercased()
+        return result.isEmpty ? "?" : result
+    }
+
+    private static func position(for eta: ParticipantETA, in spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
+        let range = max(spot.worstETA - spot.bestETA, 60)
+        let fraction = CGFloat((eta.eta - spot.bestETA) / range)
+        return min(max(fraction * trackWidth, 0), trackWidth)
+    }
+
+    private static func spreadStart(for spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
+        guard let first = spot.etas.min(by: { $0.eta < $1.eta }) else { return 0 }
+        return position(for: first, in: spot, trackWidth: trackWidth) + 11
+    }
+
+    private static func spreadWidth(for spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
+        guard let first = spot.etas.min(by: { $0.eta < $1.eta }),
+              let last = spot.etas.max(by: { $0.eta < $1.eta }) else {
+            return 0
+        }
+        return max(position(for: last, in: spot, trackWidth: trackWidth) - position(for: first, in: spot, trackWidth: trackWidth), 8)
     }
 
     /// Single point of truth for selection. Always updates `selectedSpotID`

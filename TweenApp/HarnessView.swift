@@ -21,12 +21,24 @@ struct HarnessView: View {
                 if focus == .all {
                     section("Compact View") {
                         CompactView(
-                            received: DebugLaunchSeed.received,
+                            received: nil,
                             isUserIn: false,
                             onImIn: {},
                             onExpand: {}
                         )
-                        .frame(height: 120)
+                        .frame(height: 230)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+
+                    section("Compact Location View") {
+                        CompactView(
+                            received: DebugLaunchSeed.received,
+                            isUserIn: true,
+                            onImIn: {},
+                            onImOut: {},
+                            onExpand: {}
+                        )
+                        .frame(height: 300)
                         .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
                     }
 
@@ -241,9 +253,24 @@ enum DebugLaunchSeed {
     )
 
     static let rankedSpots: [RankedSpot] = [
-        RankedSpot(etaFromA: 1_320, etaFromB: 1_380, confidence: 1.0),
-        RankedSpot(etaFromA: 1_020, etaFromB: 1_740, confidence: 1.0),
-        RankedSpot(etaFromA: 900, etaFromB: 2_100, confidence: 0.5)
+        RankedSpot(item: nil, etas: [
+            ParticipantETA(id: "you", name: "You", eta: 1_260, fromRoute: true),
+            ParticipantETA(id: "hassan", name: "Hassan", eta: 1_380, fromRoute: true),
+            ParticipantETA(id: "kavi", name: "Kavi", eta: 1_500, fromRoute: true),
+            ParticipantETA(id: "khanna", name: "Khanna", eta: 1_620, fromRoute: true)
+        ], confidence: 1.0),
+        RankedSpot(item: nil, etas: [
+            ParticipantETA(id: "you", name: "You", eta: 900, fromRoute: true),
+            ParticipantETA(id: "hassan", name: "Hassan", eta: 1_320, fromRoute: true),
+            ParticipantETA(id: "kavi", name: "Kavi", eta: 1_860, fromRoute: true),
+            ParticipantETA(id: "khanna", name: "Khanna", eta: 2_160, fromRoute: true)
+        ], confidence: 1.0),
+        RankedSpot(item: nil, etas: [
+            ParticipantETA(id: "you", name: "You", eta: 780, fromRoute: false),
+            ParticipantETA(id: "hassan", name: "Hassan", eta: 1_020, fromRoute: false),
+            ParticipantETA(id: "kavi", name: "Kavi", eta: 1_980, fromRoute: false),
+            ParticipantETA(id: "khanna", name: "Khanna", eta: 2_520, fromRoute: false)
+        ], confidence: 0.5)
     ]
 }
 
