@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import CoreLocation
 @testable import TweenApp
 
 /// Network-free coverage of the bubble image renderer's fallback path. Only
@@ -31,5 +32,18 @@ final class BubbleImageRendererTests: XCTestCase {
         XCTAssertEqual(image.size.width, 600, accuracy: 0.5)
         XCTAssertEqual(image.size.height, 400, accuracy: 0.5)
         XCTAssertEqual(image.size.width / image.size.height, 600.0 / 400.0, accuracy: 0.001)
+    }
+
+    func testMapSnapshotFallbackImageIsNonNil() {
+        let markers = [
+            MapMarker(coordinate: CLLocationCoordinate2D(latitude: 32.08, longitude: -81.10), role: .selfActive),
+            MapMarker(coordinate: CLLocationCoordinate2D(latitude: 32.10, longitude: -81.08), role: .friend),
+            MapMarker(coordinate: CLLocationCoordinate2D(latitude: 32.09, longitude: -81.09), role: .fairSpot)
+        ]
+
+        let image = TweenMapSnapshotView.fallbackImage(markers: markers, size: CGSize(width: 320, height: 220))
+
+        XCTAssertEqual(image.size.width, 320, accuracy: 0.5)
+        XCTAssertEqual(image.size.height, 220, accuracy: 0.5)
     }
 }

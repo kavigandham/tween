@@ -144,7 +144,10 @@ struct TweenMapSnapshotView: View {
         options.mapType = .standard
 
         let snapshotter = MKMapSnapshotter(options: options)
-        guard let snapshot = try? await snapshotter.start() else { return }
+        guard let snapshot = try? await snapshotter.start() else {
+            image = Self.fallbackImage(markers: markers, size: size)
+            return
+        }
         guard !Task.isCancelled else { return }
         image = Self.draw(markers: markers, on: snapshot)
     }
@@ -156,6 +159,68 @@ struct TweenMapSnapshotView: View {
             snapshot.image.draw(at: .zero)
             for marker in markers {
                 drawMarker(marker.role, at: snapshot.point(for: marker.coordinate), in: context.cgContext)
+            }
+        }
+    }
+
+    /// Network-free fallback when MapKit cannot fetch tiles in the extension.
+    /// Keeps the surface useful instead of leaving a blank/gray map forever.
+    static func fallbackImage(markers: [MapMarker], size: CGSize) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let coordinates = markers.map(\.coordinate)
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        let minLat = latitudes.min() ?? 0
+        let maxLat = latitudes.max() ?? 0
+        let minLon = longitudes.min() ?? 0
+        let maxLon = longitudes.max() ?? 0
+        let latSpan = max(maxLat - minLat, 0.01)
+        let lonSpan = max(maxLon - minLon, 0.01)
+        let inset = max(min(size.width, size.height) * 0.12, 18)
+
+        func point(for coordinate: CLLocationCoordinate2D) -> CGPoint {
+            let x = inset + ((coordinate.longitude - minLon) / lonSpan) * (size.width - inset * 2)
+            let y = inset + ((maxLat - coordinate.latitude) / latSpan) * (size.height - inset * 2)
+            return CGPoint(x: x, y: y)
+        }
+
+        return renderer.image { context in
+            let ctx = context.cgContext
+            UIColor(Tokens.Palette.surfaceSecondary).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+
+            ctx.setStrokeColor(UIColor(Tokens.Palette.textTertiary.opacity(0.18)).cgColor)
+            ctx.setLineWidth(1)
+            let step = max(min(size.width, size.height) / 6, 28)
+            var x: CGFloat = 0
+            while x <= size.width {
+                ctx.move(to: CGPoint(x: x, y: 0))
+                ctx.addLine(to: CGPoint(x: x, y: size.height))
+                x += step
+            }
+            var y: CGFloat = 0
+            while y <= size.height {
+                ctx.move(to: CGPoint(x: 0, y: y))
+                ctx.addLine(to: CGPoint(x: size.width, y: y))
+                y += step
+            }
+            ctx.strokePath()
+
+            if markers.count >= 2 {
+                ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.72).cgColor)
+                ctx.setLineWidth(3)
+                ctx.setLineDash(phase: 0, lengths: [8, 7])
+                let people = markers.filter { $0.role == .selfActive || $0.role == .selfDot || $0.role == .friend || $0.role == .rideNeeded }
+                for pair in zip(people, people.dropFirst()) {
+                    ctx.move(to: point(for: pair.0.coordinate))
+                    ctx.addLine(to: point(for: pair.1.coordinate))
+                }
+                ctx.strokePath()
+                ctx.setLineDash(phase: 0, lengths: [])
+            }
+
+            for marker in markers {
+                drawMarker(marker.role, at: point(for: marker.coordinate), in: ctx)
             }
         }
     }
@@ -1077,12 +1142,7 @@ struct ExpandedView: View {
     }
 
     private var usesStaticMapForCurrentState: Bool {
-        if draft != nil { return true }
-        guard let received else { return false }
-        switch received.messageType {
-        case .invite, .propose, .counter, .agree, .leave:
-            return true
-        }
+        true
     }
 
     /// A ranked-spot map pin: a drive-time chip floating above a category

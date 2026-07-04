@@ -57,6 +57,9 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     /// Hard cap for route resolution inside the extension (vs. 8 in the app).
     private static let rankCap = 5
+    /// iMessage extensions are short-lived; don't let MapKit search leave the
+    /// CTA stuck in "Finding fair spots..." if the network or service stalls.
+    private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
 
     // MARK: - Lifecycle
 
@@ -389,7 +392,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
 
-            let response = try? await MKLocalSearch(request: request).start()
+            let response = await Self.search(request, timeoutNanoseconds: Self.searchTimeoutNanoseconds)
             guard !Task.isCancelled else { return }
             guard let response else {
                 self.isRanking = false
@@ -405,6 +408,23 @@ final class MessagesViewController: MSMessagesAppViewController {
             self.rankedSpots = ranked
             self.isRanking = false
             self.presentUI(for: self.presentationStyle)
+        }
+    }
+
+    private static func search(_ request: MKLocalSearch.Request,
+                               timeoutNanoseconds: UInt64) async -> MKLocalSearch.Response? {
+        await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
+            group.addTask {
+                try? await MKLocalSearch(request: request).start()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return nil
+            }
+
+            let response = await group.next() ?? nil
+            group.cancelAll()
+            return response
         }
     }
 
