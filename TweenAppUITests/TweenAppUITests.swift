@@ -48,6 +48,17 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Browse spots"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
     }
+
+    func testMeetupSetDoesNotShowDuplicateStatusCard() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HARNESS", "-HARNESS_MEETUP"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Meetup Set View"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["It's a plan"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Apple Maps"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Open directions or keep browsing."].exists)
+    }
 }
 
 final class TweenAppUITestsLaunchTests: XCTestCase {

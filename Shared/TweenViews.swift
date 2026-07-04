@@ -217,8 +217,6 @@ struct CompactView: View {
     private var launcherState: some View {
         VStack(spacing: Tokens.Spacing.s4) {
             compactHeader
-            starterHero
-            starterSteps
             bottomActionRow(
                 title: isUserIn ? "Waiting for your friend" : "Start from this chat",
                 subtitle: isUserIn ? "You are already in. Open Tween to watch fair spots appear." : "Tap I'm in to share your side of the meetup.",
@@ -301,119 +299,6 @@ struct CompactView: View {
         }
     }
 
-    private var starterHero: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Tokens.Palette.brand.opacity(0.22),
-                            Tokens.Palette.pinSelf.opacity(0.12),
-                            Tokens.Palette.surfaceSecondary
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing)
-                )
-
-            GeometryReader { proxy in
-                Path { path in
-                    path.move(to: CGPoint(x: proxy.size.width * 0.08, y: proxy.size.height * 0.72))
-                    path.addCurve(
-                        to: CGPoint(x: proxy.size.width * 0.92, y: proxy.size.height * 0.24),
-                        control1: CGPoint(x: proxy.size.width * 0.30, y: proxy.size.height * 0.30),
-                        control2: CGPoint(x: proxy.size.width * 0.66, y: proxy.size.height * 0.86)
-                    )
-                }
-                .stroke(Color.white.opacity(0.78), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-
-                Path { path in
-                    path.move(to: CGPoint(x: proxy.size.width * 0.14, y: proxy.size.height * 0.25))
-                    path.addLine(to: CGPoint(x: proxy.size.width * 0.88, y: proxy.size.height * 0.74))
-                }
-                .stroke(Tokens.Palette.textTertiary.opacity(0.34), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [9, 8]))
-
-                compactPin(color: TweenPin.Role.selfActive.fill, symbol: "location.fill")
-                    .position(x: proxy.size.width * 0.20, y: proxy.size.height * 0.66)
-                compactPin(color: TweenPin.Role.friend.fill, symbol: "person.fill")
-                    .position(x: proxy.size.width * 0.82, y: proxy.size.height * 0.30)
-
-                ZStack {
-                    Circle()
-                        .fill(Tokens.Palette.pinFair.opacity(0.24))
-                        .frame(width: 70, height: 70)
-                    TweenPin(role: .fairSpot)
-                }
-                .position(x: proxy.size.width * 0.52, y: proxy.size.height * 0.50)
-            }
-            .padding(Tokens.Spacing.s3)
-
-            VStack {
-                HStack {
-                    Text("Find the fair spot")
-                        .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                        .padding(.horizontal, Tokens.Spacing.s3)
-                        .frame(minHeight: 30)
-                        .background(.ultraThinMaterial, in: Capsule())
-                    Spacer()
-                }
-                Spacer()
-                HStack {
-                    Spacer()
-                    Text("You + friend")
-                        .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                        .padding(.horizontal, Tokens.Spacing.s3)
-                        .frame(minHeight: 30)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }
-            }
-            .padding(Tokens.Spacing.s3)
-        }
-        .frame(maxWidth: .infinity, minHeight: 150)
-        .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
-                .strokeBorder(Tokens.Palette.brand.opacity(0.20), lineWidth: 1)
-        }
-        .tweenElevation(.floating)
-        .accessibilityHidden(true)
-    }
-
-    private var starterSteps: some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            starterStep("1", "I'm in", "location.fill", Tokens.Palette.pinSelf)
-            starterStep("2", "Friend joins", "person.fill", Tokens.Palette.pinFriend)
-            starterStep("3", "Pick spot", "star.fill", Tokens.Palette.pinFair)
-        }
-    }
-
-    private func starterStep(_ number: String, _ title: String, _ symbol: String, _ color: Color) -> some View {
-        VStack(spacing: Tokens.Spacing.s2) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: symbol)
-                    .font(Tokens.Typography.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
-                    .background(color, in: Circle())
-                Text(number)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                    .frame(width: 18, height: 18)
-                    .background(Color(uiColor: .systemBackground), in: Circle())
-                    .offset(x: 5, y: -5)
-            }
-            Text(title)
-                .font(Tokens.Typography.captionBold)
-                .foregroundStyle(Tokens.Palette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-    }
-
     private func bottomActionRow<Control: View>(
         title: String,
         subtitle: String,
@@ -464,17 +349,6 @@ struct CompactView: View {
         .padding(.horizontal, Tokens.Spacing.s2)
         .frame(minHeight: 26)
         .background((isUserIn ? Tokens.Palette.success : Tokens.Palette.brand).opacity(0.12), in: Capsule())
-    }
-
-    private func compactPin(color: Color, symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(Tokens.Typography.callout.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 42, height: 42)
-            .background(color, in: Circle())
-            .overlay {
-                Circle().strokeBorder(.white.opacity(0.82), lineWidth: 2)
-            }
     }
 
     /// The received payload plus fresh participant cache when available. In a
@@ -734,7 +608,7 @@ struct ExpandedView: View {
         VStack(spacing: 0) {
             if !isOnline { offlineBanner }
             if let statusMessage, !isSending { statusBanner(statusMessage) }
-            if !isInvitePrompt { meetupStatusCard }
+            if !isInvitePrompt && !isMeetupSet { meetupStatusCard }
 
             GeometryReader { geo in
                 if isMeetupSet, let received {
