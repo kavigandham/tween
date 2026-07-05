@@ -47,6 +47,14 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private var hosting: UIHostingController<AnyView>?
 
+    /// Permanent opaque tile pinned to `self.view.bounds` beneath the hosting
+    /// view. If the hosting view ever renders with a zero frame (bounds not
+    /// settled), fails to attach, or is transient during a rootView swap, the
+    /// user sees this solid `.systemBackground` surface instead of the
+    /// Messages-host blank strip. See `docs/ui-research.md` §3 (blank-render
+    /// causes) and `.claude/skills/imessage-extension.md`.
+    private var fallbackView: UIView?
+
     /// Set when a memory warning fires while expanded: it tells `ExpandedView` to
     /// shed its live `MKMapView` and fall back to the static snapshot, our last line
     /// of defense against the ~120 MB extension jetsam ceiling. Reset on collapse.
@@ -63,6 +71,39 @@ final class MessagesViewController: MSMessagesAppViewController {
     private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
 
     // MARK: - Lifecycle
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Paint the extension's own view opaque at load time — before any
+        // presentUI() call can fail, arrive late, or briefly race a rootView
+        // swap. `embed()` already sets `.systemBackground` on `self.view` when
+        // it first attaches the hosting controller, but that only fires once
+        // presentUI() is reached; a very early lifecycle call (or a re-entry
+        // during willBecomeActive) can otherwise expose the Messages host
+        // paint underneath. See `docs/ui-research.md` §3.
+        view.backgroundColor = .systemBackground
+        installFallbackView()
+    }
+
+    /// Adds a permanent opaque tile beneath any future hosting view. Inserted
+    /// at index 0 so subsequent `addSubview(hosting.view)` calls always sit
+    /// on top of it (subview order = z-order, and `embed()` may run before or
+    /// after this depending on when the view is first loaded).
+    private func installFallbackView() {
+        guard fallbackView == nil else { return }
+        let fallback = UIView()
+        fallback.translatesAutoresizingMaskIntoConstraints = false
+        fallback.backgroundColor = .systemBackground
+        fallback.isUserInteractionEnabled = false
+        view.insertSubview(fallback, at: 0)
+        NSLayoutConstraint.activate([
+            fallback.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            fallback.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            fallback.topAnchor.constraint(equalTo: view.topAnchor),
+            fallback.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        fallbackView = fallback
+    }
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
