@@ -39,6 +39,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     private var isSending = false
     private var sendStatusMessage: String?
     private var recentlySentSpotName: String?
+    private var conversationKey: String?
 
     private let locationProvider = LocationProvider()
     private let networkMonitor = NetworkMonitor()
@@ -65,10 +66,33 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
+        let key = Self.conversationKey(for: conversation)
+        let switchedConversation = conversationKey != key
+            || ConversationMeetupStore.lastActiveConversationKey != key
+        conversationKey = key
+        ConversationMeetupStore.lastActiveConversationKey = key
+
+        if switchedConversation {
+            received = nil
+            draft = nil
+            rankedSpots = []
+            currentParticipants = []
+            sendStatusMessage = nil
+            recentlySentSpotName = nil
+            isRanking = false
+            rankingTask?.cancel()
+        }
         // Number of seats in the iMessage thread. The local participant always
         // counts as 1; remoteParticipantIdentifiers covers everyone else.
         totalConversationParticipants = 1 + conversation.remoteParticipantIdentifiers.count
-        _ = decodeAndCache(conversation.selectedMessage, in: conversation)
+        presentUI(for: presentationStyle)
+
+        let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
+        let snapshot = ConversationMeetupStore.load(key: key)
+        if !decodedIncoming, let snapshot {
+            currentParticipants = snapshot.participants
+            received = snapshot.agreedState ?? snapshot.proposedState
+        }
         // Apply the agreed-meetup override even when no message decoded
         // (e.g. selectedMessage was the local user's own bubble, which
         // decodeAndCache skips). Lets the terminal MEETUP SET survive
@@ -78,12 +102,18 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
         // banner and auto-ranked spots are front and center).
-        draft = OutgoingDraftStore.load()
+        draft = snapshot?.pendingDraft
+        if draft == nil, let globalDraft = OutgoingDraftStore.load() {
+            draft = globalDraft
+            ConversationMeetupStore.saveDraft(globalDraft, key: key)
+            OutgoingDraftStore.clear()
+        }
         if draft != nil || received != nil {
             requestPresentationStyle(.expanded)
             kickOffRanking()
         }
         presentUI(for: presentationStyle)
+        retryBlankRenderIfNeeded()
     }
 
     override func willTransition(to presentationStyle: MSMessagesAppPresentationStyle) {
@@ -155,14 +185,28 @@ final class MessagesViewController: MSMessagesAppViewController {
         //   - others → leave the cache alone
         if state.messageType == .agree, state.isFullyAgreed {
             LocationCache.saveAgreedMeetup(state)
-        } else if state.messageType == .counter || state.messageType == .leave {
+            if let conversationKey {
+                ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+            }
+        } else if state.messageType == .counter {
             LocationCache.clearAgreedMeetup()
+            if let conversationKey {
+                ConversationMeetupStore.saveProposed(state, key: conversationKey)
+            }
+        } else if state.messageType == .leave {
+            LocationCache.clearAgreedMeetup()
+            if let conversationKey {
+                ConversationMeetupStore.clearProposalState(key: conversationKey)
+            }
+        } else if state.kind == .place, let conversationKey {
+            ConversationMeetupStore.saveProposed(state, key: conversationKey)
         }
 
         // Roster snapshot: trust the incoming list verbatim.
         if !state.participants.isEmpty || state.messageType == .leave {
             currentParticipants = state.participants
             LocationCache.saveParticipantSnapshot(state.participants, localName: Self.localParticipantName())
+            saveParticipantsForActiveConversation(state.participants)
         }
 
         // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
@@ -203,6 +247,35 @@ final class MessagesViewController: MSMessagesAppViewController {
         activeConversation?.localParticipantIdentifier.uuidString ?? Self.localParticipantName()
     }
 
+    private static func conversationKey(for conversation: MSConversation) -> String {
+        ConversationMeetupStore.conversationKey(
+            localID: conversation.localParticipantIdentifier.uuidString,
+            remotes: conversation.remoteParticipantIdentifiers.map(\.uuidString))
+    }
+
+    private func activeSnapshotParticipants() -> [Participant] {
+        guard let conversationKey,
+              let snapshot = ConversationMeetupStore.load(key: conversationKey)
+        else { return [] }
+        return snapshot.participants
+    }
+
+    private func saveParticipantsForActiveConversation(_ participants: [Participant]) {
+        guard let conversationKey else { return }
+        ConversationMeetupStore.saveParticipants(participants, key: conversationKey)
+    }
+
+    private func localParticipantContext() -> LocalParticipantContext {
+        LocalParticipantContext(id: activeConversation?.localParticipantIdentifier.uuidString,
+                                name: Self.localParticipantName())
+    }
+
+    private var isLocalUserInCurrentConversation: Bool {
+        let context = localParticipantContext()
+        let participants = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
+        return participants.contains(where: { $0.matches(context) })
+    }
+
     // MARK: - Effective received state
     //
     // The bubble the user tapped (`conversation.selectedMessage`) tells us
@@ -217,7 +290,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// (those happen inside decodeAndCache); this only changes what
     /// ExpandedView is handed.
     private func effectiveReceived(decoded: TweenState?) -> TweenState? {
-        guard let agreed = LocationCache.loadAgreedMeetup(), agreed.isFullyAgreed else {
+        let scopedAgreed = conversationKey
+            .flatMap { ConversationMeetupStore.load(key: $0)?.agreedState }
+        let agreedCandidate = scopedAgreed ?? LocationCache.loadAgreedMeetup()
+        guard let agreed = agreedCandidate, agreed.isFullyAgreed else {
             return decoded
         }
         // Nothing selected — show the agreement so the user lands on the
@@ -250,7 +326,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                                      conversation: MSConversation?) -> [Participant] {
         let myName = Self.localParticipantName()
         let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
-        let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
+        let scoped = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
+        let source = scoped.isEmpty ? [] : scoped
         let others = source.filter { !$0.matches(id: myId, name: myName) }
         let needsRide = source.first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
         let me = Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide)
@@ -260,14 +337,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func participantListWithoutMe() -> [Participant] {
         let myName = Self.localParticipantName()
         let myId = localParticipantID()
-        let source = currentParticipants.isEmpty ? LocationCache.loadParticipants() : currentParticipants
+        let scoped = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
+        let source = scoped.isEmpty ? [] : scoped
         return source.filter { !$0.matches(id: myId, name: myName) }
     }
 
     // MARK: - Hosting
 
     private func presentUI(for style: MSMessagesAppPresentationStyle) {
-        let isUserIn = LocationCache.isActive
+        let isUserIn = isLocalUserInCurrentConversation
         logger.debug("presentUI style=\(String(describing: style), privacy: .public) hasReceived=\(self.received != nil, privacy: .public) isActive=\(isUserIn, privacy: .public)")
         let root: AnyView
 
@@ -276,7 +354,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             root = AnyView(
                 ExpandedView(
                     received: received,
-                    selfCoord: LocationCache.loadSelf()?.coordinate,
+                    selfCoord: isUserIn ? LocationCache.loadSelf()?.coordinate : nil,
                     rankedSpots: rankedSpots,
                     isUserIn: isUserIn,
                     totalSeats: totalConversationParticipants,
@@ -352,6 +430,22 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         controller.didMove(toParent: self)
         hosting = controller
+    }
+
+    private func retryBlankRenderIfNeeded() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.presentUI(for: self.presentationStyle)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            let hostBounds = self.hosting?.view.bounds ?? .zero
+            if hostBounds.isEmpty || self.view.bounds.isEmpty {
+                self.presentUI(for: self.presentationStyle)
+                self.view.setNeedsLayout()
+                self.view.layoutIfNeeded()
+            }
+        }
     }
 
     // MARK: - Ranking
@@ -438,19 +532,20 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else if let received, !received.participants.isEmpty {
             source = received.participants
         } else {
-            source = LocationCache.loadParticipants()
+            source = activeSnapshotParticipants()
         }
 
         if currentParticipants.isEmpty, !source.isEmpty {
             currentParticipants = source
             LocationCache.saveParticipantSnapshot(source, localName: myName)
+            saveParticipantsForActiveConversation(source)
         }
 
         let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
         source = source.filter { !$0.matches(id: myId, name: myName) }
-        if LocationCache.isActive, let mySelf = LocationCache.loadSelf()?.coordinate {
+        if isLocalUserInCurrentConversation, let mySelf = LocationCache.loadSelf()?.coordinate {
             let needsRide = currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
-                ?? LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
+                ?? activeSnapshotParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                 ?? false
             source.append(Participant(id: myId, name: myName, coordinate: mySelf, needsRide: needsRide))
         }
@@ -493,6 +588,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                                                        conversation: self.activeConversation)
             self.currentParticipants = participants
             LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            self.saveParticipantsForActiveConversation(participants)
 
             let state = TweenState(
                 text: "I'm in",
@@ -532,6 +628,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             // The outgoing leave bubble carries the remaining roster for
             // recipients, but this device should stop rendering the meetup.
             LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
+            if let conversationKey {
+                ConversationMeetupStore.saveParticipants([], key: conversationKey)
+            }
             LocationCache.deactivateSelf()
             LocationCache.clearAgreedMeetup()
             rankedSpots = []
@@ -572,6 +671,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         currentParticipants = participants
         LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -623,6 +723,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             }
             self.currentParticipants = participants
             LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            self.saveParticipantsForActiveConversation(participants)
 
             var agreed = proposed.agreedNames
             if !agreed.contains(myName) { agreed.append(myName) }
@@ -658,6 +759,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             // MEETUP SET instead of the propose's Agree/Change buttons.
             if state.isFullyAgreed {
                 LocationCache.saveAgreedMeetup(state)
+                if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+                }
+            } else if let conversationKey = self.conversationKey {
+                ConversationMeetupStore.saveProposed(state, key: conversationKey)
             }
             self.received = self.effectiveReceived(decoded: state)
             self.presentUI(for: self.presentationStyle)
@@ -678,6 +784,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         currentParticipants = participants
         LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -696,6 +803,9 @@ final class MessagesViewController: MSMessagesAppViewController {
         // user could agree, then counter, then re-open the extension and see
         // MEETUP SET for the OLD agreed spot via the sticky cache.
         LocationCache.clearAgreedMeetup()
+        if let conversationKey {
+            ConversationMeetupStore.saveProposed(state, key: conversationKey)
+        }
         sendBubble(state: state)
     }
 
@@ -712,6 +822,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         currentParticipants = participants
         LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: draft.spotName,
@@ -725,6 +836,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants: participants
         )
         OutgoingDraftStore.clear()
+        if let conversationKey {
+            ConversationMeetupStore.clearDraft(key: conversationKey)
+        }
         self.draft = nil
         sendBubble(state: state)
         presentUI(for: presentationStyle)
@@ -742,6 +856,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             if didSend {
                 if state.kind == .place {
                     recentlySentSpotName = state.text
+                    received = nil
+                    draft = nil
+                    rankedSpots = []
                 }
                 sendStatusMessage = sentMessage(for: state)
             } else {
@@ -830,12 +947,33 @@ final class MessagesViewController: MSMessagesAppViewController {
                     dismiss()
                 }
             }
+            recordCanonicalSnapshot(for: state)
             recordPendingInviteIfNeeded(for: state)
             return true
         } catch {
             logger.error("Failed to deliver outgoing Tween bubble: \(String(describing: error), privacy: .public)")
             sendStatusMessage = "Couldn't send the Tween message. Try again."
             return false
+        }
+    }
+
+    private func recordCanonicalSnapshot(for state: TweenState) {
+        guard let conversationKey else { return }
+        switch state.messageType {
+        case .invite:
+            ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
+        case .propose, .counter:
+            ConversationMeetupStore.saveProposed(state, key: conversationKey)
+            ConversationMeetupStore.clearDraft(key: conversationKey)
+        case .agree:
+            if state.isFullyAgreed {
+                ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+            } else {
+                ConversationMeetupStore.saveProposed(state, key: conversationKey)
+            }
+        case .leave:
+            ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
+            ConversationMeetupStore.clearProposalState(key: conversationKey)
         }
     }
 

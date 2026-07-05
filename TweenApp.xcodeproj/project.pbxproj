@@ -14,6 +14,7 @@
 		1CB92BB0C60428A6CCD58E29 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */; };
 		1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */; };
 		1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		20F5A1B62F464E88962C3D65 /* ConversationMeetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A82D0C55324C17846169A5 /* ConversationMeetupStore.swift */; };
 		229676053976C85B25675D40 /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6EE95DAB661245924908C8 /* MapLinks.swift */; };
 		25EBB1371F60304CB6BD44AB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */; };
 		276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */; };
@@ -47,6 +48,7 @@
 		9FFC4903BC5E03A2CCB2918F /* TweenViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86835B35A5B33A95000424C /* TweenViews.swift */; };
 		A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */; };
 		A24BDC9CEAC5DEC4C6C65C67 /* Participant.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA256CAEB5D69FB5441F7C3 /* Participant.swift */; };
+		A58A1733F46F46819D0338BF /* ConversationMeetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A82D0C55324C17846169A5 /* ConversationMeetupStore.swift */; };
 		A4E56F1F497ECD586C2F82C3 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E33C768FCCDA10A6EEF5142 /* Tokens.swift */; };
 		A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
 		ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
@@ -118,6 +120,7 @@
 		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
 		45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRosterTests.swift; sourceTree = "<group>"; };
+		49A82D0C55324C17846169A5 /* ConversationMeetupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationMeetupStore.swift; sourceTree = "<group>"; };
 		4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPreset.swift; sourceTree = "<group>"; };
 		5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
 		5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRenderer.swift; sourceTree = "<group>"; };
@@ -213,6 +216,7 @@
 			isa = PBXGroup;
 			children = (
 				A618C73F525063A2FDDFE457 /* BubbleCaption.swift */,
+				49A82D0C55324C17846169A5 /* ConversationMeetupStore.swift */,
 				075D9066250C6952934E34C1 /* FairnessRanker.swift */,
 				126396012D826EDE687B9221 /* LocationCache.swift */,
 				999A32C93B516396B9807953 /* LocationProvider.swift */,
@@ -411,6 +415,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				15E853C4CC305B3676F9D8F8 /* BubbleCaption.swift in Sources */,
+				20F5A1B62F464E88962C3D65 /* ConversationMeetupStore.swift in Sources */,
 				C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */,
 				3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */,
 				1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */,
@@ -447,6 +452,7 @@
 				879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */,
 				A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */,
 				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
+				A58A1733F46F46819D0338BF /* ConversationMeetupStore.swift in Sources */,
 				3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */,
 				F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */,
 				D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */,

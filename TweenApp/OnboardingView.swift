@@ -175,8 +175,10 @@ struct OnboardingView: View {
     /// bubble's TweenState (sender name + participants + counter flag).
     struct IncomingProposalContext {
         let senderName: String?
+        let senderID: String?
         let participants: [Participant]
         let agreedNames: [String]
+        let agreedIDs: [String]
         let isCounter: Bool
     }
 
@@ -805,12 +807,15 @@ struct OnboardingView: View {
             .frame(minHeight: Tokens.Layout.minTapTarget)
             .accessibilityHint("Switches between people and rides")
 
-            switch friendsPanelTab {
-            case .people:
-                peoplePanel
-            case .rides:
-                ridesPanel
+            Group {
+                switch friendsPanelTab {
+                case .people:
+                    peoplePanel
+                case .rides:
+                    ridesPanel
+                }
             }
+            .frame(maxWidth: .infinity, minHeight: 300, alignment: .top)
         }
         .animation(Tokens.Motion.snappy, value: friendsPanelTab)
     }
@@ -1496,7 +1501,8 @@ struct OnboardingView: View {
     private var activeParticipantsForDisplay: [Participant] {
         var participants = currentParticipants
         let myName = UserProfile.displayName ?? UserName.fallback
-        if isUserIn, let coordinate = savedCoordinate, !participants.contains(where: { $0.name == myName }) {
+        let localContext = LocalParticipantContext(id: nil, name: myName)
+        if isUserIn, let coordinate = savedCoordinate, !participants.contains(where: { $0.matches(localContext) }) {
             participants.append(Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide))
         }
         if let peerCoordinate, !participants.contains(where: { $0.name == peerDisplayName }) {
@@ -1644,13 +1650,18 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
         localNeedsRide = false
         let myName = UserProfile.displayName ?? UserName.fallback
+        let localContext = LocalParticipantContext(id: nil, name: myName)
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
-            ?? LocationCache.loadParticipants().first(where: { $0.name == myName })?.coordinate
+            ?? LocationCache.loadParticipants().first(where: { $0.matches(localContext) })?.coordinate
             ?? Self.defaultCenter
-        let remainingParticipants = LocationCache.loadParticipants().filter { $0.name != myName }
+        let remainingParticipants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
         // The outgoing leave bubble tells everyone else who remains in.
         // Locally, leaving means this device is no longer watching the meetup.
         LocationCache.saveParticipantSnapshot([], localName: myName)
+        if let key = ConversationMeetupStore.lastActiveConversationKey {
+            ConversationMeetupStore.saveParticipants([], key: key)
+            ConversationMeetupStore.clearProposalState(key: key)
+        }
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
         agreedMeetup = nil
@@ -1700,10 +1711,14 @@ struct OnboardingView: View {
 
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
-        let participants = LocationCache.loadParticipants().filter { $0.name != myName } + [
+        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) } + [
             Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
         ]
         LocationCache.saveParticipantSnapshot(participants, localName: myName)
+        if let key = ConversationMeetupStore.lastActiveConversationKey {
+            ConversationMeetupStore.saveParticipants(participants, key: key)
+        }
         currentParticipants = participants
     }
 
@@ -1898,7 +1913,8 @@ struct OnboardingView: View {
 
     private func proposalParticipantsForCurrentContext() -> [Participant] {
         let myName = UserProfile.displayName ?? UserName.fallback
-        var participants = LocationCache.loadParticipants().filter { $0.name != myName }
+        let localContext = LocalParticipantContext(id: nil, name: myName)
+        var participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
         if let savedCoordinate {
             participants.append(Participant(id: myName, name: myName, coordinate: savedCoordinate, needsRide: localNeedsRide))
         }
@@ -2265,9 +2281,12 @@ struct OnboardingView: View {
         // remote participant as `peerCoordinate` for legacy call sites and draw
         // the rest as group participants.
         let myName = UserProfile.displayName ?? UserName.fallback
-        let roster = LocationCache.loadParticipants()
-        let remotes = roster.filter { $0.name != myName }
-        let localParticipant = roster.first { $0.name == myName }
+        let scopedSnapshot = ConversationMeetupStore.lastActiveConversationKey
+            .flatMap { ConversationMeetupStore.load(key: $0) }
+        let roster = scopedSnapshot?.participants ?? LocationCache.loadParticipants()
+        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let remotes = roster.filter { !$0.matches(localContext) }
+        let localParticipant = roster.first { $0.matches(localContext) }
 
         let newPeer: CLLocationCoordinate2D?
         let newPeerName: String
@@ -2330,7 +2349,7 @@ struct OnboardingView: View {
             didChange = true
         }
 
-        let cachedAgreedMeetup = LocationCache.loadAgreedMeetup()
+        let cachedAgreedMeetup = scopedSnapshot?.agreedState ?? LocationCache.loadAgreedMeetup()
         if agreedMeetup != cachedAgreedMeetup {
             agreedMeetup = cachedAgreedMeetup
             selectedResult = nil
@@ -2453,6 +2472,7 @@ struct OnboardingView: View {
         guard let state = TweenState(url: url) else { return }
         logger.debug("Host opened Tween URL type=\(state.messageType.rawValue, privacy: .public) kind=\(state.kind.rawValue, privacy: .public)")
         let myName = UserProfile.displayName ?? UserName.fallback
+        let activeConversationKey = ConversationMeetupStore.lastActiveConversationKey
         let openedOwnProposal = state.kind == .place && state.senderName == myName
 
         // Save the sender's coord as peer so the map can frame both pings.
@@ -2465,7 +2485,10 @@ struct OnboardingView: View {
         // A `.leave` message may intentionally carry an empty roster.
         if !state.participants.isEmpty || state.messageType == .leave {
             LocationCache.saveParticipantSnapshot(state.participants, localName: myName)
-            if let firstRemote = state.participants.first(where: { $0.name != myName }) {
+            if let activeConversationKey {
+                ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
+            }
+            if let firstRemote = state.participants.first(where: { !$0.matches(LocalParticipantContext(id: nil, name: myName)) }) {
                 peerCoordinate = firstRemote.coordinate
             } else {
                 peerCoordinate = nil
@@ -2489,6 +2512,9 @@ struct OnboardingView: View {
                 LocationCache.clearAgreedMeetup()
                 agreedMeetup = nil
             }
+            if let activeConversationKey {
+                ConversationMeetupStore.saveProposed(state, key: activeConversationKey)
+            }
             // A friend has suggested a place — open the SpotDetailCard in
             // incoming mode so the user sees Agree / Change buttons rather
             // than the search-result CTA. Build a synthetic MKMapItem to
@@ -2501,8 +2527,10 @@ struct OnboardingView: View {
                 ranked: nil,  // no ETA chip until we re-rank against fresh self
                 incoming: IncomingProposalContext(
                     senderName: state.senderName,
+                    senderID: state.senderID,
                     participants: state.participants,
                     agreedNames: state.agreedNames,
+                    agreedIDs: state.agreedIDs,
                     isCounter: state.messageType == .counter))
             activeSheet = .spot(selection)
             // Frame the map so the user can see the proposed spot in context.
@@ -2513,6 +2541,9 @@ struct OnboardingView: View {
         case .agree:
             if state.isFullyAgreed {
                 LocationCache.saveAgreedMeetup(state)
+                if let activeConversationKey {
+                    ConversationMeetupStore.saveAgreed(state, key: activeConversationKey)
+                }
                 agreedMeetup = state
                 selectedResult = nil
             }
@@ -2534,6 +2565,10 @@ struct OnboardingView: View {
 
         case .leave:
             LocationCache.clearAgreedMeetup()
+            if let activeConversationKey {
+                ConversationMeetupStore.clearProposalState(key: activeConversationKey)
+                ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
+            }
             agreedMeetup = nil
             reframe()
             let who = state.senderName ?? "Your friend"
@@ -2570,13 +2605,16 @@ struct OnboardingView: View {
         // already present; the bubble's `isFullyAgreed` flag fires on the
         // receiver's side once everyone-but-the-proposer is in.
         let myName = UserProfile.displayName ?? UserName.fallback
+        let myID = myName
         var agreed = incoming.agreedNames
         if !agreed.contains(myName) { agreed.append(myName) }
+        var agreedIDs = incoming.agreedIDs
+        if !agreedIDs.contains(myID) { agreedIDs.append(myID) }
         autoJoinForOutgoingMessage()
         let mySelf = LocationCache.loadSelf()?.coordinate
-        var participants = incoming.participants.filter { $0.name != myName }
+        var participants = incoming.participants.filter { !$0.matches(LocalParticipantContext(id: myID, name: myName)) }
         if let mySelf {
-            participants.append(Participant(id: myName, name: myName, coordinate: mySelf, needsRide: localNeedsRide))
+            participants.append(Participant(id: myID, name: myName, coordinate: mySelf, needsRide: localNeedsRide))
         }
 
         let state = TweenState(
@@ -2584,13 +2622,22 @@ struct OnboardingView: View {
             latitude: selection.coordinate.latitude,
             longitude: selection.coordinate.longitude,
             senderName: incoming.senderName ?? UserProfile.displayName,
+            senderID: incoming.senderID,
             kind: .place,
             senderCoordinate: mySelf,
             action: .agree,
             messageType: .agree,
             participants: participants,
-            agreedNames: agreed
+            agreedNames: agreed,
+            agreedIDs: agreedIDs
         )
+        if let key = ConversationMeetupStore.lastActiveConversationKey {
+            if state.isFullyAgreed {
+                ConversationMeetupStore.saveAgreed(state, key: key)
+            } else {
+                ConversationMeetupStore.saveProposed(state, key: key)
+            }
+        }
 
         // Async render the bubble image, then present the composer. The
         // recipient field is left empty so the user picks the same friend

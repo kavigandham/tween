@@ -389,6 +389,96 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertFalse(LocationCache.isPeerActive)
     }
 
+    // MARK: - Conversation-scoped meetup persistence
+
+    func testConversationKeysAreStableForParticipantOrder() {
+        let first = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["B", "C"])
+        let second = ConversationMeetupStore.conversationKey(localID: "C", remotes: ["A", "B"])
+        XCTAssertEqual(first, second)
+    }
+
+    func testConversationSnapshotsDoNotShareDraftsOrProposals() throws {
+        let ab = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["B"])
+        let ac = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["C"])
+        let participants = [
+            Participant(id: "A", name: "Hassan", latitude: 32.0, longitude: -81.0),
+            Participant(id: "B", name: "Hamza", latitude: 33.0, longitude: -82.0)
+        ]
+        let state = TweenState(
+            text: "Hangry Joe's",
+            latitude: 32.1,
+            longitude: -81.1,
+            senderName: "Hassan",
+            senderID: "A",
+            kind: .place,
+            messageType: .propose,
+            participants: participants)
+        let draft = OutgoingDraft(spotName: "Hangry Joe's", latitude: 32.1, longitude: -81.1)
+
+        ConversationMeetupStore.save(MeetupSnapshot(
+            conversationKey: ab,
+            participants: participants,
+            proposedState: state,
+            pendingDraft: draft), key: ab)
+        ConversationMeetupStore.save(MeetupSnapshot(conversationKey: ac), key: ac)
+
+        let abSnapshot = try XCTUnwrap(ConversationMeetupStore.load(key: ab))
+        let acSnapshot = try XCTUnwrap(ConversationMeetupStore.load(key: ac))
+        XCTAssertEqual(abSnapshot.proposedState?.text, "Hangry Joe's")
+        XCTAssertEqual(abSnapshot.pendingDraft?.spotName, "Hangry Joe's")
+        XCTAssertNil(acSnapshot.proposedState)
+        XCTAssertNil(acSnapshot.pendingDraft)
+    }
+
+    func testSameConversationRestoresParticipants() throws {
+        let key = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["B"])
+        let participants = [
+            Participant(id: "A", name: "Hassan", latitude: 32.0, longitude: -81.0),
+            Participant(id: "B", name: "Hamza", latitude: 33.0, longitude: -82.0, needsRide: true)
+        ]
+
+        ConversationMeetupStore.saveParticipants(participants, key: key)
+
+        let loaded = try XCTUnwrap(ConversationMeetupStore.load(key: key))
+        XCTAssertEqual(loaded.participants, participants)
+    }
+
+    func testParticipantMatchesLocalContextByUUIDOrLegacyName() {
+        let uuidParticipant = Participant(id: "uuid-A", name: "Hassan", latitude: 0, longitude: 0)
+        let legacyParticipant = Participant(id: "Hassan", name: "Hassan", latitude: 0, longitude: 0)
+
+        XCTAssertTrue(uuidParticipant.matches(LocalParticipantContext(id: "uuid-A", name: "Hassan")))
+        XCTAssertTrue(legacyParticipant.matches(LocalParticipantContext(id: nil, name: "Hassan")))
+        XCTAssertTrue(uuidParticipant.matches(LocalParticipantContext(id: nil, name: "Hassan")))
+    }
+
+    func testAgreeSnapshotPreservesProposerAndRecordsAgreer() throws {
+        let key = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["B"])
+        let participants = [
+            Participant(id: "A", name: "Hassan", latitude: 32.0, longitude: -81.0),
+            Participant(id: "B", name: "Hamza", latitude: 33.0, longitude: -82.0)
+        ]
+        let agreed = TweenState(
+            text: "Country Cafe",
+            latitude: 32.1,
+            longitude: -81.1,
+            senderName: "Hassan",
+            senderID: "A",
+            kind: .place,
+            action: .agree,
+            messageType: .agree,
+            participants: participants,
+            agreedNames: ["Hamza"],
+            agreedIDs: ["B"])
+
+        ConversationMeetupStore.saveAgreed(agreed, key: key)
+
+        let loaded = try XCTUnwrap(ConversationMeetupStore.load(key: key)?.agreedState)
+        XCTAssertEqual(loaded.senderID, "A")
+        XCTAssertEqual(loaded.agreedIDs, ["B"])
+        XCTAssertTrue(loaded.isFullyAgreed)
+    }
+
     // MARK: - UserName persistence
 
     func testUserNameRoundTrip() {

@@ -1,6 +1,11 @@
 import Foundation
 import CoreLocation
 
+struct LocalParticipantContext: Equatable {
+    let id: String?
+    let name: String
+}
+
 /// One person who has tapped "I'm in" in an iMessage conversation.
 ///
 /// The id is conversation-scoped — locally it's the participant's UUID from
@@ -52,5 +57,10 @@ struct Participant: Codable, Equatable, Identifiable, Hashable {
 
     func matches(id otherID: String, name otherName: String) -> Bool {
         id == otherID || (id == name && name == otherName)
+    }
+
+    func matches(_ context: LocalParticipantContext) -> Bool {
+        if let id = context.id, self.id == id { return true }
+        return name == context.name
     }
 }
