@@ -972,7 +972,9 @@ final class MessagesViewController: MSMessagesAppViewController {
                 ConversationMeetupStore.saveProposed(state, key: conversationKey)
             }
         case .leave:
-            ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
+            // Outgoing leave bubbles carry the remaining roster for recipients,
+            // but this device is out and should render no active meetup locally.
+            ConversationMeetupStore.saveParticipants([], key: conversationKey)
             ConversationMeetupStore.clearProposalState(key: conversationKey)
         }
     }

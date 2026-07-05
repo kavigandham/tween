@@ -723,8 +723,23 @@ struct ExpandedView: View {
         return count
     }
 
+    private var coordinateParticipantCount: Int {
+        var count = otherParticipants.count
+        if selfCoord != nil {
+            count += 1
+        }
+        if inviteHasEnoughPeopleForSpots, let received {
+            count = max(count, received.participants.count)
+        }
+        return count
+    }
+
     private var hasEnoughPeopleForSpots: Bool {
-        activeParticipantCount >= 2 || inviteHasEnoughPeopleForSpots
+        coordinateParticipantCount >= 2 || inviteHasEnoughPeopleForSpots
+    }
+
+    private var isWaitingForCoordinates: Bool {
+        activeParticipantCount >= 2 && !hasEnoughPeopleForSpots
     }
 
     private var canSendSpotFromCurrentPeople: Bool {
@@ -867,6 +882,9 @@ struct ExpandedView: View {
             return "Ready to send \(draft.spotName)"
         }
         guard let received else {
+            if isRanking { return "Finding fair spots" }
+            if hasEnoughPeopleForSpots { return "Ready to pick a spot" }
+            if isWaitingForCoordinates { return "Getting locations" }
             return isUserIn ? "Waiting for someone else" : "Find a fair spot"
         }
         if received.kind == .place {
@@ -883,6 +901,8 @@ struct ExpandedView: View {
             return "Send it to the chat or browse other spots."
         }
         guard let received else {
+            if hasEnoughPeopleForSpots { return "Choose a fair place for everyone who is in." }
+            if isWaitingForCoordinates { return "Waiting for shared locations before ranking spots." }
             return isUserIn ? "Fair spots appear when another person joins." : "Share your location to start."
         }
         switch received.messageType {
@@ -1091,8 +1111,9 @@ struct ExpandedView: View {
             ZStack {
                 Rectangle().fill(Tokens.Palette.surfaceSecondary)
                 VStack(spacing: Tokens.Spacing.s2) {
-                    Image(systemName: "location.slash").font(Tokens.Typography.title)
-                    Text("Share your location to see the map")
+                    Image(systemName: isWaitingForCoordinates ? "location.circle" : "location.slash")
+                        .font(Tokens.Typography.title)
+                    Text(isWaitingForCoordinates ? "Waiting for locations" : "Share your location to see the map")
                         .font(Tokens.Typography.footnote)
                 }
                 .foregroundStyle(Tokens.Palette.textSecondary)
@@ -1507,16 +1528,21 @@ struct ExpandedView: View {
     }
 
     private var emptySpotListIcon: String {
+        if isWaitingForCoordinates { return "location.circle" }
         if !hasEnoughPeopleForSpots { return "person.2" }
         return isRanking ? "mappin.and.ellipse" : "magnifyingglass"
     }
 
     private var emptySpotListTitle: String {
+        if isWaitingForCoordinates { return "Getting locations" }
         if !hasEnoughPeopleForSpots { return "Waiting for someone else" }
         return isRanking ? "Finding fair spots..." : "No fair spots found"
     }
 
     private var emptySpotListSubtitle: String {
+        if isWaitingForCoordinates {
+            return "Both people are in, but Tween needs both shared locations before ranking."
+        }
         if !hasEnoughPeopleForSpots {
             return "Fair spots appear once at least two people are in."
         }
@@ -1871,13 +1897,14 @@ struct ExpandedView: View {
                     }
                 }
             } else if isUserIn {
-                Label("Waiting for someone else", systemImage: "person.2")
+                Label(isWaitingForCoordinates ? "Getting locations..." : "Waiting for someone else",
+                      systemImage: isWaitingForCoordinates ? "location.circle" : "person.2")
                     .lineLimit(1)
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     .background(Tokens.Palette.surfaceSecondary, in: Capsule())
-                    .accessibilityHint("Fair spots appear once at least two people are in")
+                    .accessibilityHint(isWaitingForCoordinates ? "Tween is waiting for shared locations" : "Fair spots appear once at least two people are in")
             } else if !isUserIn {
                 Button(action: onImIn) {
                     if isSending {

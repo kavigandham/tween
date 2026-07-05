@@ -815,9 +815,9 @@ struct OnboardingView: View {
                     ridesPanel
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 300, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .animation(Tokens.Motion.snappy, value: friendsPanelTab)
+        .animation(.easeInOut(duration: 0.16), value: friendsPanelTab)
     }
 
     private var peoplePanel: some View {
@@ -1840,9 +1840,17 @@ struct OnboardingView: View {
     /// opened a blank composer, so the friend received nothing.
     private func sendToChat(_ selection: SpotSelection) {
         ensureNamed {
-            autoJoinForOutgoingMessage()
+            guard autoJoinForOutgoingMessage() else {
+                provider.requestOnce()
+                showToast("Tap I'm in first so your location is sent with the spot")
+                return
+            }
             let coord = selection.coordinate
             let participants = proposalParticipantsForCurrentContext()
+            guard !participants.isEmpty else {
+                showToast("Tap I'm in first so your friend has a way to join")
+                return
+            }
             let state = TweenState(
                 text: selection.name,
                 latitude: coord.latitude,
@@ -1901,14 +1909,16 @@ struct OnboardingView: View {
         }
     }
 
-    private func autoJoinForOutgoingMessage() {
-        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else { return }
+    @discardableResult
+    private func autoJoinForOutgoingMessage() -> Bool {
+        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else { return false }
         withAnimation(Tokens.Motion.spring) {
             savedCoordinate = coordinate
             isUserIn = true
         }
         LocationCache.save(coordinate, isActive: true)
         saveLocalParticipant(coordinate)
+        return true
     }
 
     private func proposalParticipantsForCurrentContext() -> [Participant] {
@@ -2610,7 +2620,11 @@ struct OnboardingView: View {
         if !agreed.contains(myName) { agreed.append(myName) }
         var agreedIDs = incoming.agreedIDs
         if !agreedIDs.contains(myID) { agreedIDs.append(myID) }
-        autoJoinForOutgoingMessage()
+        guard autoJoinForOutgoingMessage() else {
+            provider.requestOnce()
+            showToast("Tap I'm in first so your agreement includes your location")
+            return
+        }
         let mySelf = LocationCache.loadSelf()?.coordinate
         var participants = incoming.participants.filter { !$0.matches(LocalParticipantContext(id: myID, name: myName)) }
         if let mySelf {
