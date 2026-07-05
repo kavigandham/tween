@@ -142,6 +142,13 @@ struct TweenMapSnapshotView: View {
         }
         options.size = size
         options.mapType = .standard
+        // Render at the device's native pixel density (@3x on Retina) so the
+        // snapshot doesn't look pixelated when the memory-warning path swaps
+        // out the live Map. `size` is in points; `scale` maps them to pixels.
+        // Per docs/ui-research.md §5. `UIScreen.main.scale` is safe from a
+        // @MainActor context and matches BubbleImageRenderer (which hardcodes
+        // 3 because its output is a fixed-size bubble image).
+        options.scale = UIScreen.main.scale
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
