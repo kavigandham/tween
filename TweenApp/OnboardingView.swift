@@ -90,6 +90,14 @@ struct OnboardingView: View {
     /// backed out of the sheet. See `docs/ui-research.md` §7.
     @State private var focusExpandTask: Task<Void, Never>?
 
+    /// Floating map-control tap-target size, scaled with Dynamic Type per
+    /// `docs/ui-research.md` §11. `Tokens.Layout.minTapTarget` (44 pt) is the
+    /// HIG floor at the default text size; at XXL Dynamic Type this grows so
+    /// users with larger system text still hit the target easily. Applied to
+    /// `resetMapButton` and `infoButton`, and the pattern other icon-button
+    /// call sites should follow.
+    @ScaledMetric private var floatingControlSize: CGFloat = Tokens.Layout.minTapTarget
+
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
@@ -721,7 +729,7 @@ struct OnboardingView: View {
             Image(systemName: "location.viewfinder")
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 44, height: 44)
+                .frame(width: floatingControlSize, height: floatingControlSize)
                 .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
@@ -740,7 +748,7 @@ struct OnboardingView: View {
             Image(systemName: "info.circle.fill")
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 44, height: 44)
+                .frame(width: floatingControlSize, height: floatingControlSize)
                 .background(Color(.systemBackground).opacity(0.92), in: Circle())
                 .overlay {
                     Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
