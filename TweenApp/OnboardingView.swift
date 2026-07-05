@@ -84,6 +84,12 @@ struct OnboardingView: View {
     /// landed" nudge still fires when a URL open or scene resume drives it.
     @State private var suppressPollDetentWrites: Bool = false
 
+    /// Handle for the pending `expandThenFocusSearch` post-animation focus so a
+    /// second call (rapid re-entry) can cancel the first — otherwise queued
+    /// tasks each fire `searchFocused = true` after the user may have already
+    /// backed out of the sheet. See `docs/ui-research.md` §7.
+    @State private var focusExpandTask: Task<Void, Never>?
+
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
@@ -1831,6 +1837,31 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
     }
 
+    /// Expand-then-focus (`docs/ui-research.md` §7): first drive the sheet
+    /// to the search detent, then wait for the sheet's detent animation to
+    /// finish before setting `@FocusState`. SwiftUI drops the first responder
+    /// if a sheet is still animating between detents when focus is requested,
+    /// so setting both in the same synchronous block silently no-ops.
+    ///
+    /// `Tokens.Motion.snappy` is a 400 ms `.easeInOut` (see
+    /// `Shared/Tokens.swift:148`), so we wait 450 ms — a small margin past
+    /// the animation's end. The pending focus task is retained on `self` so
+    /// a rapid re-entry cancels the prior one; otherwise a user who backs
+    /// out of the sheet between call and fire would get an unexpected
+    /// keyboard.
+    private func expandThenFocusSearch() {
+        panelTab = .map
+        withAnimation(Tokens.Motion.snappy) {
+            selectedSheetDetent = .fraction(0.45)
+        }
+        focusExpandTask?.cancel()
+        focusExpandTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 450 * 1_000_000)
+            guard !Task.isCancelled else { return }
+            searchFocused = true
+        }
+    }
+
     /// Frames every result pin PLUS self and peer, biased upward so the pins
     /// clear the bottom sheet. Called on every committed search (both view
     /// modes) so the map is correctly positioned the instant the sheet is
@@ -2115,7 +2146,10 @@ struct OnboardingView: View {
         isSearchActive = false
         isSearchLoading = false
         searchState = .suggesting
-        completer.update(query: trimmed, region: searchRegion)
+        // Debounced (300 ms) — the completer only fires on the query the user
+        // paused on, not every intermediate keystroke. Per
+        // docs/ui-research.md §7.
+        completer.debouncedUpdate(query: trimmed, region: searchRegion)
     }
 
     /// Commits a suggestion as a full search.
@@ -2508,9 +2542,10 @@ struct OnboardingView: View {
 
     private func handleIncomingURL(_ url: URL) {
         if url.scheme == "tween", url.host == "search" {
-            panelTab = .map
-            selectedSheetDetent = .fraction(0.45)
-            searchFocused = true
+            // Expand-then-focus per docs/ui-research.md §7 — SwiftUI drops the
+            // first responder if the sheet is still animating between detents
+            // when `searchFocused = true` fires.
+            expandThenFocusSearch()
             return
         }
 
@@ -2716,9 +2751,10 @@ struct OnboardingView: View {
     /// pick a different spot than the one their friend proposed. Drops a
     /// pin on the rejected spot so they have spatial context.
     private func startChangeFlow(initialCoord: CLLocationCoordinate2D) {
-        panelTab = .map
-        selectedSheetDetent = .fraction(0.45)
-        searchFocused = true
+        // Expand-then-focus per docs/ui-research.md §7. The camera nudge runs
+        // in parallel with the sheet animation; SwiftUI schedules them on the
+        // same tick so the map reframes as the sheet lifts.
+        expandThenFocusSearch()
         withAnimation(Tokens.Motion.gentle) {
             position = Self.placeCameraPosition(for: initialCoord, bottomBias: 0.12)
         }
