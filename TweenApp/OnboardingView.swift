@@ -76,6 +76,14 @@ struct OnboardingView: View {
     /// peek, or up to full.
     @State private var selectedSheetDetent: PresentationDetent = .fraction(0.45)
 
+    /// Gate for the recurring App Group poll to skip writes to
+    /// `selectedSheetDetent`. Docs: `docs/ui-research.md` §1 — the self-jump
+    /// is caused by a poll re-asserting the detent-selection binding mid-drag.
+    /// Set only via `pollRefreshFromAppGroup()`, which owns the `defer` reset;
+    /// user-initiated refresh paths leave this `false` so the "agreed just
+    /// landed" nudge still fires when a URL open or scene resume drives it.
+    @State private var suppressPollDetentWrites: Bool = false
+
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
@@ -503,8 +511,12 @@ struct OnboardingView: View {
             // Catches in-process writes (e.g. host app's own "I'm in" button).
             // Extension writes don't fire this — see pollPeer + scenePhase
             // handler above for the cross-process path.
+            // Route through the poll-safe wrapper: this fires on background
+            // App Group activity that isn't a direct user gesture on the
+            // sheet, so it must not re-assert the detent selection binding
+            // (docs/ui-research.md §1).
             Task { @MainActor in
-                _ = refreshFromAppGroup()
+                _ = pollRefreshFromAppGroup()
             }
         }
         .onOpenURL(perform: handleIncomingURL)
@@ -2278,9 +2290,26 @@ struct OnboardingView: View {
     @MainActor
     private func pollPeer() async {
         while !Task.isCancelled {
-            _ = refreshFromAppGroup()
+            _ = pollRefreshFromAppGroup()
             try? await Task.sleep(for: .milliseconds(300))
         }
+    }
+
+    /// Poll-safe wrapper around `refreshFromAppGroup()` — suppresses any
+    /// programmatic write to `selectedSheetDetent` for the duration of the
+    /// refresh so the 300 ms App Group poll cannot fight the user's sheet
+    /// drag. Docs: `docs/ui-research.md` §1 (self-jump).
+    ///
+    /// User-initiated refresh paths (`.onAppear`, scene resume,
+    /// `handleIncomingURL`) still call `refreshFromAppGroup()` directly so the
+    /// "agreed just landed" detent nudge fires as intended when a user opens
+    /// or returns to the app.
+    @MainActor
+    @discardableResult
+    private func pollRefreshFromAppGroup() -> Bool {
+        suppressPollDetentWrites = true
+        defer { suppressPollDetentWrites = false }
+        return refreshFromAppGroup()
     }
 
     @MainActor
@@ -2366,7 +2395,13 @@ struct OnboardingView: View {
             didChange = true
             if cachedAgreedMeetup != nil {
                 panelTab = .map
-                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                // Self-jump gate: skip the detent write when this refresh was
+                // driven by the 300 ms poll (or another background App Group
+                // signal). User-initiated refresh paths keep the peek nudge.
+                // See docs/ui-research.md §1.
+                if !suppressPollDetentWrites {
+                    selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                }
             }
         }
 
