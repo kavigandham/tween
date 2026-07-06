@@ -6,6 +6,28 @@ import Foundation
 /// Stored in the App Group suite so the host app (which captures the name
 /// during onboarding) and the iMessage extension (which uses it when sending)
 /// agree. Plain string; no PII beyond a chosen name.
+/// Durable per-install identity for cross-device participant matching.
+///
+/// iMessage's `localParticipantIdentifier` is scoped to the device (a peer's
+/// roster entry carries a UUID minted on THEIR device, so IDs never match
+/// across devices), and display names collide (two users both defaulting to
+/// "You"). This UUID is minted once into the App Group and never changes, so
+/// every payload this install emits identifies the user the same way — across
+/// conversations, renames, and the app/extension boundary.
+enum TweenIdentity {
+    static let storageKey = "tween.identity.stableID"
+
+    static var stableID: String {
+        let defaults = UserDefaults(suiteName: LocationCache.appGroup)
+        if let existing = defaults?.string(forKey: storageKey), !existing.isEmpty {
+            return existing
+        }
+        let minted = UUID().uuidString
+        defaults?.set(minted, forKey: storageKey)
+        return minted
+    }
+}
+
 enum UserName {
     static let storageKey = "userName"
     static let fallback = "You"

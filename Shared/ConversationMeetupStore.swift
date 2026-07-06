@@ -7,6 +7,9 @@ struct MeetupSnapshot: Codable, Equatable {
     private var agreedStateURL: URL?
     var pendingDraft: OutgoingDraft?
     var updatedAt: Date
+    /// Highest payload revision seen (or emitted) for this conversation.
+    /// Optional so snapshots written by older builds keep decoding.
+    var lastRevision: Int? = nil
 
     var proposedState: TweenState? {
         get { proposedStateURL.flatMap(TweenState.init(url:)) }
@@ -146,6 +149,23 @@ enum ConversationMeetupStore {
     static func clearDraft(key: String) {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.pendingDraft = nil
+        save(snapshot, key: key)
+    }
+
+    // MARK: - Payload revisions
+
+    static func lastRevision(key: String) -> Int {
+        load(key: key)?.lastRevision ?? 0
+    }
+
+    /// Records the highest payload revision seen for this conversation. Both
+    /// directions go through here: decode notes inbound revisions, compose
+    /// notes the ones this device mints — so a bubble older than either can
+    /// never re-adopt a stale roster.
+    static func noteRevision(_ revision: Int, key: String) {
+        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        guard revision > (snapshot.lastRevision ?? 0) else { return }
+        snapshot.lastRevision = revision
         save(snapshot, key: key)
     }
 

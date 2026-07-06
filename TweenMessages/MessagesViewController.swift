@@ -275,6 +275,20 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) -> Bool {
         guard let message, let url = message.url, let state = TweenState(url: url) else { return false }
         guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return false }
+        // Revision guard (T1 old-bubble resurrection): every bubble is a
+        // canonical roster snapshot, so without ordering, tapping an OLDER
+        // bubble re-adopted its stale roster verbatim — a leaver popped back
+        // "in". Ignore anything older than the newest revision seen for this
+        // chat. Rev-less payloads (older builds, host-app sends) keep the
+        // legacy trust-the-tap semantics.
+        let revisionKey = conversationKey ?? Self.conversationKey(for: conversation)
+        if let revision = state.revision {
+            guard revision >= ConversationMeetupStore.lastRevision(key: revisionKey) else {
+                logger.debug("Ignoring stale bubble rev=\(revision, privacy: .public)")
+                return false
+            }
+            ConversationMeetupStore.noteRevision(revision, key: revisionKey)
+        }
         received = effectiveReceived(decoded: state)
         logger.debug("Decoded incoming Tween message type=\(state.messageType.rawValue, privacy: .public) participants=\(state.participants.count, privacy: .public) agreed=\(state.agreedNames.count, privacy: .public)")
 
@@ -304,7 +318,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Roster snapshot: trust the incoming list verbatim.
         if !state.participants.isEmpty || state.messageType == .leave {
             currentParticipants = state.participants
-            LocationCache.saveParticipantSnapshot(state.participants, localName: Self.localParticipantName())
+            LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
             saveParticipantsForActiveConversation(state.participants)
         }
 
@@ -342,14 +356,35 @@ final class MessagesViewController: MSMessagesAppViewController {
         UserProfile.displayName ?? UserName.fallback
     }
 
+    /// The durable identity stamped into every payload this device emits.
+    /// Was `activeConversation?.localParticipantIdentifier` — but that UUID is
+    /// device-scoped (a peer can never match it) and re-mintable. The stable
+    /// install ID survives conversations, renames, and reinstalls of state.
     private func localParticipantID() -> String {
-        activeConversation?.localParticipantIdentifier.uuidString ?? Self.localParticipantName()
+        TweenIdentity.stableID
+    }
+
+    /// The conversation-scoped UUID this device stamped into payloads BEFORE
+    /// the stable install ID existed. Used only to filter this user's own
+    /// legacy roster entries during the transition.
+    private func legacyLocalParticipantID() -> String? {
+        activeConversation?.localParticipantIdentifier.uuidString
     }
 
     private static func conversationKey(for conversation: MSConversation) -> String {
         ConversationMeetupStore.conversationKey(
             localID: conversation.localParticipantIdentifier.uuidString,
             remotes: conversation.remoteParticipantIdentifiers.map(\.uuidString))
+    }
+
+    /// Mints the next outgoing payload revision for the active conversation
+    /// and records it, so this device's own stale bubbles are rejected by the
+    /// decode guard too. Nil (legacy semantics) when no conversation is known.
+    private func nextOutgoingRevision() -> Int? {
+        guard let conversationKey else { return nil }
+        let next = ConversationMeetupStore.lastRevision(key: conversationKey) + 1
+        ConversationMeetupStore.noteRevision(next, key: conversationKey)
+        return next
     }
 
     private func activeSnapshotParticipants() -> [Participant] {
@@ -365,7 +400,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     private func localParticipantContext() -> LocalParticipantContext {
-        LocalParticipantContext(id: activeConversation?.localParticipantIdentifier.uuidString,
+        LocalParticipantContext(id: localParticipantID(),
                                 name: Self.localParticipantName())
     }
 
@@ -431,11 +466,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func nextParticipantList(myCoord: CLLocationCoordinate2D,
                                      conversation: MSConversation?) -> [Participant] {
         let myName = Self.localParticipantName()
-        let myId = conversation?.localParticipantIdentifier.uuidString ?? myName
+        let myId = localParticipantID()
+        // Entries this device minted BEFORE the stable install ID existed
+        // carry the conversation-scoped UUID; drop those too or the user
+        // duplicates themselves the first time they act on an older roster.
+        let legacyID = conversation?.localParticipantIdentifier.uuidString
         let scoped = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
         let source = scoped.isEmpty ? [] : scoped
-        let others = source.filter { !$0.matches(id: myId, name: myName) }
-        let needsRide = source.first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
+        let others = source.filter { !$0.matches(id: myId, name: myName) && $0.id != legacyID }
+        let needsRide = source.first(where: { $0.matches(id: myId, name: myName) || $0.id == legacyID })?.needsRide ?? false
         let me = Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide)
         return others + [me]
     }
@@ -443,9 +482,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func participantListWithoutMe() -> [Participant] {
         let myName = Self.localParticipantName()
         let myId = localParticipantID()
+        let legacyID = legacyLocalParticipantID()
         let scoped = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
         let source = scoped.isEmpty ? [] : scoped
-        return source.filter { !$0.matches(id: myId, name: myName) }
+        return source.filter { !$0.matches(id: myId, name: myName) && $0.id != legacyID }
     }
 
     // MARK: - Hosting
@@ -645,11 +685,11 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         if currentParticipants.isEmpty, !source.isEmpty {
             currentParticipants = source
-            LocationCache.saveParticipantSnapshot(source, localName: myName)
+            LocationCache.saveParticipantSnapshot(source, localContext: localParticipantContext())
             saveParticipantsForActiveConversation(source)
         }
 
-        let myId = activeConversation?.localParticipantIdentifier.uuidString ?? myName
+        let myId = localParticipantID()
         source = source.filter { !$0.matches(id: myId, name: myName) }
         if isLocalUserInCurrentConversation, let mySelf = LocationCache.loadSelf()?.coordinate {
             let needsRide = currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
@@ -706,7 +746,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderID: self.localParticipantID(),
                 kind: .participant,
                 messageType: .invite,
-                participants: participants
+                participants: participants,
+                revision: self.nextOutgoingRevision()
             )
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
@@ -763,7 +804,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 senderID: self.localParticipantID(),
                 kind: .participant,
                 messageType: .leave,
-                participants: remainingParticipants
+                participants: remainingParticipants,
+                revision: self.nextOutgoingRevision()
             )
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
@@ -820,7 +862,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             kind: .place,
             senderCoordinate: mySelf,
             messageType: .propose,
-            participants: participants
+            participants: participants,
+            revision: nextOutgoingRevision()
         )
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
@@ -863,7 +906,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                 : proposed.participants
             if let myCoord = senderCoordinate {
                 let myId = self.localParticipantID()
-                participants = participants.filter { !$0.matches(id: myId, name: myName) }
+                let legacyID = self.legacyLocalParticipantID()
+                participants = participants.filter { !$0.matches(id: myId, name: myName) && $0.id != legacyID }
                 let needsRide = proposed.participants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                     ?? self.currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                     ?? LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
@@ -880,8 +924,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             agreed.removeAll { $0.caseInsensitiveCompare(myName) == .orderedSame }
             agreed.append(myName)
             let myId = self.localParticipantID()
-            var agreedIDs = proposed.agreedIDs
-            if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
+            // Legacy proposals (no senderID) stay in the NAME namespace end to
+            // end. The old fallback stamped the AGREER's id as proposer, which
+            // excluded the wrong person from consensus (T7) — and appending a
+            // UUID to agreedIDs while the roster ids are names made
+            // `isFullyAgreed` compare across namespaces and never fire (T6).
+            var agreedIDs: [String]
+            if proposed.senderID != nil {
+                agreedIDs = proposed.agreedIDs
+                if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
+            } else {
+                agreedIDs = []
+            }
 
             // Preserve the original proposer so consensus is calculated
             // against every other participant, not the most recent agreer.
@@ -890,14 +944,15 @@ final class MessagesViewController: MSMessagesAppViewController {
                 latitude: proposed.latitude,
                 longitude: proposed.longitude,
                 senderName: proposed.senderName ?? UserProfile.displayName,
-                senderID: proposed.senderID ?? self.localParticipantID(),
+                senderID: proposed.senderID,
                 kind: .place,
                 senderCoordinate: senderCoordinate,
                 action: .agree,
                 messageType: .agree,
                 participants: participants,
                 agreedNames: agreed,
-                agreedIDs: agreedIDs
+                agreedIDs: agreedIDs,
+                revision: self.nextOutgoingRevision()
             )
             logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
             // Don't dismiss after an agree send — instead, lock in the local
@@ -954,7 +1009,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             senderCoordinate: mySelf,
             messageType: .counter,
             participants: participants,
-            agreedNames: []
+            agreedNames: [],
+            revision: nextOutgoingRevision()
         )
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
@@ -991,7 +1047,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             kind: .place,
             senderCoordinate: mySelf,
             messageType: .propose,
-            participants: participants
+            participants: participants,
+            revision: nextOutgoingRevision()
         )
         sendBubble(state: state) { [weak self] in
             guard let self else { return }

@@ -69,6 +69,13 @@ struct TweenState: Equatable {
     /// Stable participant IDs that have agreed. Mirrors `agreedNames` for
     /// display/backward compatibility, but drives group consensus when present.
     let agreedIDs: [String]
+    /// Monotonic per-conversation payload revision. Every bubble carries the
+    /// full roster as a canonical snapshot; without ordering, tapping an OLD
+    /// bubble re-adopted its stale roster verbatim (a leaver popped back
+    /// "in"). Receivers ignore payloads older than the newest revision seen.
+    /// Nil for payloads from older builds (and host-app sends), which keep
+    /// the legacy trust-the-tap semantics.
+    let revision: Int?
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -158,6 +165,12 @@ struct TweenState: Equatable {
         items.append(URLQueryItem(name: "type", value: messageType.rawValue))
         if !participants.isEmpty {
             items.append(URLQueryItem(name: "p", value: Self.encodeParticipants(participants)))
+            // Ids for the compact list, aligned by index. The compact `p=`
+            // format predates ids and collapses id → name on decode; `pids=`
+            // preserves identity even when `pj=` is dropped for size (below)
+            // or fails to decode. Old builds ignore the extra param.
+            items.append(URLQueryItem(name: "pids",
+                                      value: Self.encodeNames(participants.map(\.id))))
             if let encoded = Self.encodeParticipantJSON(participants) {
                 items.append(URLQueryItem(name: "pj", value: encoded))
             }
@@ -170,9 +183,18 @@ struct TweenState: Equatable {
             items.append(URLQueryItem(name: "agreedIds",
                                       value: Self.encodeNames(agreedIDs)))
         }
+        if let revision {
+            items.append(URLQueryItem(name: "rev", value: String(revision)))
+        }
         components.queryItems = items
-        guard let url = components.url, url.absoluteString.count <= 5000 else { return nil }
-        return url
+        guard let url = components.url else { return nil }
+        if url.absoluteString.count <= 5000 { return url }
+        // Oversize (large groups / long names): drop the base64 JSON roster —
+        // `p=` + `pids=` carry the same data far more compactly — instead of
+        // hard-failing the whole send.
+        components.queryItems = items.filter { $0.name != "pj" }
+        guard let slim = components.url, slim.absoluteString.count <= 5000 else { return nil }
+        return slim
     }
 
     private static func coordinateString(_ value: Double) -> String {
@@ -245,7 +267,8 @@ struct TweenState: Equatable {
         messageType: MessageType? = nil,
         participants: [Participant] = [],
         agreedNames: [String] = [],
-        agreedIDs: [String] = []
+        agreedIDs: [String] = [],
+        revision: Int? = nil
     ) {
         self.text = text
         self.latitude = latitude
@@ -261,6 +284,7 @@ struct TweenState: Equatable {
         self.participants = participants
         self.agreedNames = agreedNames
         self.agreedIDs = agreedIDs
+        self.revision = revision
     }
 
     init?(url: URL) {
@@ -314,7 +338,22 @@ struct TweenState: Equatable {
            let decoded = Self.decodeParticipantJSON(rawPJ) {
             self.participants = decoded
         } else if let rawP = items.first(where: { $0.name == "p" })?.value, !rawP.isEmpty {
-            self.participants = Self.decodeParticipants(rawP)
+            var decoded = Self.decodeParticipants(rawP)
+            // The compact format collapses id → name; restore real identity
+            // from the aligned `pids=` list when the sender provided one.
+            if let rawIDs = items.first(where: { $0.name == "pids" })?.value {
+                let ids = Self.decodeNames(rawIDs)
+                if ids.count == decoded.count {
+                    decoded = zip(decoded, ids).map { participant, id in
+                        Participant(id: id,
+                                    name: participant.name,
+                                    latitude: participant.latitude,
+                                    longitude: participant.longitude,
+                                    needsRide: participant.needsRide)
+                    }
+                }
+            }
+            self.participants = decoded
         } else if isGroupAwareURL {
             // New-format URL deliberately carried no participants.
             self.participants = []
@@ -344,6 +383,7 @@ struct TweenState: Equatable {
         } else {
             self.agreedIDs = []
         }
+        self.revision = items.first(where: { $0.name == "rev" })?.value.flatMap(Int.init)
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {

@@ -59,19 +59,30 @@ All landed, build green, 88/88 tests, tutorial + map screenshots verified:
 7. ✅ `LocationProvider`: 20s fix watchdog (armed only after authorization
    resolves, so permission-alert time never counts) + main-actor mutation hops.
 
-## Phase 3 — Protocol + identity (REQUIRES SIGN-OFF per BUGREPORT)
+## Phase 3 — Protocol + identity — DONE (2026-07-06, owner signed off)
 
-The remaining cross-device correctness gaps all trace to the payload protocol.
-One coordinated change, version-gated (`v=2` param), covering:
-- **T1** old-bubble resurrection → monotonic revision counter in the URL; decode
-  ignores rosters older than the last-seen revision for that conversation.
-- **T4** oversize URL hard-fail → drop `pj=` and retry before returning nil.
-- **T5/T6** compact `p=` id collapse → carry ids in the compact format.
-- **T7** legacy-agree proposer mislabel → propagate absent senderID.
-- Per-install stable ID (App-Group-minted UUID) as the durable identity key,
-  ending reliance on device-scoped iMessage UUIDs + name fallbacks entirely.
-Decision also needed: **T21** (leave clearing everyone's agreed meetup) and
-**T10** (re-enable interactive expanded map after on-device memory profiling).
+All landed, build green, 94/94 tests (6 new protocol tests):
+- ✅ **Stable install identity** (`TweenIdentity.stableID`, App-Group-minted
+  UUID) stamped into every payload/participant/agreedID from both targets —
+  device-scoped iMessage UUIDs and name-as-id fallbacks are legacy-decode-only.
+- ✅ **T1** — `rev=` monotonic revision on every extension payload; decode
+  ignores bubbles older than the newest revision seen per conversation, both
+  inbound and self-minted. Rev-less payloads (old builds, host-app composer
+  sends) keep trust-the-tap semantics.
+- ✅ **T4** — oversize URLs drop `pj=` and retry instead of hard-failing.
+- ✅ **T5/T6** — `pids=` carries ids alongside the compact `p=` list, so
+  identity survives the pj-less path; old builds ignore the extra param.
+- ✅ **T7** — legacy (senderID-less) proposals stay name-namespaced end to end:
+  agree no longer stamps the agreer as proposer nor mixes UUID agreedIDs into
+  a name-id roster.
+- Transition note: rosters minted by PRE-stable-ID builds carry conversation
+  UUIDs; extension paths filter them via `legacyLocalParticipantID()`, host
+  paths can't (no MSConversation) — an in-flight old-format meetup may need a
+  leave/rejoin after upgrading. Self-heals on the next extension bubble.
+
+Still open (product decisions, unchanged): **T21** (leave clears every
+receiver's agreed meetup — confirm intent) and **T10** (re-enable the
+interactive expanded map after on-device memory profiling).
 
 ## Phase 4 — Seamless app ↔ extension (MeetupStore)
 

@@ -528,4 +528,107 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertNil(UserName.load())
         XCTAssertEqual(UserName.loadOrFallback(), UserName.fallback)
     }
+
+    // MARK: - Stable install identity
+
+    func testStableIDMintsOnceAndPersists() {
+        let first = TweenIdentity.stableID
+        let second = TweenIdentity.stableID
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertEqual(first, second, "The install ID must never change once minted")
+        XCTAssertNotNil(UUID(uuidString: first))
+    }
+
+    // MARK: - Payload revision (v2)
+
+    func testRevisionRoundTripsThroughURL() throws {
+        let state = TweenState(
+            text: "I'm in",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .participant,
+            messageType: .invite,
+            participants: [Participant(id: "uuid-a", name: "Alice", latitude: 38.84, longitude: -77.30)],
+            revision: 7
+        )
+        let url = try XCTUnwrap(state.encodedURL())
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.revision, 7)
+    }
+
+    func testLegacyURLDecodesWithNilRevision() throws {
+        let url = try XCTUnwrap(URL(string: "https://tween.app/m?t=I'm%20in&lat=38.84&lon=-77.30&kind=participant"))
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertNil(decoded.revision)
+    }
+
+    func testStoreTracksHighestRevision() {
+        let key = "rev-test-key"
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 0)
+        ConversationMeetupStore.noteRevision(3, key: key)
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 3)
+        ConversationMeetupStore.noteRevision(2, key: key)
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 3, "Lower revisions must never regress the stored maximum")
+        ConversationMeetupStore.noteRevision(5, key: key)
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 5)
+    }
+
+    // MARK: - Compact-format IDs (pids) and oversize fallback
+
+    func testCompactFallbackRestoresIDsFromPids() throws {
+        let participants = [
+            Participant(id: "uuid-alice", name: "Alice", latitude: 38.84, longitude: -77.30, needsRide: true),
+            Participant(id: "uuid-bob", name: "Bob", latitude: 38.90, longitude: -77.35)
+        ]
+        let state = TweenState(
+            text: "I'm in",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .participant,
+            messageType: .invite,
+            participants: participants
+        )
+        let url = try XCTUnwrap(state.encodedURL())
+        // Simulate the pj-less path (what an oversize send produces): strip pj
+        // and decode from p= + pids= alone.
+        var components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        components.queryItems = components.queryItems?.filter { $0.name != "pj" }
+        let slim = try XCTUnwrap(components.url)
+        let decoded = try XCTUnwrap(TweenState(url: slim))
+        XCTAssertEqual(decoded.participants.map(\.id), ["uuid-alice", "uuid-bob"],
+                       "pids must restore real identity when the JSON roster is absent")
+        XCTAssertEqual(decoded.participants.map(\.name), ["Alice", "Bob"])
+        XCTAssertTrue(decoded.participants[0].needsRide)
+    }
+
+    func testOversizePayloadDropsPJInsteadOfFailing() throws {
+        // Enough participants with UUID ids to push the pj-inclusive URL past
+        // 5000 chars while the compact p= + pids= form still fits.
+        let participants = (0..<28).map { index in
+            Participant(id: UUID().uuidString,
+                        name: "Participant Number \(index)",
+                        latitude: 38.0 + Double(index) * 0.01,
+                        longitude: -77.0 - Double(index) * 0.01)
+        }
+        let state = TweenState(
+            text: "Big Group Meetup",
+            latitude: 38.84,
+            longitude: -77.30,
+            senderName: "Alice",
+            kind: .place,
+            messageType: .propose,
+            participants: participants,
+            revision: 1
+        )
+        let url = try XCTUnwrap(state.encodedURL(), "Oversize payloads should degrade, not fail")
+        XCTAssertLessThanOrEqual(url.absoluteString.count, 5000)
+        XCTAssertFalse(url.absoluteString.contains("pj="), "The JSON roster is what gets dropped")
+        let decoded = try XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.participants.count, participants.count)
+        XCTAssertEqual(decoded.participants.map(\.id), participants.map(\.id),
+                       "Identity survives the compact fallback via pids")
+        XCTAssertEqual(decoded.revision, 1)
+    }
 }

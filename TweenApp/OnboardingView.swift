@@ -1592,9 +1592,9 @@ struct OnboardingView: View {
     private var activeParticipantsForDisplay: [Participant] {
         var participants = currentParticipants
         let myName = UserProfile.displayName ?? UserName.fallback
-        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         if isUserIn, let coordinate = savedCoordinate, !participants.contains(where: { $0.matches(localContext) }) {
-            participants.append(Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide))
+            participants.append(Participant(id: TweenIdentity.stableID, name: myName, coordinate: coordinate, needsRide: localNeedsRide))
         }
         if let peerCoordinate, !participants.contains(where: { $0.name == peerDisplayName }) {
             participants.append(Participant(id: peerDisplayName, name: peerDisplayName, coordinate: peerCoordinate, needsRide: peerNeedsRide))
@@ -1741,14 +1741,14 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
         localNeedsRide = false
         let myName = UserProfile.displayName ?? UserName.fallback
-        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
             ?? LocationCache.loadParticipants().first(where: { $0.matches(localContext) })?.coordinate
             ?? Self.defaultCenter
         let remainingParticipants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
         // The outgoing leave bubble tells everyone else who remains in.
         // Locally, leaving means this device is no longer watching the meetup.
-        LocationCache.saveParticipantSnapshot([], localName: myName)
+        LocationCache.saveParticipantSnapshot([], localContext: localContext)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             ConversationMeetupStore.saveParticipants([], key: key)
             ConversationMeetupStore.clearProposalState(key: key)
@@ -1806,11 +1806,11 @@ struct OnboardingView: View {
 
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
-        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         let participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) } + [
-            Participant(id: myName, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
+            Participant(id: TweenIdentity.stableID, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
         ]
-        LocationCache.saveParticipantSnapshot(participants, localName: myName)
+        LocationCache.saveParticipantSnapshot(participants, localContext: localContext)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             ConversationMeetupStore.saveParticipants(participants, key: key)
         }
@@ -2050,10 +2050,10 @@ struct OnboardingView: View {
 
     private func proposalParticipantsForCurrentContext() -> [Participant] {
         let myName = UserProfile.displayName ?? UserName.fallback
-        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         var participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
         if let savedCoordinate {
-            participants.append(Participant(id: myName, name: myName, coordinate: savedCoordinate, needsRide: localNeedsRide))
+            participants.append(Participant(id: TweenIdentity.stableID, name: myName, coordinate: savedCoordinate, needsRide: localNeedsRide))
         }
         return participants
     }
@@ -2112,9 +2112,10 @@ struct OnboardingView: View {
             latitude: myCoord.latitude,
             longitude: myCoord.longitude,
             senderName: UserProfile.displayName,
+            senderID: TweenIdentity.stableID,
             kind: .participant,
             messageType: .invite,
-            participants: [Participant(id: myName, name: myName, coordinate: myCoord, needsRide: localNeedsRide)]
+            participants: [Participant(id: TweenIdentity.stableID, name: myName, coordinate: myCoord, needsRide: localNeedsRide)]
         )
 
         // Render the bubble image off the main actor (it's an MKMapSnapshotter
@@ -2463,7 +2464,7 @@ struct OnboardingView: View {
             .flatMap { ConversationMeetupStore.load(key: $0) }
             .flatMap { Date().timeIntervalSince($0.updatedAt) <= ConversationMeetupStore.snapshotTTL ? $0 : nil }
         let roster = scopedSnapshot?.participants ?? LocationCache.loadParticipants()
-        let localContext = LocalParticipantContext(id: nil, name: myName)
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         let remotes = roster.filter { !$0.matches(localContext) }
         let localParticipant = roster.first { $0.matches(localContext) }
 
@@ -2674,11 +2675,12 @@ struct OnboardingView: View {
         // Refresh participants array too so the group view sees everyone "in".
         // A `.leave` message may intentionally carry an empty roster.
         if !state.participants.isEmpty || state.messageType == .leave {
-            LocationCache.saveParticipantSnapshot(state.participants, localName: myName)
+            let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
+            LocationCache.saveParticipantSnapshot(state.participants, localContext: localContext)
             if let activeConversationKey {
                 ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
             }
-            if let firstRemote = state.participants.first(where: { !$0.matches(LocalParticipantContext(id: nil, name: myName)) }) {
+            if let firstRemote = state.participants.first(where: { !$0.matches(localContext) }) {
                 peerCoordinate = firstRemote.coordinate
             } else {
                 peerCoordinate = nil
@@ -2795,11 +2797,19 @@ struct OnboardingView: View {
         // already present; the bubble's `isFullyAgreed` flag fires on the
         // receiver's side once everyone-but-the-proposer is in.
         let myName = UserProfile.displayName ?? UserName.fallback
-        let myID = myName
+        let myID = TweenIdentity.stableID
         var agreed = incoming.agreedNames
         if !agreed.contains(myName) { agreed.append(myName) }
-        var agreedIDs = incoming.agreedIDs
-        if !agreedIDs.contains(myID) { agreedIDs.append(myID) }
+        // Same namespace rule as the extension (T6/T7): a legacy proposal
+        // (no senderID) stays name-namespaced end to end — mixing UUID
+        // agreedIDs with name-ids makes consensus unreachable.
+        var agreedIDs: [String]
+        if incoming.senderID != nil {
+            agreedIDs = incoming.agreedIDs
+            if !agreedIDs.contains(myID) { agreedIDs.append(myID) }
+        } else {
+            agreedIDs = []
+        }
         guard autoJoinForOutgoingMessage() else {
             // Same parking pattern as sendToChat: the user already said yes —
             // resume the agreement once the fix lands instead of dropping it.
