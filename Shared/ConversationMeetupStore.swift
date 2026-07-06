@@ -59,6 +59,11 @@ struct MeetupSnapshot: Codable, Equatable {
     /// Highest payload revision seen (or emitted) for this conversation.
     /// Optional so snapshots written by older builds keep decoding.
     var lastRevision: Int? = nil
+    /// True after this user said "I'm out" here. Peers who never tapped the
+    /// leave bubble keep broadcasting this user in their canonical rosters;
+    /// this tombstone stops those stale rosters from re-adopting the local
+    /// user as "in". Cleared by an explicit "I'm in" / agree.
+    var localUserLeft: Bool? = nil
 
     var proposedState: TweenState? {
         get { proposedStateURL.flatMap(TweenState.init(url:)) }
@@ -200,6 +205,19 @@ enum ConversationMeetupStore {
     static func clearDraft(key: String) {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.pendingDraft = nil
+        save(snapshot, key: key)
+    }
+
+    // MARK: - Leave tombstone
+
+    static func localUserLeft(key: String) -> Bool {
+        load(key: key)?.localUserLeft ?? false
+    }
+
+    static func setLocalUserLeft(_ left: Bool, key: String) {
+        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        guard (snapshot.localUserLeft ?? false) != left else { return }
+        snapshot.localUserLeft = left
         save(snapshot, key: key)
     }
 

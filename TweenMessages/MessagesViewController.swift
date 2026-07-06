@@ -97,6 +97,24 @@ final class MessagesViewController: MSMessagesAppViewController {
         sendStatusMessage.map { Self.errorStatuses.contains($0) } ?? false
     }
 
+    /// Prefix for the cached-state hint. A device only learns of new bubbles
+    /// when one is tapped (or while the extension is open) — nobody taps an
+    /// "I'm out" bubble, they just read it — so state rendered from the local
+    /// snapshot may be behind the conversation. Say so instead of presenting
+    /// it as live. Prefix-matched when clearing on a real decode.
+    private static let snapshotHintPrefix = "Last update "
+
+    private func snapshotHint(for snapshot: MeetupSnapshot) -> String {
+        Self.snapshotHintPrefix + RelativeTime.string(from: snapshot.updatedAt)
+            + " — tap the newest Tween bubble to refresh"
+    }
+
+    private func clearSnapshotHint() {
+        if sendStatusMessage?.hasPrefix(Self.snapshotHintPrefix) == true {
+            sendStatusMessage = nil
+        }
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -178,6 +196,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
             received = snapshot.agreedState ?? snapshot.proposedState
+            // Cached state, not a live decode — surface its age so a newer
+            // unprocessed bubble (someone's leave, a counter) isn't mistaken
+            // for absent.
+            if received != nil || !snapshot.participants.isEmpty,
+               sendStatusMessage == nil {
+                sendStatusMessage = snapshotHint(for: snapshot)
+            }
+        } else if decodedIncoming {
+            clearSnapshotHint()
         }
         // Apply the agreed-meetup override even when no message decoded
         // (e.g. selectedMessage was the local user's own bubble, which
@@ -223,6 +250,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         let savedPeer = decodeAndCache(message, in: conversation)
         recentlySentSpotName = nil
+        // A live inbound bubble supersedes any "cached state" hint.
+        clearSnapshotHint()
         // Stamp the inbound bubble so the host app can surface a "they replied"
         // banner across its sheet, but only once the peer coordinate is usable.
         if savedPeer {
@@ -315,11 +344,23 @@ final class MessagesViewController: MSMessagesAppViewController {
             ConversationMeetupStore.saveProposed(state, key: conversationKey)
         }
 
-        // Roster snapshot: trust the incoming list verbatim.
-        if !state.participants.isEmpty || state.messageType == .leave {
-            currentParticipants = state.participants
-            LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
-            saveParticipantsForActiveConversation(state.participants)
+        // Roster snapshot: trust the incoming list — EXCEPT for the local
+        // user's own entry after they've left. Peers who never tapped the
+        // leave bubble still broadcast this user in their canonical rosters
+        // (a bubble is only processed when tapped, and nobody taps "X is
+        // out" — they just read it). Without the tombstone filter, any later
+        // bubble from such a peer silently re-adds the leaver as "in".
+        var incomingRoster = state.participants
+        if ConversationMeetupStore.localUserLeft(key: revisionKey) {
+            let myName = Self.localParticipantName()
+            let myId = localParticipantID()
+            let legacyID = conversation.localParticipantIdentifier.uuidString
+            incomingRoster.removeAll { $0.matches(id: myId, name: myName) || $0.id == legacyID }
+        }
+        if !incomingRoster.isEmpty || state.messageType == .leave {
+            currentParticipants = incomingRoster
+            LocationCache.saveParticipantSnapshot(incomingRoster, localContext: localParticipantContext())
+            saveParticipantsForActiveConversation(incomingRoster)
         }
 
         // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
@@ -759,6 +800,11 @@ final class MessagesViewController: MSMessagesAppViewController {
                 LocationCache.setActive(true)
                 self.currentParticipants = participants
                 LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                // Joining clears the leave tombstone — incoming rosters may
+                // include this user again.
+                if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
+                }
             }
             isSending = false
             if didSend {
@@ -819,6 +865,12 @@ final class MessagesViewController: MSMessagesAppViewController {
                 LocationCache.saveParticipantSnapshot([], localContext: localParticipantContext())
                 LocationCache.deactivateSelf()
                 LocationCache.clearAgreedMeetup()
+                // Tombstone: peers who never tap this leave bubble will keep
+                // sending rosters that include this user — decode filters
+                // those entries until an explicit rejoin.
+                if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.setLocalUserLeft(true, key: conversationKey)
+                }
                 rankedSpots = []
                 // Drop the decoded meetup too — CompactView's thumbnail and
                 // ExpandedView's peer pins render from `received.participants`,
@@ -967,6 +1019,10 @@ final class MessagesViewController: MSMessagesAppViewController {
                 }
                 self.currentParticipants = participants
                 LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                // Agreeing means being in — clear any leave tombstone.
+                if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
+                }
                 // Persist the agreement so re-opening the extension (after iOS
                 // dispose, or after the user collapses + re-taps) re-renders
                 // MEETUP SET instead of the propose's Agree/Change buttons.

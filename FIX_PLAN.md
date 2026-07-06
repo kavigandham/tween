@@ -107,12 +107,33 @@ app onto the full negotiation card):
   folds into Phase 5's monolith split where the state has to move anyway —
   extracting it twice would violate the minimal-diff rule.
 
-## Phase 5 — Monolith split
+## Phase 5a — Presentation + leave-sync — DONE (2026-07-06)
 
-Split OnboardingView (~2,800 lines) into HomeMapScreen / SearchPanel /
-FriendsPanel / RidesPanel / MeetupStatusPanel; fold the tutorial cover and
-rename/location alerts into the single ActiveSheet presenter (they currently
-attach to the covered Map and can silently no-op).
+- ✅ Rename + Location alerts moved inside the permanent sheet's presentation
+  chain (attached to the Map they sat beneath the sheet and silently never
+  appeared — device-confirmed trap).
+- ✅ **Leave-sync finding from device testing** ("I'm out works but only if
+  you tap the leaver's bubble — nobody taps an I'm-out, they just read it"):
+  - Leaver-side tombstone (`MeetupSnapshot.localUserLeft`): after "I'm out",
+    stale rosters from peers who never processed the leave can no longer
+    re-adopt this user as "in" on their own device. Cleared by I'm in /
+    agree, on both surfaces. (+2 tests)
+  - Receiver-side honesty: state restored from the local snapshot (vs a live
+    bubble decode) now carries "Last update Xm ago — tap the newest Tween
+    bubble to refresh" through the neutral status banner, so a stale roster
+    is labeled stale instead of impersonating live state.
+  - The receiver's roster still genuinely updates only via a tapped bubble /
+    open extension (serverless; no push) — the tombstone + hint close the
+    harmful halves (self-resurrection, silent staleness).
+
+## Phase 5b — Monolith split (NEXT — do in a fresh session)
+
+Split OnboardingView (~3,000 lines) into HomeMapScreen / SearchPanel /
+FriendsPanel / RidesPanel / MeetupStatusPanel + extract the state into the
+MeetupStore deferred from Phase 4. Mechanical but wide: private @State must
+become internal for cross-file extensions, new files need `xcodegen generate`,
+and every surface needs re-screenshotting — start it with a full context
+budget, not at the end of one.
 
 ## Notes
 

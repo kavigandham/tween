@@ -574,6 +574,28 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 5)
     }
 
+    // MARK: - Leave tombstone
+
+    func testLeaveTombstoneRoundTrip() {
+        let key = "tombstone-key"
+        XCTAssertFalse(ConversationMeetupStore.localUserLeft(key: key))
+        ConversationMeetupStore.setLocalUserLeft(true, key: key)
+        XCTAssertTrue(ConversationMeetupStore.localUserLeft(key: key))
+        ConversationMeetupStore.setLocalUserLeft(false, key: key)
+        XCTAssertFalse(ConversationMeetupStore.localUserLeft(key: key))
+    }
+
+    func testTombstonePersistsAcrossOtherSnapshotWrites() {
+        let key = "tombstone-key-2"
+        ConversationMeetupStore.setLocalUserLeft(true, key: key)
+        // Unrelated writes (roster updates from stale peers, revisions) must
+        // not clear the tombstone — only an explicit rejoin does.
+        ConversationMeetupStore.saveParticipants(
+            [Participant(id: "peer", name: "Kavi", latitude: 1, longitude: 2)], key: key)
+        ConversationMeetupStore.noteRevision(4, key: key)
+        XCTAssertTrue(ConversationMeetupStore.localUserLeft(key: key))
+    }
+
     // MARK: - Compact-format IDs (pids) and oversize fallback
 
     func testCompactFallbackRestoresIDsFromPids() throws {

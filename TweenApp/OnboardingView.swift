@@ -496,13 +496,24 @@ struct OnboardingView: View {
                         )
                     }
                 }
-        }
-        .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
-            TextField("Name", text: $renameText)
-            Button("Save", action: commitRename)
-            Button("Cancel", role: .cancel) { editorMode = nil }
-        } message: { editor in
-            Text("Choose a new name for \(editor.friend.name).")
+                // Alerts triggered from inside the sheet must present FROM the
+                // sheet. Attached to the Map they sat beneath the permanently
+                // presented bottom sheet and silently never appeared — the
+                // same trap the ActiveSheet consolidation comment documents.
+                .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
+                    TextField("Name", text: $renameText)
+                    Button("Save", action: commitRename)
+                    Button("Cancel", role: .cancel) { editorMode = nil }
+                } message: { editor in
+                    Text("Choose a new name for \(editor.friend.name).")
+                }
+                .alert("Location Unavailable", isPresented: $showLocationAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(provider.status == .denied
+                         ? "Turn on location access in Settings to share where you are."
+                         : "We couldn't get your location. Try again in a moment.")
+                }
         }
         .onChange(of: provider.status) { _, status in
             let wasAwaitingImIn = awaitingImIn
@@ -591,13 +602,6 @@ struct OnboardingView: View {
             }
         }
         .onOpenURL(perform: handleIncomingURL)
-        .alert("Location Unavailable", isPresented: $showLocationAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(provider.status == .denied
-                 ? "Turn on location access in Settings to share where you are."
-                 : "We couldn't get your location. Try again in a moment.")
-        }
     }
 
     // MARK: - Bottom sheet
@@ -1862,6 +1866,8 @@ struct OnboardingView: View {
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             ConversationMeetupStore.saveParticipants([], key: key)
             ConversationMeetupStore.clearProposalState(key: key)
+            // Tombstone: stale peer rosters must not re-add this user as "in".
+            ConversationMeetupStore.setLocalUserLeft(true, key: key)
         }
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
@@ -1929,6 +1935,8 @@ struct OnboardingView: View {
         LocationCache.saveParticipantSnapshot(participants, localContext: localContext)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             ConversationMeetupStore.saveParticipants(participants, key: key)
+            // Opting in clears any leave tombstone for this conversation.
+            ConversationMeetupStore.setLocalUserLeft(false, key: key)
         }
         currentParticipants = participants
     }
