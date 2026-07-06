@@ -130,7 +130,13 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
         let snapshot = ConversationMeetupStore.load(key: key)
-        if !decodedIncoming, let snapshot {
+        // decodeAndCache returns true only when a PEER COORDINATE was saved, so
+        // a decoded message with no non-local participant (e.g. a .leave) still
+        // reports false. Gate the snapshot restore on `received == nil` so it
+        // only fills in when nothing decoded (drawer open, own bubble) instead
+        // of clobbering a just-decoded state — the leave-clears empty the
+        // snapshot, which erased the "X left" banner.
+        if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
             received = snapshot.agreedState ?? snapshot.proposedState
         }
