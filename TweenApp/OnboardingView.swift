@@ -14,6 +14,50 @@ import os
 ///
 /// The bottom sheet's peek exposes place search and category chips; pulling it
 /// up reveals the presence controls and the fairness-ranked results.
+/// The bottom sheet's surface: on iOS 26 the system's Liquid Glass floating
+/// panel (what Apple Maps' pill is made of — see "Adopting Liquid Glass" in
+/// the technology overviews); before that, the near-opaque material blur
+/// that read correctly pre-glass. Deployment target is iOS 17, so both
+/// worlds ship.
+private struct TweenSheetSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+        } else {
+            content.presentationBackground(.regularMaterial)
+        }
+    }
+}
+
+/// Chrome for the floating map controls: Liquid Glass on iOS 26 (interactive,
+/// brand-tinted when selected), the surface fill + hairline + shadow stack on
+/// earlier systems. One modifier so every control switches worlds together.
+private struct TweenGlassControl<S: InsettableShape>: ViewModifier {
+    let shape: S
+    var isSelected = false
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            if isSelected {
+                content.glassEffect(.regular.tint(Tokens.Palette.brand).interactive(), in: shape)
+            } else {
+                content.glassEffect(.regular.interactive(), in: shape)
+            }
+        } else {
+            content
+                .background(
+                    isSelected
+                        ? AnyShapeStyle(Tokens.Palette.brand)
+                        : AnyShapeStyle(Tokens.Palette.surface.opacity(0.92)),
+                    in: shape)
+                .overlay {
+                    shape.strokeBorder(Tokens.Palette.surfaceSecondary.opacity(isSelected ? 0 : 1), lineWidth: 1)
+                }
+                .tweenElevation(.floating)
+        }
+    }
+}
+
 struct OnboardingView: View {
     /// Default camera focus when there's no cached location and none can be
     /// resolved (e.g. location denied). The geographic center of the
@@ -177,6 +221,11 @@ struct OnboardingView: View {
         let body: String
         var message: MSMessage? = nil
         var onSent: (() -> Void)? = nil
+        /// Runs when the composer closes WITHOUT sending (cancel or failure).
+        /// Sends commit local state only on delivery, so a cancelled send
+        /// silently changes nothing — these callbacks say so out loud
+        /// ("You're still in") instead of leaving the user to guess.
+        var onCancelled: (() -> Void)? = nil
     }
 
     private struct PendingInviteRow: Identifiable, Equatable {
@@ -347,7 +396,12 @@ struct OnboardingView: View {
         let hostHarnessDetent: PresentationDetent = CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP")
             ? .height(Tokens.Layout.sheetPeekHeight)
             : .fraction(0.90)
-        _selectedSheetDetent = State(initialValue: Self.isHostTabHarness ? hostHarnessDetent : .fraction(0.45))
+        // -START_AT_PEEK: screenshot/UI-test hook for the collapsed pill,
+        // which is otherwise only reachable by dragging.
+        let defaultDetent: PresentationDetent = CommandLine.arguments.contains("-START_AT_PEEK")
+            ? .height(Tokens.Layout.sheetPeekHeight)
+            : .fraction(0.45)
+        _selectedSheetDetent = State(initialValue: Self.isHostTabHarness ? hostHarnessDetent : defaultDetent)
         _agreedMeetup = State(initialValue: nil)
         let initialCoords = Self.isHostTabHarness
             ? harnessParticipants.map(\.coordinate)
@@ -445,11 +499,11 @@ struct OnboardingView: View {
                     [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent
                 )
-                // Apple-Maps sheet material: a near-opaque blur. Without this
-                // the system default (liquid glass on current iOS) lets the
-                // map bleed through every control and the whole surface reads
-                // as a grey wash.
-                .presentationBackground(.regularMaterial)
+                // iOS 26 gets the system's Liquid Glass floating panel — the
+                // exact chrome Maps' bottom pill uses (design brief:
+                // developer.apple.com "Adopting Liquid Glass"). Pre-26 keeps
+                // the near-opaque material that read correctly there.
+                .modifier(TweenSheetSurface())
                 .presentationBackgroundInteraction(.enabled)
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
@@ -492,6 +546,8 @@ struct OnboardingView: View {
                             activeSheet = nil
                             if result == .sent {
                                 pending.onSent?()
+                            } else {
+                                pending.onCancelled?()
                             }
                         }
                     case .spot(let selection):
@@ -636,7 +692,11 @@ struct OnboardingView: View {
             // Friends tab, which made the whole sheet reflow by ~52pt on each
             // tab switch — the "janky jump". The name field it clashed with is
             // a form row now, so they no longer read as twins.)
+            // At the peek detent the row is the only content — center it in
+            // the collapsed pill like Maps does, instead of pinning it under
+            // the grabber with dead space below.
             searchBar
+                .frame(maxHeight: isMinimalDetent ? .infinity : nil)
 
             // Everything else is revealed once the sheet is lifted off its peek.
             // The sheet is purely the search surface now, like Apple Maps —
@@ -648,9 +708,9 @@ struct OnboardingView: View {
             }
         }
         // s4 keeps the first row clear of the system drag indicator, which
-        // occupies the sheet's top ~16pt — at the peek detent an s2 padding put
-        // the indicator right on the search field's border.
-        .padding(.top, Tokens.Spacing.s4)
+        // occupies the sheet's top ~16pt. At the peek detent the row centers
+        // itself (frame above), so the fixed padding would push it off-center.
+        .padding(.top, isMinimalDetent ? 0 : Tokens.Spacing.s4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .overlay(alignment: .bottom) { toastView }
@@ -759,15 +819,9 @@ struct OnboardingView: View {
             .font(Tokens.Typography.callout)
             .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
             .frame(width: floatingControlSize, height: floatingControlSize)
-            .background(
-                isSelected ? Tokens.Palette.brand : Tokens.Palette.surface.opacity(0.92),
-                in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                    .strokeBorder(Tokens.Palette.surfaceSecondary.opacity(isSelected ? 0 : 1), lineWidth: 1)
-            }
-            .tweenElevation(.floating)
+            .modifier(TweenGlassControl(
+                shape: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous),
+                isSelected: isSelected))
     }
 
 
@@ -779,12 +833,8 @@ struct OnboardingView: View {
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
                 .frame(width: floatingControlSize, height: floatingControlSize)
-                .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                        .strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
-                }
-                .tweenElevation(.floating)
+                .modifier(TweenGlassControl(
+                    shape: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Reset map")
@@ -798,11 +848,7 @@ struct OnboardingView: View {
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
                 .frame(width: floatingControlSize, height: floatingControlSize)
-                .background(Tokens.Palette.surface.opacity(0.92), in: Circle())
-                .overlay {
-                    Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
-                }
-                .tweenElevation(.floating)
+                .modifier(TweenGlassControl(shape: Circle()))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Help")
@@ -822,8 +868,7 @@ struct OnboardingView: View {
             .pickerStyle(.segmented)
             .frame(width: Tokens.Layout.minTapTarget * 4 + Tokens.Spacing.s6)
             .padding(Tokens.Spacing.s1)
-            .background(.regularMaterial, in: Capsule())
-            .tweenElevation(.floating)
+            .modifier(TweenGlassControl(shape: Capsule()))
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityHint("Switches between a list of results and pins on the map")
         }
@@ -1901,6 +1946,11 @@ struct OnboardingView: View {
                 message: message,
                 onSent: {
                     commitLeaveLocally(remaining: participants, revision: revision)
+                },
+                onCancelled: {
+                    // Leaving IS a message in a serverless app — without the
+                    // bubble, nobody can ever learn you left. Say so.
+                    showToast("You're still in — your I'm out wasn't sent")
                 }))
         }
     }
@@ -2044,6 +2094,9 @@ struct OnboardingView: View {
                 onSent: {
                     noteOutgoingRevision(revision)
                     showToast(needsRide ? "Ride request sent" : "Ride update sent")
+                },
+                onCancelled: {
+                    showToast(needsRide ? "Ride request not sent" : "Ride update not sent")
                 }))
         }
     }
@@ -2180,6 +2233,9 @@ struct OnboardingView: View {
                             PingLog.logGenericInvite()
                             lastGenericInviteAt = PingLog.lastGenericInviteAt
                             showOwnProposalOnMap(state)
+                        },
+                        onCancelled: {
+                            showToast("Not sent — your proposal stayed here")
                         }))
                 }
             } else {
@@ -3068,6 +3124,9 @@ struct OnboardingView: View {
                         }
                     }
                     _ = refreshFromAppGroup()
+                },
+                onCancelled: {
+                    showToast("Not sent — friends still see the old plan")
                 }))
         }
     }
