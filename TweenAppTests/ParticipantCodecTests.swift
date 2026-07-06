@@ -452,6 +452,35 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertTrue(uuidParticipant.matches(LocalParticipantContext(id: nil, name: "Hassan")))
     }
 
+    func testForeignUUIDPeerWithCollidingNameDoesNotMatchLocalContext() {
+        // A peer's roster entry carries a UUID minted on THEIR device; when both
+        // devices default to the same display name ("You"), the peer must not be
+        // mistaken for the local user.
+        let peer = Participant(id: "uuid-B", name: "You", latitude: 0, longitude: 0)
+        XCTAssertFalse(peer.matches(LocalParticipantContext(id: "uuid-A", name: "You")))
+    }
+
+    func testLegacyNameIDEntryStillMatchesWhenContextHasUUID() {
+        // A host-app-minted self entry (id == name) checked from the extension,
+        // where the context carries the conversation UUID.
+        let legacy = Participant(id: "Hassan", name: "Hassan", latitude: 0, longitude: 0)
+        XCTAssertTrue(legacy.matches(LocalParticipantContext(id: "uuid-A", name: "Hassan")))
+    }
+
+    func testUUIDEntryMatchesByIDEvenWhenDisplayNamesDiffer() {
+        // The user renamed themselves between sends; the stable UUID still wins.
+        let mine = Participant(id: "uuid-A", name: "Hassan", latitude: 0, longitude: 0)
+        XCTAssertTrue(mine.matches(LocalParticipantContext(id: "uuid-A", name: "You")))
+    }
+
+    func testNameAsIDContextKeepsFilteringUUIDEntriesByName() {
+        // Guards OnboardingView.sendAgreeReply, which passes the display name as
+        // the context id: the user's own UUID-stamped entry must still count as
+        // "me" so the agree roster carries exactly one self entry.
+        let mine = Participant(id: "uuid-A", name: "Hassan", latitude: 0, longitude: 0)
+        XCTAssertTrue(mine.matches(LocalParticipantContext(id: "Hassan", name: "Hassan")))
+    }
+
     func testAgreeSnapshotPreservesProposerAndRecordsAgreer() throws {
         let key = ConversationMeetupStore.conversationKey(localID: "A", remotes: ["B"])
         let participants = [
