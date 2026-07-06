@@ -33,6 +33,13 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// while the extension is active.
     private var totalConversationParticipants: Int = 1
 
+    /// The MSSession of the most recent Tween bubble seen in this conversation
+    /// (tapped or received live). Reused by outgoing sends when
+    /// `selectedMessage` is nil — e.g. the extension was opened from the app
+    /// drawer — so replies keep collapsing into one evolving bubble instead of
+    /// minting a new session (and a new bubble stack) per send.
+    private var lastKnownSession: MSSession?
+
     private var rankingTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
     private var isRanking = false
@@ -128,6 +135,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             recentlySentSpotName = nil
             isRanking = false
             rankingTask?.cancel()
+            // Sessions are per-conversation; never reuse one across chats.
+            lastKnownSession = nil
+        }
+        if let session = conversation.selectedMessage?.session {
+            lastKnownSession = session
         }
         // Number of seats in the iMessage thread. The local participant always
         // counts as 1; remoteParticipantIdentifiers covers everyone else.
@@ -185,6 +197,9 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
+        if let session = message.session {
+            lastKnownSession = session
+        }
         let savedPeer = decodeAndCache(message, in: conversation)
         recentlySentSpotName = nil
         // Stamp the inbound bubble so the host app can surface a "they replied"
@@ -673,7 +688,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // recordCanonicalSnapshot.
                 LocationCache.setActive(true)
                 self.currentParticipants = participants
-                LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
             }
             isSending = false
             if didSend {
@@ -730,7 +745,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // failed send the user truthfully stays "in". The conversation-
                 // scoped clears are covered by recordCanonicalSnapshot (.leave).
                 currentParticipants = []
-                LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
+                LocationCache.saveParticipantSnapshot([], localContext: localParticipantContext())
                 LocationCache.deactivateSelf()
                 LocationCache.clearAgreedMeetup()
                 rankedSpots = []
@@ -783,7 +798,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             // Commit the roster only on delivery; the conversation-scoped
             // write is covered by recordCanonicalSnapshot (.propose).
             self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
         }
     }
 
@@ -867,7 +882,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     LocationCache.setActive(true)
                 }
                 self.currentParticipants = participants
-                LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
                 // Persist the agreement so re-opening the extension (after iOS
                 // dispose, or after the user collapses + re-taps) re-renders
                 // MEETUP SET instead of the propose's Agree/Change buttons.
@@ -915,7 +930,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
             self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
             // A counter restarts negotiation — any prior agreement is
             // invalidated, so the persisted terminal cache must be cleared
             // too. Cleared only on delivery: a failed counter must not erase
@@ -952,7 +967,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
             self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
             // The staged hand-off is consumed only once the bubble is
             // delivered — a failed send keeps the draft offered instead of
             // losing it. Store-side draft clearing is covered by
@@ -1056,7 +1071,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         layout.image = image
         BubbleCaption.apply(to: layout, state: state, totalSeats: self.totalConversationParticipants)
 
-        let session = conversation.selectedMessage?.session ?? MSSession()
+        let session = conversation.selectedMessage?.session ?? lastKnownSession ?? MSSession()
         let message = MSMessage(session: session)
         message.url = url
         message.layout = layout

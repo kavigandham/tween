@@ -1724,8 +1724,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count + 1, 2))
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -1795,8 +1799,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -2054,8 +2062,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: 2)
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -2745,8 +2757,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: state.participants.count)
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(

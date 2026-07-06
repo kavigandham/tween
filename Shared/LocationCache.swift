@@ -121,6 +121,21 @@ enum LocationCache {
         }
     }
 
+    /// Context-aware variant: filters the legacy peer projection with
+    /// `Participant.matches(_:)` (ID-first; name fallback only for legacy
+    /// id-less entries) so colliding display names — e.g. two devices both
+    /// defaulting to "You" — can't select the wrong entry as "the peer" or
+    /// wrongly deactivate it. The name-only overload above remains for
+    /// callers without a participant context.
+    static func saveParticipantSnapshot(_ participants: [Participant], localContext: LocalParticipantContext) {
+        saveParticipants(participants)
+        if let firstRemote = participants.first(where: { !$0.matches(localContext) }) {
+            savePeer(firstRemote.coordinate, isActive: true)
+        } else {
+            setPeerActive(false)
+        }
+    }
+
     static func loadParticipants() -> [Participant] {
         guard let data = defaults?.data(forKey: participantsKey),
               let list = try? JSONDecoder().decode([Participant].self, from: data)
