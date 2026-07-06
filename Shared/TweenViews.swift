@@ -265,7 +265,10 @@ struct CompactView: View {
                 activeMeetupState
             }
         }
-        .padding(Tokens.Spacing.s4)
+        // Tight vertical padding: the compact surface is only keyboard height,
+        // and every point of chrome comes out of the content's budget.
+        .padding(.horizontal, Tokens.Spacing.s4)
+        .padding(.vertical, Tokens.Spacing.s2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque background so the compact strip never reads as transparent
         // against the iMessage keyboard backdrop. systemBackground tracks
@@ -274,9 +277,11 @@ struct CompactView: View {
         // The whole surface expands; the real Button below intercepts its own taps.
         .contentShape(Rectangle())
         .onTapGesture(perform: onExpand)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens Tween to find a fair place to meet")
+        // No `.accessibilityElement(children: .combine)` here — collapsing the
+        // surface into one element made the nested I'm in / I'm out / Browse
+        // buttons unreachable to VoiceOver. The custom action mirrors the
+        // background tap instead.
+        .accessibilityAction(named: "Open Tween", onExpand)
     }
 
     private var launcherState: some View {
@@ -305,7 +310,7 @@ struct CompactView: View {
                 Button(action: onExpand) {
                     Label("Browse", systemImage: "arrow.up.forward.app")
                         .font(Tokens.Typography.captionBold)
-                        .frame(maxWidth: .infinity, minHeight: 42)
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))
 
@@ -313,7 +318,7 @@ struct CompactView: View {
                     Button(action: onImOut) {
                         Label("I'm out", systemImage: "location.slash")
                             .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
                     .buttonStyle(.tweenPrimary(.neutral))
                     .accessibilityHint("Stops sharing you as active for this meetup")
@@ -321,7 +326,7 @@ struct CompactView: View {
                     Button(action: onExpand) {
                         Label("Details", systemImage: "person.2")
                             .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
                     .buttonStyle(.tweenPrimary(.neutral))
                 }
@@ -367,20 +372,23 @@ struct CompactView: View {
 
             compactPrimaryAction
 
-            HStack(spacing: Tokens.Spacing.s2) {
-                Button(action: onExpand) {
-                    Label(received?.kind == .place ? "Review spot" : "Browse spots",
-                          systemImage: received?.kind == .place ? "checkmark.bubble" : "arrow.up.forward.app")
-                        .font(Tokens.Typography.captionBold)
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                }
-                .buttonStyle(.tweenPrimary(.subtle))
+            // Secondary row only while in: Browse + I'm out. When not in, the
+            // card tap and the "I'm in" CTA cover both actions, and dropping
+            // the row keeps the stack inside the keyboard-height budget.
+            if isUserIn {
+                HStack(spacing: Tokens.Spacing.s2) {
+                    Button(action: onExpand) {
+                        Label(received?.kind == .place ? "Review spot" : "Browse spots",
+                              systemImage: received?.kind == .place ? "checkmark.bubble" : "arrow.up.forward.app")
+                            .font(Tokens.Typography.captionBold)
+                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                    }
+                    .buttonStyle(.tweenPrimary(.subtle))
 
-                if isUserIn {
                     Button(action: onImOut) {
                         Label("I'm out", systemImage: "location.slash")
                             .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
                     .buttonStyle(.tweenPrimary(.neutral))
                     .accessibilityHint("Stops sharing you as active for this meetup")
@@ -414,22 +422,13 @@ struct CompactView: View {
             .background(color.opacity(0.12), in: Capsule())
     }
 
+    /// The compact CTA. Nothing renders when the user is already in — the
+    /// header/status pill carries that state, and the confirmation banner it
+    /// used to show pushed the layout past the keyboard-height budget.
     @ViewBuilder
     private var compactPrimaryAction: some View {
         if isUserIn {
-            HStack(spacing: Tokens.Spacing.s2) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(Tokens.Typography.headline)
-                Text("You're in")
-                    .font(Tokens.Typography.headline)
-                Spacer(minLength: 0)
-                Text("Sent to chat")
-                    .font(Tokens.Typography.captionBold)
-            }
-            .foregroundStyle(Tokens.Palette.success)
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
-            .background(Tokens.Palette.success.opacity(0.12), in: Capsule())
+            EmptyView()
         } else if isSending {
             HStack(spacing: Tokens.Spacing.s2) {
                 ProgressView()
@@ -456,13 +455,13 @@ struct CompactView: View {
                 markers: markers(for: received),
                 cornerRadius: Tokens.Radius.card,
                 focusCoordinate: received.kind == .place ? received.coordinate : nil)
-                .frame(width: 112, height: 92)
+                .frame(width: 96, height: 72)
         } else {
             ZStack {
                 RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
                 Image(systemName: "map.fill").foregroundStyle(Tokens.Palette.textTertiary)
             }
-            .frame(width: 112, height: 92)
+            .frame(width: 96, height: 72)
         }
     }
 
@@ -584,9 +583,11 @@ struct CompactView: View {
 }
 
 /// Formats a drive-time duration as a compact human string: "<1 min", "8 min",
-/// or "1h 5m". Shared by the expanded map's A/B chips and the spot list.
+/// or "1h 5m". The ONLY ETA formatter — both targets use it, so the same drive
+/// can never read "9 min" in the extension and "10 min" in the app. Rounds to
+/// the nearest minute (matching ETAChip's arithmetic) rather than truncating.
 func formatETA(_ seconds: TimeInterval) -> String {
-    let minutes = Int(seconds / 60)
+    let minutes = Int((seconds / 60).rounded())
     if minutes < 1 { return "<1 min" }
     if minutes < 60 { return "\(minutes) min" }
     return "\(minutes / 60)h \(minutes % 60)m"
@@ -1685,7 +1686,7 @@ struct ExpandedView: View {
                     ForEach(visible) { eta in
                         let xOffset = Self.position(for: eta, in: spot, trackWidth: trackWidth)
                         Text(Self.initials(for: eta.name))
-                            .font(.system(size: 10, weight: .bold))
+                            .font(Tokens.Typography.caption2Bold)
                             .foregroundStyle(.white)
                             .frame(width: 22, height: 22)
                             .background(Tokens.Palette.brand, in: Circle())
@@ -1696,7 +1697,7 @@ struct ExpandedView: View {
 
                     if spot.etas.count > visible.count {
                         Text("+\(spot.etas.count - visible.count)")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(Tokens.Typography.caption2Bold)
                             .foregroundStyle(Tokens.Palette.textSecondary)
                             .frame(width: 28, height: 22)
                             .background(Tokens.Palette.surface, in: Capsule())

@@ -98,12 +98,12 @@ struct ABDistanceLabel: View {
     }
 
     private var aValue: String {
-        if let ranked { return Self.formatETA(ranked.etaFromA) }
+        if let ranked { return formatETA(ranked.etaFromA) }
         return Self.formatDistance(from: selfCoord, to: target)
     }
 
     private var bValue: String {
-        if let ranked { return Self.formatETA(ranked.etaFromB) }
+        if let ranked { return formatETA(ranked.etaFromB) }
         return Self.formatDistance(from: peerCoord, to: target)
     }
 
@@ -116,14 +116,6 @@ struct ABDistanceLabel: View {
         let miles = a.distance(from: b) / 1609.34
         if miles < 0.1 { return "nearby" }
         return String(format: "%.1f mi", miles)
-    }
-
-    /// A driving ETA in seconds as a short string: "<1 min" / "N min" / "Nh Mm".
-    static func formatETA(_ seconds: TimeInterval) -> String {
-        let minutes = Int((seconds / 60).rounded())
-        if minutes < 1 { return "<1 min" }
-        if minutes < 60 { return "\(minutes) min" }
-        return "\(minutes / 60)h \(minutes % 60)m"
     }
 }
 

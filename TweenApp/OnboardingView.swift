@@ -93,6 +93,8 @@ struct OnboardingView: View {
     @State private var suppressNextQueryChange = false
     /// Tracks the search field's focus so tapping it lifts the sheet to medium.
     @FocusState private var searchFocused: Bool
+    /// Tracks the profile-name field so the name persists when focus leaves it.
+    @FocusState private var nameFieldFocused: Bool
     /// The tapped/selected search result — drives the highlighted map pin and the
     /// compact floating detail card (Apple-Maps style).
     @State private var selectedResult: MKMapItem?
@@ -313,7 +315,10 @@ struct OnboardingView: View {
         _position = State(initialValue: Self.cameraPosition(for: initialCoords))
     }
 
-    var body: some View {
+    /// The full-bleed map plus its annotations. Safe-area-dependent chrome does
+    /// NOT live here — it's layered on in `body`, where it can respect the real
+    /// device insets instead of guessing them with hardcoded paddings.
+    private var mapLayer: some View {
         Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
                 Annotation("You", coordinate: coord) {
@@ -373,10 +378,27 @@ struct OnboardingView: View {
         }
         .ignoresSafeArea()
         .mapStyle(mapDisplayStyle.mapStyle)
-        .overlay(alignment: .top) { topSafeAreaGlass }
-        .overlay(alignment: .topTrailing) { topTrailingControls }
-        .overlay(alignment: .top) { viewModeToggle }
-        .overlay(alignment: .bottom) { compactCard }
+    }
+
+    var body: some View {
+        // The root GeometryReader reports the real device safe-area insets; the
+        // map ignores them (full bleed) while every floating control is laid
+        // out INSIDE them. Replaces the old per-overlay hardcoded paddings that
+        // each encoded a different guess about where the notch/home bar are.
+        GeometryReader { proxy in
+            ZStack {
+                mapLayer
+                    .overlay(alignment: .top) {
+                        topSafeAreaGlass(topInset: proxy.safeAreaInsets.top)
+                    }
+                topTrailingControls
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                viewModeToggle
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                compactCard
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+        }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
@@ -525,9 +547,13 @@ struct OnboardingView: View {
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: Tokens.Spacing.s3) {
-            // Always visible — at the minimal detent this is the entire sheet, an
-            // Apple-Maps-style search bar floating over a full-screen map.
-            searchBar
+            // At the minimal detent this is the entire sheet, an Apple-Maps-style
+            // search bar floating over a full-screen map. On the Friends tab it
+            // hides — otherwise it stacks directly above the visually identical
+            // name field and reads as two search bars.
+            if isMinimalDetent || panelTab == .map {
+                searchBar
+            }
 
             // Everything else is revealed once the sheet is lifted off its peek.
             if !isMinimalDetent {
@@ -554,7 +580,10 @@ struct OnboardingView: View {
                 }
             }
         }
-        .padding(.top, Tokens.Spacing.s2)
+        // s4 keeps the first row clear of the system drag indicator, which
+        // occupies the sheet's top ~16pt — at the peek detent an s2 padding put
+        // the indicator right on the search field's border.
+        .padding(.top, Tokens.Spacing.s4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .overlay(alignment: .bottom) { toastView }
@@ -613,34 +642,28 @@ struct OnboardingView: View {
     }
 
     private var topTrailingControls: some View {
-        let step = Tokens.Layout.minTapTarget + Tokens.Spacing.s2
-        return ZStack(alignment: .topTrailing) {
+        VStack(alignment: .trailing, spacing: Tokens.Spacing.s2) {
             infoButton
             mapStyleButton
-                .offset(y: step)
             resetMapButton
-                .offset(y: step * 2)
         }
-        .frame(
-            width: Tokens.Layout.minTapTarget * 5 + Tokens.Spacing.s2 * 4,
-            height: Tokens.Layout.minTapTarget * 3 + Tokens.Spacing.s2 * 2,
-            alignment: .topTrailing
-        )
-        .padding(.top, Tokens.Spacing.s9 + Tokens.Spacing.s2)
+        .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    private var topSafeAreaGlass: some View {
+    /// Fade-out blur behind the status bar. Sized from the measured safe-area
+    /// inset so it hugs the Dynamic Island / notch on every device instead of
+    /// assuming one fixed height.
+    private func topSafeAreaGlass(topInset: CGFloat) -> some View {
         Rectangle()
             .fill(.ultraThinMaterial)
-            .frame(height: 132)
+            .frame(height: topInset + Tokens.Spacing.s9)
             .mask(
                 LinearGradient(
                     colors: [.black, .black.opacity(0.72), .clear],
                     startPoint: .top,
                     endPoint: .bottom)
             )
-            .ignoresSafeArea(edges: .top)
             .allowsHitTesting(false)
     }
 
@@ -683,9 +706,9 @@ struct OnboardingView: View {
         Image(systemName: systemName)
             .font(Tokens.Typography.callout)
             .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
-            .frame(width: 44, height: 44)
+            .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
             .background(
-                isSelected ? Tokens.Palette.brand : Color(.systemBackground).opacity(0.92),
+                isSelected ? Tokens.Palette.brand : Tokens.Palette.surface.opacity(0.92),
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
             )
             .overlay {
@@ -703,8 +726,8 @@ struct OnboardingView: View {
             Image(systemName: "location.viewfinder")
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 44, height: 44)
-                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
                         .strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
@@ -722,8 +745,8 @@ struct OnboardingView: View {
             Image(systemName: "info.circle.fill")
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: 44, height: 44)
-                .background(Color(.systemBackground).opacity(0.92), in: Circle())
+                .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                .background(Tokens.Palette.surface.opacity(0.92), in: Circle())
                 .overlay {
                     Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
                 }
@@ -745,7 +768,7 @@ struct OnboardingView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 200)
+            .frame(width: Tokens.Layout.minTapTarget * 4 + Tokens.Spacing.s6)
             .padding(Tokens.Spacing.s1)
             .background(.ultraThinMaterial, in: Capsule())
             .tweenElevation(.floating)
@@ -817,78 +840,105 @@ struct OnboardingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .animation(.easeInOut(duration: 0.16), value: friendsPanelTab)
+        .animation(Tokens.Motion.quick, value: friendsPanelTab)
     }
 
+    /// One scrolling List for the entire People tab. The old layout stacked the
+    /// header content above a nested List in a fixed VStack, so at the half
+    /// detent the roster collapsed to zero height and clipped.
     private var peoplePanel: some View {
-        VStack(spacing: Tokens.Spacing.s3) {
-            HStack(spacing: Tokens.Spacing.s2) {
-                Image(systemName: "person.text.rectangle")
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                TextField("Your name", text: $profileName)
-                    .textFieldStyle(.plain)
-                    .submitLabel(.done)
-                    .onSubmit(saveProfileName)
-                    .onChange(of: profileName) { _, _ in saveProfileName() }
-                    .accessibilityLabel("Your name")
-                    .accessibilityHint("Shown to friends when you invite them")
+        List {
+            Group {
+                nameFieldRow
+                friendActionButtons
+                meetupStatusSection
             }
-            .padding(Tokens.Spacing.s3)
-            .tweenGlass()
-            .padding(.horizontal)
-
-            HStack(spacing: Tokens.Spacing.s2) {
-                Button { activeSheet = .contacts } label: {
-                    Label("Add Friend", systemImage: "person.badge.plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .tint(Tokens.Palette.brand)
-                .accessibilityHint("Picks someone from your contacts")
-
-                Button { activeSheet = .invite } label: {
-                    Label("Invite", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .tint(Tokens.Palette.brand)
-                .accessibilityHint("Shares an invite link to Tween")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-
-            meetupStatusSection
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: Tokens.Spacing.s1, leading: Tokens.Spacing.s4,
+                                      bottom: Tokens.Spacing.s1, trailing: Tokens.Spacing.s4))
 
             if friends.isEmpty {
                 ContentUnavailableView(
                     "No Saved Friends",
                     systemImage: "person.2",
                     description: Text("Add contacts here, or open a Tween iMessage to see the live meetup roster above."))
-                    .frame(maxHeight: .infinity)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             } else {
-                List {
-                    ForEach(friends) { friend in
-                        FriendRow(friend: friend, pingTick: pingTick)
-                            .contentShape(Rectangle())
-                            .onTapGesture { pingFriend(friend) }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityHint("Pings \(friend.name) to meet up")
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    deleteFriend(friend)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Button { startRename(friend) } label: {
-                                    Label("Rename", systemImage: "pencil")
-                                }
-                                .tint(Tokens.Palette.pinSelf)
+                ForEach(friends) { friend in
+                    FriendRow(friend: friend, pingTick: pingTick)
+                        .contentShape(Rectangle())
+                        .onTapGesture { pingFriend(friend) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Pings \(friend.name) to meet up")
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                deleteFriend(friend)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
-                    }
+                            Button { startRename(friend) } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            .tint(Tokens.Palette.pinSelf)
+                        }
                 }
-                .listStyle(.plain)
             }
         }
+        .listStyle(.plain)
+    }
+
+    /// The profile-name field as a form row — icon badge, caption label, and an
+    /// opaque secondary surface — so it can't be mistaken for the place-search
+    /// bar. Persists on submit or when focus leaves the field, not per keystroke
+    /// (every write fans out through the App Group change publisher).
+    private var nameFieldRow: some View {
+        HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: "person.text.rectangle")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: 36, height: 36)
+                .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your name")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                TextField("Add your name", text: $profileName)
+                    .textFieldStyle(.plain)
+                    .focused($nameFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit(saveProfileName)
+                    .accessibilityLabel("Your name")
+                    .accessibilityHint("Shown to friends when you invite them")
+            }
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .onChange(of: nameFieldFocused) { _, focused in
+            if !focused { saveProfileName() }
+        }
+    }
+
+    private var friendActionButtons: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Button { activeSheet = .contacts } label: {
+                Label("Add Friend", systemImage: "person.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(Tokens.Palette.brand)
+            .accessibilityHint("Picks someone from your contacts")
+
+            Button { activeSheet = .invite } label: {
+                Label("Invite", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .tint(Tokens.Palette.brand)
+            .accessibilityHint("Shares an invite link to Tween")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var meetupStatusSection: some View {
@@ -931,7 +981,6 @@ struct OnboardingView: View {
                 .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
             }
         }
-        .padding(.horizontal)
     }
 
     private func participantStatusRow(_ participant: Participant) -> some View {
@@ -1150,7 +1199,10 @@ struct OnboardingView: View {
         }
         .padding(Tokens.Spacing.s3)
         .frame(minHeight: Tokens.Layout.searchBarHeight)
-        .tweenGlass()
+        // Opaque inset fill, Apple-Maps style. The sheet behind this field is
+        // already a material surface; a second translucent layer here is what
+        // produced the "bar inside a bar" double-chrome look.
+        .background(Tokens.Palette.inputFill, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .padding(.horizontal)
         // Tapping into the field lifts the collapsed sheet to medium so the chips
         // and suggestions have room to appear.
@@ -1171,7 +1223,7 @@ struct OnboardingView: View {
                             .padding(.horizontal, Tokens.Spacing.s4)
                             .frame(minHeight: Tokens.Layout.minTapTarget)
                             .background(
-                                selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(.thinMaterial),
+                                selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
                                 in: Capsule()
                             )
                             .foregroundStyle(selected ? Color.white : Tokens.Palette.textPrimary)
@@ -1242,7 +1294,7 @@ struct OnboardingView: View {
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .padding(.horizontal, Tokens.Spacing.s3)
                 .padding(.vertical, Tokens.Spacing.s2)
-                .background(.thinMaterial, in: Capsule())
+                .background(Tokens.Palette.surfaceSecondary, in: Capsule())
                 .accessibilityLabel(peerDistanceText)
         }
     }
@@ -1293,7 +1345,7 @@ struct OnboardingView: View {
                                 .foregroundStyle(Tokens.Palette.textTertiary)
                         }
                         .padding(Tokens.Spacing.s3)
-                        .frame(maxWidth: .infinity, minHeight: 58)
+                        .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -1305,7 +1357,7 @@ struct OnboardingView: View {
                     }
                 }
             }
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         }
     }
 
@@ -1462,12 +1514,13 @@ struct OnboardingView: View {
             }
         }
         .padding(Tokens.Spacing.s4)
-        .tweenGlass(radius: Tokens.Radius.card)
+        .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .tweenElevation(.floating)
         .padding(.horizontal)
-        // Clear the always-peeked search sheet without leaving a loose map
-        // strip between the card and search bar.
-        .padding(.bottom, Tokens.Layout.sheetPeekHeight - Tokens.Spacing.s4)
+        // Float just above the collapsed sheet. Both this padding and the peek
+        // detent are measured from the bottom safe-area edge now, so the gap is
+        // the same on every device.
+        .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s2)
         .contentShape(Rectangle())
         .onTapGesture {
             guard !isAgreedMeetup else { return }
@@ -2079,7 +2132,6 @@ struct OnboardingView: View {
     /// else feeds the completer immediately. Full result cards only appear after
     /// Return, a suggestion tap, or a category/shortcut tap.
     private func handleQueryChange(_ query: String) {
-        focusSearchPanel()
         // A programmatic commit (suggestion/category) already started its search;
         // don't let the resulting onChange cancel it or revert to suggestions.
         if suppressNextQueryChange {

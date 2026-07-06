@@ -19,6 +19,10 @@ enum Tokens {
         // Surfaces
         static let surface = Color(uiColor: .systemBackground)
         static let surfaceSecondary = Color(uiColor: .secondarySystemBackground)
+        /// Opaque fill for text inputs (search bar, name field). Deliberately
+        /// NOT a material: inputs sit inside the material bottom sheet, and
+        /// material-on-material reads as a muddy "bar inside a bar".
+        static let inputFill = Color(uiColor: .tertiarySystemFill)
 
         // Brand — deep teal #008C8C, brightened in dark mode for contrast.
         static let brand = dynamicColor(
@@ -140,11 +144,13 @@ enum Tokens {
         static let footnote = Font.system(.footnote)
         static let caption = Font.system(.caption)
         static let captionBold = Font.system(.caption, weight: .semibold)
+        static let caption2Bold = Font.system(.caption2, weight: .bold)
     }
 
     // MARK: - Motion
 
     enum Motion {
+        static let quick = Animation.easeInOut(duration: 0.16)
         static let snappy = Animation.easeInOut(duration: 0.40)
         static let spring = Animation.spring(duration: 0.48, bounce: 0.12)
         static let gentle = Animation.easeInOut(duration: 0.66)
