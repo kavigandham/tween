@@ -83,11 +83,6 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// CTA stuck in "Finding fair spots..." if the network or service stalls.
     private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
 
-    /// How long a per-conversation meetup snapshot stays trustworthy. Meetups
-    /// are same-day plans; anything older renders as stale state, not a live
-    /// negotiation, so it's cleared on activation instead of restored.
-    private static let snapshotTTL: TimeInterval = 24 * 60 * 60
-
     /// The status strings that mean something FAILED. `sendStatusMessage` is
     /// one channel carrying three kinds of copy (progress, confirmation,
     /// failure); the views style only these as a warning banner so a routine
@@ -170,7 +165,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Expire stale per-chat snapshots. Without a TTL, a meetup negotiated
         // days ago resurrects (and force-expands the extension) every time the
         // user opens Tween in that chat, presenting old state as current.
-        if let stale = snapshot, Date().timeIntervalSince(stale.updatedAt) > Self.snapshotTTL {
+        if let stale = snapshot, Date().timeIntervalSince(stale.updatedAt) > ConversationMeetupStore.snapshotTTL {
             ConversationMeetupStore.clear(key: key)
             snapshot = nil
         }

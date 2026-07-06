@@ -62,14 +62,6 @@ struct OnboardingTutorialView: View {
     @State private var demoDirections = false
 
     private var isLastSlide: Bool { selection == Self.slides.count - 1 }
-    private var canAdvanceFromCurrentSlide: Bool {
-        switch Self.slides[selection].visual {
-        case .join:       return demoJoined
-        case .fairSpot:   return demoChosen
-        case .messages:   return demoSent
-        case .directions: return demoDirections
-        }
-    }
 
     var body: some View {
         ZStack {
@@ -117,14 +109,15 @@ struct OnboardingTutorialView: View {
             Spacer()
 
             Button(action: onDone) {
-                Image(systemName: "xmark")
+                Text("Skip")
                     .font(Tokens.Typography.headline)
                     .foregroundStyle(Tokens.Palette.textPrimary)
-                    .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
-                    .background(Tokens.Palette.surfaceSecondary, in: Circle())
+                    .padding(.horizontal, Tokens.Spacing.s4)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+                    .background(Tokens.Palette.surfaceSecondary, in: Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close guide")
+            .accessibilityLabel("Skip guide")
         }
         .padding(.horizontal, Tokens.Spacing.s5)
     }
@@ -169,28 +162,19 @@ struct OnboardingTutorialView: View {
                     }
                     .buttonStyle(.tweenPrimary())
                 } else {
+                    // Never gated: swiping and the page dots always advanced
+                    // regardless, so a demo-locked Next only punished the one
+                    // navigation path. The in-slide demos remain as optional
+                    // try-it moments.
                     Button {
-                        guard canAdvanceFromCurrentSlide else { return }
                         withAnimation(Tokens.Motion.snappy) {
                             selection = min(Self.slides.count - 1, selection + 1)
                         }
                     } label: {
                         Label("Next", systemImage: "chevron.right")
-                            .font(Tokens.Typography.headline)
-                            .foregroundStyle(canAdvanceFromCurrentSlide ? .white : Tokens.Palette.textTertiary)
-                            .padding(.vertical, Tokens.Spacing.s3)
-                            .padding(.horizontal, Tokens.Spacing.s5)
-                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
-                            .background(
-                                canAdvanceFromCurrentSlide ? Tokens.Palette.brand : Tokens.Palette.surfaceSecondary,
-                                in: Capsule()
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!canAdvanceFromCurrentSlide)
-                    .accessibilityHint(canAdvanceFromCurrentSlide
-                                       ? "Moves to the next guide step"
-                                       : "Try the action on this step first")
+                    .buttonStyle(.tweenPrimary())
+                    .accessibilityHint("Moves to the next guide step")
                 }
             }
             .padding(.horizontal, Tokens.Spacing.s5)

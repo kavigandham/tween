@@ -37,6 +37,26 @@ enum ConversationMeetupStore {
     private static let storagePrefix = "conversationMeetup."
     private static let lastActiveKey = "conversationMeetup.lastActive"
 
+    /// How long a per-conversation snapshot stays trustworthy. Meetups are
+    /// same-day plans; anything older renders as stale state, not a live
+    /// negotiation. Shared by the extension (activation restore) and the host
+    /// app (launch reset + poll reads) so both surfaces age out together.
+    static let snapshotTTL: TimeInterval = 24 * 60 * 60
+
+    /// True when the most recently active conversation has meetup state fresh
+    /// within `ttl` — a roster, a proposal/agreement, or a pending draft. The
+    /// host app checks this before wiping caches on cold launch.
+    static func hasLiveMeetup(within ttl: TimeInterval) -> Bool {
+        guard let key = lastActiveConversationKey,
+              let snapshot = load(key: key),
+              Date().timeIntervalSince(snapshot.updatedAt) <= ttl
+        else { return false }
+        return !snapshot.participants.isEmpty
+            || snapshot.proposedState != nil
+            || snapshot.agreedState != nil
+            || snapshot.pendingDraft != nil
+    }
+
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
     }

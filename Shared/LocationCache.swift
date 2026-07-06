@@ -89,6 +89,15 @@ enum LocationCache {
 
     // MARK: - Status
 
+    /// True when the user has explicitly said "I'm in" and hasn't left. Unlike
+    /// `isActive` this ignores coordinate freshness: presence is a user
+    /// decision that only "I'm out" (or a meetup reset) reverses. Freshness
+    /// still gates whether the cached COORDINATE is reusable — use `isActive`
+    /// for that.
+    static var isOptedIn: Bool {
+        defaults?.bool(forKey: selfActiveKey) ?? false
+    }
+
     /// True when self explicitly opted in and the coordinate is fresh.
     static var isActive: Bool {
         guard let cached = loadSelf() else { return false }

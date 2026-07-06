@@ -25,7 +25,6 @@ struct OnboardingView: View {
 
     /// A reply banner shows only while the last inbound bubble is this fresh.
     private static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
-    private static var didStartFreshMeetup = false
     private static var isHostTabHarness: Bool {
         CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
         || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
@@ -143,6 +142,10 @@ struct OnboardingView: View {
     @State private var nameDraft = ""
     /// Action to run once the user supplies a name from the prompt.
     @State private var pendingNameAction: (() -> Void)?
+    /// Action to resume once a location fix arrives — the send/agree the user
+    /// asked for while no coordinate was available yet. Mirrors
+    /// `pendingNameAction`; without it those taps were silently discarded.
+    @State private var pendingLocationAction: (() -> Void)?
 
     // Hand-off / onboarding
     @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
@@ -304,11 +307,9 @@ struct OnboardingView: View {
     ]
 
     init() {
-        if !Self.didStartFreshMeetup && !Self.isHostTabHarness {
-            LocationCache.startFreshMeetup()
-            Self.didStartFreshMeetup = true
-        }
-
+        // NOTE: the old unconditional LocationCache.startFreshMeetup() moved to
+        // TweenAppApp.init, gated on ConversationMeetupStore.hasLiveMeetup —
+        // launching the app must not erase a meetup that's in flight.
         let harnessParticipants = Self.isHostTabHarness ? Self.hostTabHarnessParticipants : []
         if Self.isHostTabHarness {
             LocationCache.save(harnessParticipants[0].coordinate, isActive: true)
@@ -518,8 +519,19 @@ struct OnboardingView: View {
                 }
                 awaitingImIn = false
                 reframe()
+                // Resume whatever send the user initiated before the fix
+                // landed (send-to-chat, agree reply). Runs after the cache
+                // writes above so the action sees the fresh coordinate.
+                if let action = pendingLocationAction {
+                    pendingLocationAction = nil
+                    action()
+                }
             } else if status == .denied || status == .failed {
                 awaitingImIn = false
+                if pendingLocationAction != nil {
+                    pendingLocationAction = nil
+                    showToast("Couldn't get your location — try again")
+                }
                 if wasAwaitingImIn {
                     showLocationAlert = true
                 }
@@ -1953,8 +1965,11 @@ struct OnboardingView: View {
     private func sendToChat(_ selection: SpotSelection) {
         ensureNamed {
             guard autoJoinForOutgoingMessage() else {
+                // Park the send and resume it the moment the fix arrives —
+                // discarding the tap made "Send to chat" feel broken.
+                pendingLocationAction = { sendToChat(selection) }
                 provider.requestOnce()
-                showToast("Tap I'm in first so your location is sent with the spot")
+                showToast("Getting your location — sending right after")
                 return
             }
             let coord = selection.coordinate
@@ -2271,6 +2286,22 @@ struct OnboardingView: View {
             searchState = .idle
             return false
         }
+        // No anchor at all → searchRegion would fall back to the center of the
+        // continental US and quietly return results in Kansas. Ask for a fix
+        // and rerun this exact search when it lands.
+        guard savedCoordinate != nil || peerCoordinate != nil else {
+            searchResults = []
+            rankedSpots = []
+            isSearchActive = false
+            isSearchLoading = false
+            searchState = .idle
+            pendingLocationAction = { commitSearch() }
+            provider.requestOnce()
+            showToast(provider.status == .denied
+                      ? "Turn on location access in Settings so search knows where to look"
+                      : "Getting your location — searching right after")
+            return false
+        }
         return true
     }
 
@@ -2426,8 +2457,11 @@ struct OnboardingView: View {
         // remote participant as `peerCoordinate` for legacy call sites and draw
         // the rest as group participants.
         let myName = UserProfile.displayName ?? UserName.fallback
+        // Same freshness rule as the extension: a snapshot past its TTL is
+        // history, not a live meetup, so the poll must not keep painting it.
         let scopedSnapshot = ConversationMeetupStore.lastActiveConversationKey
             .flatMap { ConversationMeetupStore.load(key: $0) }
+            .flatMap { Date().timeIntervalSince($0.updatedAt) <= ConversationMeetupStore.snapshotTTL ? $0 : nil }
         let roster = scopedSnapshot?.participants ?? LocationCache.loadParticipants()
         let localContext = LocalParticipantContext(id: nil, name: myName)
         let remotes = roster.filter { !$0.matches(localContext) }
@@ -2488,7 +2522,10 @@ struct OnboardingView: View {
             savedCoordinate = cachedSelf
             didChange = true
         }
-        let active = LocationCache.isActive
+        // Presence tracks the opt-in flag, NOT coordinate freshness — the old
+        // `isActive` read silently flipped "I'm in" back off five minutes
+        // after the last fix while peers still counted this user in.
+        let active = LocationCache.isOptedIn
         if isUserIn != active {
             isUserIn = active
             didChange = true
@@ -2764,8 +2801,11 @@ struct OnboardingView: View {
         var agreedIDs = incoming.agreedIDs
         if !agreedIDs.contains(myID) { agreedIDs.append(myID) }
         guard autoJoinForOutgoingMessage() else {
+            // Same parking pattern as sendToChat: the user already said yes —
+            // resume the agreement once the fix lands instead of dropping it.
+            pendingLocationAction = { sendAgreeReply(for: selection, incoming: incoming) }
             provider.requestOnce()
-            showToast("Tap I'm in first so your agreement includes your location")
+            showToast("Getting your location — agreeing right after")
             return
         }
         let mySelf = LocationCache.loadSelf()?.coordinate

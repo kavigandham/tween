@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 @preconcurrency import Contacts
 import MessageUI
 import Messages
@@ -118,11 +119,19 @@ struct ContactSearchView: View {
         return allContacts.filter { Self.fullName($0).localizedCaseInsensitiveContains(trimmed) }
     }
 
+    /// Full or limited (iOS 18+) access both allow enumeration — limited just
+    /// returns the user-selected subset. Treating `.limited` as anything other
+    /// than access used to strand those users on an infinite spinner.
+    private var hasContactsAccess: Bool {
+        if status == .authorized { return true }
+        if #available(iOS 18.0, *), status == .limited { return true }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                switch status {
-                case .authorized:
+                if hasContactsAccess {
                     if allContacts.isEmpty {
                         if isLoading {
                             ProgressView("Loading contacts…")
@@ -136,9 +145,9 @@ struct ContactSearchView: View {
                     } else {
                         contactList
                     }
-                case .denied, .restricted:
+                } else if status == .denied || status == .restricted {
                     deniedState
-                default:
+                } else {
                     requestState
                 }
             }
@@ -197,15 +206,25 @@ struct ContactSearchView: View {
 
     private var requestState: some View {
         // Permission is requested from `loadAllContacts`; this is the in-flight
-        // spinner shown while the system prompt is up.
-        ProgressView()
+        // state shown while the system prompt is up.
+        ProgressView("Waiting for Contacts permission…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var deniedState: some View {
-        ContentUnavailableView(
-            "Contacts Access Off",
-            systemImage: "person.crop.circle.badge.xmark",
-            description: Text("Enable Contacts access in Settings to add friends from your address book."))
+        ContentUnavailableView {
+            Label("Contacts Access Off", systemImage: "person.crop.circle.badge.xmark")
+        } description: {
+            Text("Enable Contacts access in Settings to add friends from your address book.")
+        } actions: {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Tokens.Palette.brand)
+        }
     }
 
     /// Requests access if needed, then enumerates the whole address book once on
@@ -216,9 +235,9 @@ struct ContactSearchView: View {
             let granted = (try? await store.requestAccess(for: .contacts)) ?? false
             status = CNContactStore.authorizationStatus(for: .contacts)
             guard granted else { return }
-        } else if status != .authorized {
-            return
         }
+        // `.limited` proceeds too — enumeration returns the selected subset.
+        guard hasContactsAccess else { return }
         guard allContacts.isEmpty else { return }
 
         isLoading = true

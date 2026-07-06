@@ -36,6 +36,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     private let manager = CLLocationManager()
 
+    /// Deadline for CoreLocation to produce a fix once authorization is
+    /// settled. Without it a stalled `requestLocation()` pins `status` at
+    /// `.requesting` forever — and every "Finding you..." spinner with it.
+    /// Armed only AFTER authorization resolves, so a user reading the
+    /// permission alert slowly is never timed out by us.
+    private static let fixTimeout: Duration = .seconds(20)
+    private var fixWatchdog: Task<Void, Never>?
+
     override init() {
         super.init()
         manager.delegate = self
@@ -49,7 +57,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            manager.requestLocation()
+            requestFix()
         case .denied, .restricted:
             status = .denied
         @unknown default:
@@ -63,11 +71,31 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             status = .requesting
-            manager.requestLocation()
+            requestFix()
         case .denied, .restricted:
             status = .denied
         default:
             status = .idle
+        }
+    }
+
+    private func requestFix() {
+        manager.requestLocation()
+        fixWatchdog?.cancel()
+        fixWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.fixTimeout)
+            guard !Task.isCancelled, let self, self.status == .requesting else { return }
+            self.status = .failed
+        }
+    }
+
+    /// Terminal transitions land here: cancel the watchdog and mutate the
+    /// `@Observable` state on the main actor — CoreLocation may call the
+    /// delegate off-main, and observers of `status` drive SwiftUI directly.
+    private func settle(_ newStatus: Status) {
+        fixWatchdog?.cancel()
+        Task { @MainActor in
+            self.status = newStatus
         }
     }
 
@@ -77,26 +105,26 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             if status == .requesting {
-                manager.requestLocation()
+                requestFix()
             }
         case .denied, .restricted:
-            status = .denied
+            settle(.denied)
         case .notDetermined:
             break
         @unknown default:
-            status = .failed
+            settle(.failed)
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let coordinate = locations.last?.coordinate else {
-            status = .failed
+            settle(.failed)
             return
         }
-        status = .got(coordinate)
+        settle(.got(coordinate))
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        status = .failed
+        settle(.failed)
     }
 }

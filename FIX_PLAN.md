@@ -40,24 +40,24 @@ cannot be verified in the simulator. Everything below builds on that stack being
 confirmed. Add to it: re-verify Phase-1 UI on a small device (SE class) and at
 XL Dynamic Type — especially CompactView with a staged-send status line visible.
 
-## Phase 2 — Remaining host-app flow bugs (no sign-off needed)
+## Phase 2 — Remaining host-app flow bugs — DONE (2026-07-06)
 
-1. `startFreshMeetup()` in `OnboardingView.init` wipes a live meetup on every cold
-   launch — the single worst offender against app↔extension interchangeability.
-   Move to scene-level lifecycle with an "is a meetup live?" check (scoped snapshot
-   fresh within TTL → don't wipe).
-2. "I'm in" silently expires after 5 min (`LocationCache.isActive` freshness window
-   flips `isUserIn` in the poll). Separate "user opted in" from "coordinate fresh".
-3. Tutorial gate: Next is demo-gated but swipe/page-dots bypass it; no Skip.
-4. iOS 18 limited-contacts access lands on an unlabeled infinite spinner
-   (FriendsPanel); denied state lacks "Open Settings".
-5. Location-denied search silently searches from the geographic center of the US;
-   gate with an enable-location prompt.
-6. Dropped intent after location guard: `sendToChat` / `sendAgreeReply` toast and
-   discard the action instead of resuming when the fix arrives (mirror
-   `pendingNameAction`).
-7. `LocationProvider`: watchdog timeout for `.requesting`; `@MainActor` annotation
-   (BUGREPORT T19 fixed NetworkMonitor; provider still unpinned).
+All landed, build green, 88/88 tests, tutorial + map screenshots verified:
+1. ✅ Launch wipe moved to `TweenAppApp.init`, gated on
+   `ConversationMeetupStore.hasLiveMeetup(within: snapshotTTL)` — opening the
+   app no longer erases an in-flight meetup (TTL constant now shared with the
+   extension's activation restore and the host poll's snapshot reads).
+2. ✅ `LocationCache.isOptedIn` (presence) split from `isActive` (coordinate
+   freshness); the poll no longer flips "I'm in" off after 5 minutes.
+3. ✅ Tutorial: Next always advances (demos are optional try-its); labeled Skip.
+4. ✅ Contacts: iOS 18 `.limited` treated as access; denied state gets
+   "Open Settings"; request state labeled.
+5. ✅ Location-less search parks the query, requests a fix, and reruns it
+   instead of silently searching Kansas.
+6. ✅ `pendingLocationAction` resumes send-to-chat / agree / search when the
+   fix arrives (mirrors `pendingNameAction`); cleared with a toast on failure.
+7. ✅ `LocationProvider`: 20s fix watchdog (armed only after authorization
+   resolves, so permission-alert time never counts) + main-actor mutation hops.
 
 ## Phase 3 — Protocol + identity (REQUIRES SIGN-OFF per BUGREPORT)
 
