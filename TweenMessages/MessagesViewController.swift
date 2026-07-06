@@ -613,7 +613,10 @@ final class MessagesViewController: MSMessagesAppViewController {
             // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
             if let fresh = await acquireLocation() {
-                LocationCache.save(fresh, isActive: true)
+                // Cache the fix but keep the prior active flag — the host app
+                // reads LocationCache.isActive as "you're in", so a join must
+                // not look successful before the bubble is actually delivered.
+                LocationCache.save(fresh, isActive: LocationCache.isActive)
                 coordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 coordinate = cached
@@ -627,9 +630,6 @@ final class MessagesViewController: MSMessagesAppViewController {
 
             let participants = self.nextParticipantList(myCoord: coordinate,
                                                        conversation: self.activeConversation)
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-            self.saveParticipantsForActiveConversation(participants)
 
             let state = TweenState(
                 text: "I'm in",
@@ -643,6 +643,15 @@ final class MessagesViewController: MSMessagesAppViewController {
             )
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                // Commit the join only once the bubble is delivered (or staged):
+                // a failed send must not leave this device claiming "You're in".
+                // deliverBubble already wrote the conversation-scoped roster via
+                // recordCanonicalSnapshot.
+                LocationCache.setActive(true)
+                self.currentParticipants = participants
+                LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            }
             isSending = false
             if didSend {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
