@@ -644,7 +644,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
             isSending = false
-            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            if didSend {
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only clear the status when it's still our in-progress copy.
+                if sendStatusMessage == "Sharing your location..." { sendStatusMessage = nil }
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
             presentUI(for: presentationStyle)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
@@ -692,7 +698,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
             isSending = false
-            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            if didSend {
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only clear the status when it's still our in-progress copy.
+                if sendStatusMessage == "Leaving this meetup..." { sendStatusMessage = nil }
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
             presentUI(for: presentationStyle)
         }
     }
@@ -901,7 +913,11 @@ final class MessagesViewController: MSMessagesAppViewController {
                     draft = nil
                     rankedSpots = []
                 }
-                sendStatusMessage = sentMessage(for: state)
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only claim "sent" when the status is still our in-progress copy.
+                if sendStatusMessage == sendingMessage(for: state) {
+                    sendStatusMessage = sentMessage(for: state)
+                }
             } else {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
@@ -979,8 +995,21 @@ final class MessagesViewController: MSMessagesAppViewController {
         do {
             switch mode {
             case .send:
-                try await conversation.send(message)
-                logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                do {
+                    try await conversation.send(message)
+                    logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                } catch {
+                    // Messages gates direct send on a recent user tap + a visible
+                    // extension (one send per detected interaction, WWDC17 Direct
+                    // Send API). Our sends run seconds after the tap (location
+                    // fix, snapshot render), so a rejection here is expected —
+                    // stage the bubble in the input field instead so delivery
+                    // never dead-ends. If insert also throws, the outer catch
+                    // reports the failure as before.
+                    logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
+                    try await conversation.insert(message)
+                    sendStatusMessage = "Added to the message box — tap send to deliver."
+                }
             case .insert(let dismissAfterInsert):
                 try await conversation.insert(message)
                 logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
