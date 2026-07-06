@@ -572,45 +572,6 @@ struct CompactView: View {
         return isUserIn ? "Waiting for your friend…" : "Tap “I'm in” to share where you are"
     }
 
-    @ViewBuilder
-    private var imInControl: some View {
-        Group {
-            if isUserIn {
-                Button(action: onImOut) {
-                    Label("I'm out", systemImage: "checkmark.circle.fill")
-                        .font(Tokens.Typography.subheadline.weight(.semibold))
-                        .labelStyle(.titleAndIcon)
-                        .lineLimit(1)
-                        .padding(.horizontal, Tokens.Spacing.s3)
-                        .frame(minHeight: Tokens.Layout.minTapTarget)
-                        .foregroundStyle(Tokens.Palette.success)
-                        .background(Tokens.Palette.success.opacity(0.12), in: Capsule())
-                        .contentTransition(.symbolEffect(.replace))
-                        .symbolEffect(.bounce, value: isUserIn)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("I'm out")
-                .accessibilityHint("Stops sharing you as active for this meetup")
-            } else if isSending {
-                ProgressView()
-                    .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
-                    .accessibilityLabel(statusMessage ?? "Sharing your location")
-            } else {
-                Button(action: onImIn) {
-                    Text("I'm in")
-                        .font(Tokens.Typography.subheadline.weight(.semibold))
-                        .padding(.horizontal, Tokens.Spacing.s4)
-                        .padding(.vertical, Tokens.Spacing.s2)
-                        .background(Tokens.Palette.brand, in: Capsule())
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("I'm in")
-                .accessibilityHint("Shares where you are with your friend")
-            }
-        }
-        .sensoryFeedback(.success, trigger: isUserIn)
-    }
 }
 
 /// Formats a drive-time duration as a compact human string: "<1 min", "8 min",
@@ -674,6 +635,10 @@ struct ExpandedView: View {
     var onOpenGoogleMaps: (TweenState) -> Void = { _ in }
     var isSending: Bool = false
     var statusMessage: String?
+    /// Whether `statusMessage` reports a failure (warning banner) or routine
+    /// progress/confirmation copy (neutral banner). One string channel carries
+    /// both, so the sender must say which it is.
+    var statusIsError: Bool = false
 
     @State private var selectedSpotID: RankedSpot.ID?
     /// Drives the interactive map's camera. `.automatic` frames every annotation
@@ -995,38 +960,6 @@ struct ExpandedView: View {
             .background(color.opacity(0.12), in: Capsule())
     }
 
-    private func bannerHeadline(state: TweenState, name: String, isFullyAgreed: Bool) -> String {
-        switch state.messageType {
-        case .invite:
-            return "You've been invited by"
-        case .leave:
-            return "\(name) is out"
-        case .propose:
-            return "\(name) chose"
-        case .agree where isFullyAgreed:
-            return "Everyone agreed to meet at"
-        case .agree:
-            return "\(name) agreed to meet at"
-        case .counter:
-            return "\(name) suggests instead"
-        }
-    }
-
-    private func bannerSubcopy(state: TweenState, isFullyAgreed: Bool) -> String {
-        switch state.messageType {
-        case .agree where isFullyAgreed:
-            return "Tap for directions."
-        case .agree:
-            return "Open Tween to see all pings."
-        case .leave:
-            return "They are no longer active for this meetup."
-        case .counter, .propose:
-            return "Do you want to agree or change it?"
-        case .invite:
-            return ""
-        }
-    }
-
     private func groupProgress(for state: TweenState) -> String? {
         let count = state.participants.count
         switch state.messageType {
@@ -1044,15 +977,6 @@ struct ExpandedView: View {
         }
     }
 
-    private func bannerAccessibilityLabel(state: TweenState, name: String, isFullyAgreed: Bool) -> String {
-        if state.kind == .place {
-            if isFullyAgreed {
-                return "Everyone agreed to meet at \(state.text)"
-            }
-            return "\(name) \(state.messageType == .agree ? "agreed to meet at" : "chose") \(state.text)"
-        }
-        return "You've been invited by \(name)"
-    }
 
     private func invitePromptView(state: TweenState) -> some View {
         ZStack(alignment: .bottom) {
@@ -1180,15 +1104,21 @@ struct ExpandedView: View {
         if allMeetupCoords.count >= 2 {
             result.append(MapMarker(coordinate: MapGeometry.centroid(of: allMeetupCoords), role: .midpoint))
         }
+        // Exactly ONE gold "the spot" pin. When a proposed place and/or a draft
+        // is on the map, the ranked candidates all render as plain results —
+        // three identical gold pins gave the user no way to tell which one was
+        // the actual proposal.
+        let hasHeroSpot = receivedPlaceCoord != nil || draft != nil
         if let receivedPlaceCoord {
             result.append(MapMarker(coordinate: receivedPlaceCoord, role: .fairSpot))
         }
         if let draft {
-            result.append(MapMarker(coordinate: draft.coordinate, role: .fairSpot))
+            result.append(MapMarker(coordinate: draft.coordinate, role: receivedPlaceCoord == nil ? .fairSpot : .result))
         }
         for (index, spot) in rankedSpots.enumerated() {
             if let coordinate = spot.item?.placemark.coordinate {
-                result.append(MapMarker(coordinate: coordinate, role: index == 0 ? .fairSpot : .result))
+                let isBest = index == 0 && !hasHeroSpot
+                result.append(MapMarker(coordinate: coordinate, role: isBest ? .fairSpot : .result))
             }
         }
         return result
@@ -1312,54 +1242,6 @@ struct ExpandedView: View {
     }
 
     // MARK: Spot list
-
-    @ViewBuilder
-    private var proposedPlacePanel: some View {
-        // Hidden when the meetup is set — the body swaps to meetupSetView.
-        if let received, received.kind == .place, !isMeetupSet {
-            HStack(spacing: Tokens.Spacing.s3) {
-                TweenPin(role: .fairSpot, animated: false)
-                    .scaleEffect(0.82)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(received.text)
-                        .font(Tokens.Typography.headline)
-                        .lineLimit(1)
-                    Text(panelSubcopy(for: received))
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .padding(.vertical, Tokens.Spacing.s3)
-            .background(Tokens.Palette.pinFair.opacity(0.14))
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(received.text) — \(panelSubcopy(for: received))")
-        }
-    }
-
-    /// Subcopy under the spot name in the proposed-place panel. Uses
-    /// `messageType` (the canonical source) and pulls the agreer's name from
-    /// `agreedNames.last` rather than `senderName`, which is the original
-    /// proposer's identity on every bubble in the chain.
-    private func panelSubcopy(for received: TweenState) -> String {
-        let proposer = received.senderName ?? "Your friend"
-        switch received.messageType {
-        case .agree:
-            // Partial-agree case (group, not everyone agreed yet). Fully-agreed
-            // never reaches here because the panel is hidden via isMeetupSet.
-            let agreer = received.agreedNames.last ?? "Your friend"
-            return "\(agreer) agreed — waiting on the rest"
-        case .propose:
-            return "\(proposer) picked this spot"
-        case .counter:
-            return "\(proposer) suggests this instead"
-        case .leave:
-            return "\(proposer) stepped out"
-        case .invite:
-            return ""
-        }
-    }
 
     /// MEETUP SET — the terminal hero shown when the bubble's messageType is
     /// `.agree` and every non-proposer participant has agreed. Agreement is
@@ -1866,7 +1748,7 @@ struct ExpandedView: View {
                                 .lineLimit(1)
                         }
                         .buttonStyle(.tweenPrimary())
-                        .disabled(rankedSpots.isEmpty)
+                        .disabled(rankedSpots.isEmpty || isSending)
                         .accessibilityHint(selectedSpot == nil ? "Shows fair options for the people who are in" : "Sends the selected spot")
                     }
                 }
@@ -1970,6 +1852,9 @@ struct ExpandedView: View {
                     .lineLimit(1)
             }
             .buttonStyle(.tweenPrimary())
+            // Every other send CTA disables mid-flight; without this the user
+            // could double-fire agreements while the first was still sending.
+            .disabled(isSending)
             .accessibilityHint("Sends that you agree to meet at \(received.text)")
 
             Button {
@@ -1984,7 +1869,7 @@ struct ExpandedView: View {
                     .lineLimit(1)
             }
             .buttonStyle(.tweenPrimary(.subtle))
-            .disabled(rankedSpots.isEmpty)
+            .disabled(rankedSpots.isEmpty || isSending)
             .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
         }
     }
@@ -2078,15 +1963,15 @@ struct ExpandedView: View {
 
     private func statusBanner(_ message: String) -> some View {
         HStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: "exclamationmark.circle.fill")
+            Image(systemName: statusIsError ? "exclamationmark.circle.fill" : "info.circle.fill")
             Text(message)
             Spacer(minLength: 0)
         }
         .font(Tokens.Typography.caption.weight(.medium))
-        .foregroundStyle(.white)
+        .foregroundStyle(statusIsError ? .white : Tokens.Palette.brand)
         .padding(Tokens.Spacing.s3)
         .frame(maxWidth: .infinity)
-        .background(Tokens.Palette.warning)
+        .background(statusIsError ? AnyShapeStyle(Tokens.Palette.warning) : AnyShapeStyle(Tokens.Palette.brandLight))
         .accessibilityElement(children: .combine)
     }
 }

@@ -83,6 +83,25 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// CTA stuck in "Finding fair spots..." if the network or service stalls.
     private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
 
+    /// How long a per-conversation meetup snapshot stays trustworthy. Meetups
+    /// are same-day plans; anything older renders as stale state, not a live
+    /// negotiation, so it's cleared on activation instead of restored.
+    private static let snapshotTTL: TimeInterval = 24 * 60 * 60
+
+    /// The status strings that mean something FAILED. `sendStatusMessage` is
+    /// one channel carrying three kinds of copy (progress, confirmation,
+    /// failure); the views style only these as a warning banner so a routine
+    /// "Sent X to the chat" never renders with an alarm icon.
+    private static let errorStatuses: Set<String> = [
+        "Couldn't send the Tween message. Try again.",
+        "Location unavailable. Check permission and try again.",
+        "Google Maps isn't installed."
+    ]
+
+    private var sendStatusIsError: Bool {
+        sendStatusMessage.map { Self.errorStatuses.contains($0) } ?? false
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -147,7 +166,14 @@ final class MessagesViewController: MSMessagesAppViewController {
         presentUI(for: presentationStyle)
 
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
-        let snapshot = ConversationMeetupStore.load(key: key)
+        var snapshot = ConversationMeetupStore.load(key: key)
+        // Expire stale per-chat snapshots. Without a TTL, a meetup negotiated
+        // days ago resurrects (and force-expands the extension) every time the
+        // user opens Tween in that chat, presenting old state as current.
+        if let stale = snapshot, Date().timeIntervalSince(stale.updatedAt) > Self.snapshotTTL {
+            ConversationMeetupStore.clear(key: key)
+            snapshot = nil
+        }
         // decodeAndCache returns true only when a PEER COORDINATE was saved, so
         // a decoded message with no non-local participant (e.g. a .leave) still
         // reports false. Gate the snapshot restore on `received == nil` so it
@@ -368,9 +394,16 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// (those happen inside decodeAndCache); this only changes what
     /// ExpandedView is handed.
     private func effectiveReceived(decoded: TweenState?) -> TweenState? {
-        let scopedAgreed = conversationKey
-            .flatMap { ConversationMeetupStore.load(key: $0)?.agreedState }
-        let agreedCandidate = scopedAgreed ?? LocationCache.loadAgreedMeetup()
+        // Conversation-scoped agreement ONLY when we know which conversation
+        // we're in. The device-global LocationCache fallback is reserved for
+        // the keyless case — falling back to it whenever the scoped store had
+        // no agreement leaked chat A's MEETUP SET into chat B.
+        let agreedCandidate: TweenState?
+        if let conversationKey {
+            agreedCandidate = ConversationMeetupStore.load(key: conversationKey)?.agreedState
+        } else {
+            agreedCandidate = LocationCache.loadAgreedMeetup()
+        }
         guard let agreed = agreedCandidate, agreed.isFullyAgreed else {
             return decoded
         }
@@ -457,7 +490,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onOpenAppleMaps: { [weak self] state in self?.openAppleMaps(for: state) },
                     onOpenGoogleMaps: { [weak self] state in self?.openGoogleMaps(for: state) },
                     isSending: isSending,
-                    statusMessage: sendStatusMessage
+                    statusMessage: sendStatusMessage,
+                    statusIsError: sendStatusIsError
                 )
             )
         default:
