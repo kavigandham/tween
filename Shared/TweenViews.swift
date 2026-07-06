@@ -710,8 +710,12 @@ struct ExpandedView: View {
         return received.messageType == .agree && received.isFullyAgreed
     }
 
+    /// Every not-in recipient of an invite gets the join hero — including the
+    /// 3rd+ person in a group chat whose invite already carries ≥2 participants.
+    /// (Gating on !inviteHasEnoughPeopleForSpots dropped those users into the
+    /// spot-list layout, which has no "I'm in" affordance at all.)
     private var isInvitePrompt: Bool {
-        received?.messageType == .invite && !isUserIn && !inviteHasEnoughPeopleForSpots
+        received?.messageType == .invite && !isUserIn
     }
 
     private var inviteHasEnoughPeopleForSpots: Bool {
