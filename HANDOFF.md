@@ -74,8 +74,12 @@ project.yml          XcodeGen source (generates .xcodeproj)
   - `94b3a55` every not-in invite recipient gets the join hero — 3rd+ group member could not join before
   - `a553f26` `Participant.matches(context:)` name fallback gated to legacy id-less entries (+4 tests) — same-named peers (default "You") no longer count as the local user
   - `ace1ae5` tapping a leave bubble shows the "X left" banner instead of clobbering it
+- **Leave→map fixes (2026-07-06):**
+  - `439c2cb` leaving also clears `received` — the leaver's compact thumbnail + expanded map drew peer pins from `received.participants`, keeping everyone visible after I'm out
+  - `dcf6771` `CompactView.markers` legacy branch uses `representsParticipantLocation` — an empty-roster `.leave` no longer pins the leaver's own coordinate as a friend on the receiver
+  - Host-app map needed no change: `OnboardingView` polls `LocationCache` every 300 ms and both leave paths already clear it
 - **Earlier shipped:** UI overhaul, half-sheet default, map-stays-still snapshot cache, zoom-to-fit, group meetup state with stable IDs (`agreedIDs`, `Participant.id` UUID-first), conversation-scoped state via `ConversationMeetupStore`, Dynamic-Type map controls, native-scale snapshots.
-- **Known deferred:** legacy mixed-build payload edges (compact `p=` drops IDs; URL >5000 → nil); first-run permission alert can outlive the 5 s location poll (second tap works); compact roster pill counts from `received` (stale until the peer replies); `usesStaticMapForCurrentState` hardcodes `true` so ExpandedView's interactive `Map` is dead code; a closed extension only learns of updates when its user taps the bubble (serverless reality).
+- **Known deferred:** legacy mixed-build payload edges (compact `p=` drops IDs; URL >5000 → nil); first-run permission alert can outlive the 5 s location poll (second tap works); compact roster pill counts from `received` (stale until the peer replies); `usesStaticMapForCurrentState` hardcodes `true` so ExpandedView's interactive `Map` is dead code; a closed extension only learns of updates when its user taps the bubble (serverless reality); **old-bubble resurrection** — after leaving, tapping an OLDER bubble re-decodes its roster verbatim, so the leaver re-appears "in" (and re-pinned) on that device until a newer bubble is tapped; every bubble is a canonical roster snapshot with no ordering info, and a real fix needs a monotonic counter/tombstone in the URL payload (protocol change).
 
 ## 8. Known fragile areas
 
