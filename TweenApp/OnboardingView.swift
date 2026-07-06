@@ -2436,12 +2436,13 @@ struct OnboardingView: View {
             selectedResult = nil
             didChange = true
             if cachedAgreedMeetup != nil {
-                panelTab = .map
-                // Self-jump gate: skip the detent write when this refresh was
-                // driven by the 300 ms poll (or another background App Group
-                // signal). User-initiated refresh paths keep the peek nudge.
-                // See docs/ui-research.md §1.
+                // Self-jump gate: skip the tab AND detent writes when this
+                // refresh was driven by the 300 ms poll (or another background
+                // App Group signal) — a background tick must not yank controls
+                // the user may be interacting with. User-initiated refresh
+                // paths keep the peek nudge. See docs/ui-research.md §1.
                 if !suppressPollDetentWrites {
+                    panelTab = .map
                     selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
                 }
             }

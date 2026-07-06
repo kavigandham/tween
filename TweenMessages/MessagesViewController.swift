@@ -64,6 +64,12 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// category UI here, so we bias toward common, universal meetup spots.
     private static let defaultQuery = "cafe restaurant food"
 
+    /// Status copy set by `deliverBubble` when direct send was rejected and
+    /// the bubble was staged in the input field instead. `handleImIn` compares
+    /// against it to avoid expanding the extension over the staged bubble the
+    /// user still needs to tap send on.
+    private static let stagedDeliveryStatus = "Added to the message box — tap send to deliver."
+
     /// Hard cap for route resolution inside the extension (vs. 8 in the app).
     private static let rankCap = 5
     /// iMessage extensions are short-lived; don't let MapKit search leave the
@@ -190,6 +196,16 @@ final class MessagesViewController: MSMessagesAppViewController {
             kickOffRanking()
         }
         presentUI(for: presentationStyle)
+    }
+
+    override func didStartSending(_ message: MSMessage, conversation: MSConversation) {
+        super.didStartSending(message, conversation: conversation)
+        // The user tapped send on a staged (insert-fallback) bubble — the
+        // "tap send to deliver" hint has served its purpose.
+        if sendStatusMessage == Self.stagedDeliveryStatus {
+            sendStatusMessage = nil
+            presentUI(for: presentationStyle)
+        }
     }
 
     override func willResignActive(with conversation: MSConversation) {
@@ -435,6 +451,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     received: received,
                     isUserIn: isUserIn,
                     localParticipantID: localParticipantID(),
+                    currentParticipantCount: currentParticipants.isEmpty ? nil : currentParticipants.count,
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
@@ -670,8 +687,12 @@ final class MessagesViewController: MSMessagesAppViewController {
 
             // Now that we have a fix, surface the fair spots: jump to expanded
             // (which triggers ranking) and also rank directly to cover the case
-            // where we're already expanded and no transition fires.
-            requestPresentationStyle(.expanded)
+            // where we're already expanded and no transition fires. Skip the
+            // expand when the bubble was only STAGED — expanding would cover
+            // the input field holding the bubble the user still has to send.
+            if sendStatusMessage != Self.stagedDeliveryStatus {
+                requestPresentationStyle(.expanded)
+            }
             kickOffRanking()
         }
     }
@@ -807,7 +828,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             }
 
             var agreed = proposed.agreedNames
-            if !agreed.contains(myName) { agreed.append(myName) }
+            // Case-insensitive replace-then-append: "hassan" and "Hassan" are
+            // the same person, so a case-variant duplicate would inflate the
+            // "X of Y agreed" copy — and appending keeps me as
+            // `agreedNames.last`, which captions read as the most recent
+            // agreer. agreedIDs drive real consensus; this is display-only.
+            agreed.removeAll { $0.caseInsensitiveCompare(myName) == .orderedSame }
+            agreed.append(myName)
             let myId = self.localParticipantID()
             var agreedIDs = proposed.agreedIDs
             if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
@@ -1051,7 +1078,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     // reports the failure as before.
                     logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
                     try await conversation.insert(message)
-                    sendStatusMessage = "Added to the message box — tap send to deliver."
+                    sendStatusMessage = Self.stagedDeliveryStatus
                 }
             case .insert(let dismissAfterInsert):
                 try await conversation.insert(message)

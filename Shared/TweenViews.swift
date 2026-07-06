@@ -258,6 +258,11 @@ struct CompactView: View {
     let received: TweenState?
     let isUserIn: Bool
     var localParticipantID: String? = nil
+    /// The controller's live roster count (self included once joined). The
+    /// decoded `received` bubble lags one message behind — it can't include
+    /// the local user's own just-sent join — so pills prefer this when set.
+    /// Nil keeps the legacy received-derived rendering.
+    var currentParticipantCount: Int? = nil
     var isSending: Bool = false
     var statusMessage: String?
     var onImIn: () -> Void
@@ -308,6 +313,17 @@ struct CompactView: View {
 
             compactPrimaryAction
 
+            // Delivery status (e.g. the insert-fallback's "tap send to
+            // deliver" hint, or a send failure) — the launcher previously had
+            // no status surface at all, so staged sends looked like silence.
+            if let statusMessage, !isSending {
+                Text(statusMessage)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: Tokens.Spacing.s2) {
                 Button(action: onExpand) {
                     Label("Browse", systemImage: "arrow.up.forward.app")
@@ -356,8 +372,9 @@ struct CompactView: View {
                             .multilineTextAlignment(.leading)
                         HStack(spacing: Tokens.Spacing.s2) {
                             statusPill
-                            if let count = received?.participants.count, count > 1 {
-                                rosterPill("\(count) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
+                            let rosterCount = currentParticipantCount ?? received?.participants.count ?? 0
+                            if rosterCount > 1 {
+                                rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
                             }
                         }
                     }
@@ -408,7 +425,8 @@ struct CompactView: View {
     }
 
     private var rosterCountPill: some View {
-        rosterPill(isUserIn ? "1 in" : "0 in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
+        let count = currentParticipantCount ?? (isUserIn ? 1 : 0)
+        return rosterPill("\(count) in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
     }
 
     private func rosterPill(_ title: String, systemImage: String, color: Color) -> some View {
@@ -430,8 +448,13 @@ struct CompactView: View {
                 Text("You're in")
                     .font(Tokens.Typography.headline)
                 Spacer(minLength: 0)
-                Text("Sent to chat")
-                    .font(Tokens.Typography.captionBold)
+                // Suppressed while a delivery status is showing — "Sent to
+                // chat" would contradict the staged "tap send to deliver"
+                // hint (or a failure message) rendered right below.
+                if statusMessage == nil {
+                    Text("Sent to chat")
+                        .font(Tokens.Typography.captionBold)
+                }
             }
             .foregroundStyle(Tokens.Palette.success)
             .padding(.horizontal, Tokens.Spacing.s4)
