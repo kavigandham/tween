@@ -76,6 +76,28 @@ struct OnboardingView: View {
     /// peek, or up to full.
     @State private var selectedSheetDetent: PresentationDetent = .fraction(0.45)
 
+    /// Gate for the recurring App Group poll to skip writes to
+    /// `selectedSheetDetent`. Docs: `docs/ui-research.md` §1 — the self-jump
+    /// is caused by a poll re-asserting the detent-selection binding mid-drag.
+    /// Set only via `pollRefreshFromAppGroup()`, which owns the `defer` reset;
+    /// user-initiated refresh paths leave this `false` so the "agreed just
+    /// landed" nudge still fires when a URL open or scene resume drives it.
+    @State private var suppressPollDetentWrites: Bool = false
+
+    /// Handle for the pending `expandThenFocusSearch` post-animation focus so a
+    /// second call (rapid re-entry) can cancel the first — otherwise queued
+    /// tasks each fire `searchFocused = true` after the user may have already
+    /// backed out of the sheet. See `docs/ui-research.md` §7.
+    @State private var focusExpandTask: Task<Void, Never>?
+
+    /// Floating map-control tap-target size, scaled with Dynamic Type per
+    /// `docs/ui-research.md` §11. `Tokens.Layout.minTapTarget` (44 pt) is the
+    /// HIG floor at the default text size; at XXL Dynamic Type this grows so
+    /// users with larger system text still hit the target easily. Applied to
+    /// `resetMapButton` and `infoButton`, and the pattern other icon-button
+    /// call sites should follow.
+    @ScaledMetric private var floatingControlSize: CGFloat = Tokens.Layout.minTapTarget
+
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
@@ -525,8 +547,12 @@ struct OnboardingView: View {
             // Catches in-process writes (e.g. host app's own "I'm in" button).
             // Extension writes don't fire this — see pollPeer + scenePhase
             // handler above for the cross-process path.
+            // Route through the poll-safe wrapper: this fires on background
+            // App Group activity that isn't a direct user gesture on the
+            // sheet, so it must not re-assert the detent selection binding
+            // (docs/ui-research.md §1).
             Task { @MainActor in
-                _ = refreshFromAppGroup()
+                _ = pollRefreshFromAppGroup()
             }
         }
         .onOpenURL(perform: handleIncomingURL)
@@ -706,7 +732,7 @@ struct OnboardingView: View {
         Image(systemName: systemName)
             .font(Tokens.Typography.callout)
             .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
-            .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+            .frame(width: floatingControlSize, height: floatingControlSize)
             .background(
                 isSelected ? Tokens.Palette.brand : Tokens.Palette.surface.opacity(0.92),
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
@@ -726,7 +752,7 @@ struct OnboardingView: View {
             Image(systemName: "location.viewfinder")
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                .frame(width: floatingControlSize, height: floatingControlSize)
                 .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
@@ -745,7 +771,7 @@ struct OnboardingView: View {
             Image(systemName: "info.circle.fill")
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                .frame(width: floatingControlSize, height: floatingControlSize)
                 .background(Tokens.Palette.surface.opacity(0.92), in: Circle())
                 .overlay {
                     Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1)
@@ -1751,8 +1777,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count + 1, 2))
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -1822,8 +1852,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -1870,6 +1904,31 @@ struct OnboardingView: View {
     private func expandToSearchDetent() {
         guard isMinimalDetent else { return }
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.45) }
+    }
+
+    /// Expand-then-focus (`docs/ui-research.md` §7): first drive the sheet
+    /// to the search detent, then wait for the sheet's detent animation to
+    /// finish before setting `@FocusState`. SwiftUI drops the first responder
+    /// if a sheet is still animating between detents when focus is requested,
+    /// so setting both in the same synchronous block silently no-ops.
+    ///
+    /// `Tokens.Motion.snappy` is a 400 ms `.easeInOut` (see
+    /// `Shared/Tokens.swift:148`), so we wait 450 ms — a small margin past
+    /// the animation's end. The pending focus task is retained on `self` so
+    /// a rapid re-entry cancels the prior one; otherwise a user who backs
+    /// out of the sheet between call and fire would get an unexpected
+    /// keyboard.
+    private func expandThenFocusSearch() {
+        panelTab = .map
+        withAnimation(Tokens.Motion.snappy) {
+            selectedSheetDetent = .fraction(0.45)
+        }
+        focusExpandTask?.cancel()
+        focusExpandTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 450 * 1_000_000)
+            guard !Task.isCancelled else { return }
+            searchFocused = true
+        }
     }
 
     /// Frames every result pin PLUS self and peer, biased upward so the pins
@@ -2056,8 +2115,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: 2)
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -2155,7 +2218,10 @@ struct OnboardingView: View {
         isSearchActive = false
         isSearchLoading = false
         searchState = .suggesting
-        completer.update(query: trimmed, region: searchRegion)
+        // Debounced (300 ms) — the completer only fires on the query the user
+        // paused on, not every intermediate keystroke. Per
+        // docs/ui-research.md §7.
+        completer.debouncedUpdate(query: trimmed, region: searchRegion)
     }
 
     /// Commits a suggestion as a full search.
@@ -2330,9 +2396,26 @@ struct OnboardingView: View {
     @MainActor
     private func pollPeer() async {
         while !Task.isCancelled {
-            _ = refreshFromAppGroup()
+            _ = pollRefreshFromAppGroup()
             try? await Task.sleep(for: .milliseconds(300))
         }
+    }
+
+    /// Poll-safe wrapper around `refreshFromAppGroup()` — suppresses any
+    /// programmatic write to `selectedSheetDetent` for the duration of the
+    /// refresh so the 300 ms App Group poll cannot fight the user's sheet
+    /// drag. Docs: `docs/ui-research.md` §1 (self-jump).
+    ///
+    /// User-initiated refresh paths (`.onAppear`, scene resume,
+    /// `handleIncomingURL`) still call `refreshFromAppGroup()` directly so the
+    /// "agreed just landed" detent nudge fires as intended when a user opens
+    /// or returns to the app.
+    @MainActor
+    @discardableResult
+    private func pollRefreshFromAppGroup() -> Bool {
+        suppressPollDetentWrites = true
+        defer { suppressPollDetentWrites = false }
+        return refreshFromAppGroup()
     }
 
     @MainActor
@@ -2417,8 +2500,15 @@ struct OnboardingView: View {
             selectedResult = nil
             didChange = true
             if cachedAgreedMeetup != nil {
-                panelTab = .map
-                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                // Self-jump gate: skip the tab AND detent writes when this
+                // refresh was driven by the 300 ms poll (or another background
+                // App Group signal) — a background tick must not yank controls
+                // the user may be interacting with. User-initiated refresh
+                // paths keep the peek nudge. See docs/ui-research.md §1.
+                if !suppressPollDetentWrites {
+                    panelTab = .map
+                    selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                }
             }
         }
 
@@ -2525,9 +2615,10 @@ struct OnboardingView: View {
 
     private func handleIncomingURL(_ url: URL) {
         if url.scheme == "tween", url.host == "search" {
-            panelTab = .map
-            selectedSheetDetent = .fraction(0.45)
-            searchFocused = true
+            // Expand-then-focus per docs/ui-research.md §7 — SwiftUI drops the
+            // first responder if the sheet is still animating between detents
+            // when `searchFocused = true` fires.
+            expandThenFocusSearch()
             return
         }
 
@@ -2718,8 +2809,12 @@ struct OnboardingView: View {
             layout.image = image
             BubbleCaption.apply(to: layout, state: state, totalSeats: state.participants.count)
 
+            // Match sendToChat's guard: never ship a payload-less bubble —
+            // an oversize encode returns nil and the recipient's extension
+            // would decode nothing from the tapped message.
+            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
             let message = MSMessage()
-            message.url = state.encodedURL(scheme: "tween", host: "m")
+            message.url = bubbleURL
             message.layout = layout
 
             activeSheet = .message(PendingMessage(
@@ -2733,9 +2828,10 @@ struct OnboardingView: View {
     /// pick a different spot than the one their friend proposed. Drops a
     /// pin on the rejected spot so they have spatial context.
     private func startChangeFlow(initialCoord: CLLocationCoordinate2D) {
-        panelTab = .map
-        selectedSheetDetent = .fraction(0.45)
-        searchFocused = true
+        // Expand-then-focus per docs/ui-research.md §7. The camera nudge runs
+        // in parallel with the sheet animation; SwiftUI schedules them on the
+        // same tick so the map reframes as the sheet lifts.
+        expandThenFocusSearch()
         withAnimation(Tokens.Motion.gentle) {
             position = Self.placeCameraPosition(for: initialCoord, bottomBias: 0.12)
         }

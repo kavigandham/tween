@@ -142,6 +142,13 @@ struct TweenMapSnapshotView: View {
         }
         options.size = size
         options.mapType = .standard
+        // Render at the device's native pixel density (@3x on Retina) so the
+        // snapshot doesn't look pixelated when the memory-warning path swaps
+        // out the live Map. `size` is in points; `scale` maps them to pixels.
+        // Per docs/ui-research.md §5. `UIScreen.main.scale` is safe from a
+        // @MainActor context and matches BubbleImageRenderer (which hardcodes
+        // 3 because its output is a fixed-size bubble image).
+        options.scale = UIScreen.main.scale
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
@@ -251,6 +258,11 @@ struct CompactView: View {
     let received: TweenState?
     let isUserIn: Bool
     var localParticipantID: String? = nil
+    /// The controller's live roster count (self included once joined). The
+    /// decoded `received` bubble lags one message behind — it can't include
+    /// the local user's own just-sent join — so pills prefer this when set.
+    /// Nil keeps the legacy received-derived rendering.
+    var currentParticipantCount: Int? = nil
     var isSending: Bool = false
     var statusMessage: String?
     var onImIn: () -> Void
@@ -306,6 +318,17 @@ struct CompactView: View {
 
             compactPrimaryAction
 
+            // Delivery status (e.g. the insert-fallback's "tap send to
+            // deliver" hint, or a send failure) — the launcher previously had
+            // no status surface at all, so staged sends looked like silence.
+            if let statusMessage, !isSending {
+                Text(statusMessage)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: Tokens.Spacing.s2) {
                 Button(action: onExpand) {
                     Label("Browse", systemImage: "arrow.up.forward.app")
@@ -354,8 +377,9 @@ struct CompactView: View {
                             .multilineTextAlignment(.leading)
                         HStack(spacing: Tokens.Spacing.s2) {
                             statusPill
-                            if let count = received?.participants.count, count > 1 {
-                                rosterPill("\(count) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
+                            let rosterCount = currentParticipantCount ?? received?.participants.count ?? 0
+                            if rosterCount > 1 {
+                                rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
                             }
                         }
                     }
@@ -409,7 +433,8 @@ struct CompactView: View {
     }
 
     private var rosterCountPill: some View {
-        rosterPill(isUserIn ? "1 in" : "0 in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
+        let count = currentParticipantCount ?? (isUserIn ? 1 : 0)
+        return rosterPill("\(count) in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
     }
 
     private func rosterPill(_ title: String, systemImage: String, color: Color) -> some View {
@@ -428,6 +453,10 @@ struct CompactView: View {
     @ViewBuilder
     private var compactPrimaryAction: some View {
         if isUserIn {
+            // Nothing: the header/status pill already says "You're in", and any
+            // delivery status (staged "tap send to deliver" hint, failures)
+            // renders via the card subtitle / launcher status line. A banner
+            // here pushed the stack past the keyboard-height budget.
             EmptyView()
         } else if isSending {
             HStack(spacing: Tokens.Spacing.s2) {
@@ -497,8 +526,10 @@ struct CompactView: View {
             result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
         }
         // For legacy bubbles (kind=.participant, empty participants[]) the
-        // main coord IS the friend's pin.
-        if state.kind == .participant && state.participants.isEmpty {
+        // main coord IS the friend's pin. representsParticipantLocation rules
+        // out `.leave` payloads, whose main coord is the LEAVER's last position
+        // — an empty-roster leave must not pin the person who just left.
+        if state.representsParticipantLocation && state.participants.isEmpty {
             result.append(MapMarker(coordinate: state.coordinate, role: .friend))
         }
 
@@ -704,8 +735,12 @@ struct ExpandedView: View {
         return received.messageType == .agree && received.isFullyAgreed
     }
 
+    /// Every not-in recipient of an invite gets the join hero — including the
+    /// 3rd+ person in a group chat whose invite already carries ≥2 participants.
+    /// (Gating on !inviteHasEnoughPeopleForSpots dropped those users into the
+    /// spot-list layout, which has no "I'm in" affordance at all.)
     private var isInvitePrompt: Bool {
-        received?.messageType == .invite && !isUserIn && !inviteHasEnoughPeopleForSpots
+        received?.messageType == .invite && !isUserIn
     }
 
     private var inviteHasEnoughPeopleForSpots: Bool {

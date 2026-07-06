@@ -45,10 +45,42 @@ enum BubbleImageRenderer {
         options.region = MapGeometry.region(for: coords)
 
         let snapshotter = MKMapSnapshotter(options: options)
-        guard let snapshot = try? await snapshotter.start() else {
+        guard let snapshot = await Self.snapshot(snapshotter, timeoutNanoseconds: Self.snapshotTimeoutNanoseconds) else {
             return fallbackImage(state: state, participants: participants, localID: localID, localName: localName)
         }
         return composite(snapshot: snapshot, state: state, participants: participants, localID: localID, localName: localName)
+    }
+
+    /// The send path awaits this image before it can deliver the bubble, and
+    /// iMessage extensions are short-lived — don't let a stalled tile fetch
+    /// hold the send hostage. Mirrors `MessagesViewController.search`'s
+    /// timeout race; on timeout the caller falls back to the offline image.
+    private static let snapshotTimeoutNanoseconds: UInt64 = 8_000_000_000
+
+    private static func snapshot(_ snapshotter: MKMapSnapshotter,
+                                 timeoutNanoseconds: UInt64) async -> MKMapSnapshotter.Snapshot? {
+        await withTaskGroup(of: MKMapSnapshotter.Snapshot?.self) { group in
+            group.addTask {
+                try? await snapshotter.start()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                // The group awaits ALL children before returning, and task
+                // cancellation doesn't reach the callback-bridged start() —
+                // cancel the snapshotter ITSELF so its continuation resumes
+                // (with an error) and the group can drain promptly. When the
+                // snapshot already won, the sleep was cancelled (skip) or
+                // cancel() is a no-op on a finished snapshotter.
+                if !Task.isCancelled {
+                    snapshotter.cancel()
+                }
+                return nil
+            }
+
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Legacy 2-person entry point. Existing internal callers (and any caller

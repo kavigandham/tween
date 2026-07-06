@@ -60,7 +60,17 @@ struct Participant: Codable, Equatable, Identifiable, Hashable {
     }
 
     func matches(_ context: LocalParticipantContext) -> Bool {
-        if let id = context.id, self.id == id { return true }
+        // A UUID-bearing context (the extension) matches by ID first; the name
+        // fallback is reserved for legacy entries that never carried a real ID
+        // (id == name), mirroring matches(id:name:). Peer entries carry UUIDs
+        // minted on OTHER devices, so an ID mismatch is normal — falling back
+        // to names there marked any same-named peer (e.g. both defaulting to
+        // "You") as the local user. Contexts without a UUID — or with the name
+        // standing in as the ID (host-app callers) — keep pure name matching.
+        if let id = context.id, id != context.name {
+            if self.id == id { return true }
+            return self.id == self.name && self.name == context.name
+        }
         return name == context.name
     }
 }

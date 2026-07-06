@@ -27,7 +27,13 @@ enum UserProfile {
     }
 
     static var displayName: String? {
-        get { defaults?.string(forKey: displayNameKey) }
+        get {
+            // Mirror UserName.load(): a whitespace-only saved name must not
+            // become a real " " sender/participant display name.
+            let raw = defaults?.string(forKey: displayNameKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return raw?.isEmpty == false ? raw : nil
+        }
         set { defaults?.set(newValue, forKey: displayNameKey) }
     }
 }

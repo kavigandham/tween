@@ -56,6 +56,17 @@ final class FairnessRankerTests: XCTestCase {
         XCTAssertEqual(guessed.score, confident.score * 2, accuracy: 1e-9)
     }
 
+    // 5b. Below the 2-minute grace the numerator clamps at 0 — a low-confidence
+    //     guess must never rank ABOVE a real route just because dividing a
+    //     negative numerator by a smaller confidence made it more negative.
+    func testSubGraceSpotDoesNotRewardLowConfidence() {
+        let confident = RankedSpot(etaFromA: 60, etaFromB: 90, confidence: 1.0)
+        let guessed = RankedSpot(etaFromA: 60, etaFromB: 90, confidence: 0.5)
+        XCTAssertEqual(confident.score, 0, accuracy: 1e-9)
+        XCTAssertEqual(guessed.score, 0, accuracy: 1e-9)
+        XCTAssertLessThanOrEqual(confident.score, guessed.score)
+    }
+
     // MARK: - N-person scoring
 
     private func etas(_ pairs: [(String, TimeInterval)]) -> [ParticipantETA] {

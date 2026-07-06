@@ -33,6 +33,13 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// while the extension is active.
     private var totalConversationParticipants: Int = 1
 
+    /// The MSSession of the most recent Tween bubble seen in this conversation
+    /// (tapped or received live). Reused by outgoing sends when
+    /// `selectedMessage` is nil — e.g. the extension was opened from the app
+    /// drawer — so replies keep collapsing into one evolving bubble instead of
+    /// minting a new session (and a new bubble stack) per send.
+    private var lastKnownSession: MSSession?
+
     private var rankingTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
     private var isRanking = false
@@ -47,6 +54,14 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private var hosting: UIHostingController<AnyView>?
 
+    /// Permanent opaque tile pinned to `self.view.bounds` beneath the hosting
+    /// view. If the hosting view ever renders with a zero frame (bounds not
+    /// settled), fails to attach, or is transient during a rootView swap, the
+    /// user sees this solid `.systemBackground` surface instead of the
+    /// Messages-host blank strip. See `docs/ui-research.md` §3 (blank-render
+    /// causes) and `.claude/skills/imessage-extension.md`.
+    private var fallbackView: UIView?
+
     /// Set when a memory warning fires while expanded: it tells `ExpandedView` to
     /// shed its live `MKMapView` and fall back to the static snapshot, our last line
     /// of defense against the ~120 MB extension jetsam ceiling. Reset on collapse.
@@ -56,6 +71,12 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// category UI here, so we bias toward common, universal meetup spots.
     private static let defaultQuery = "cafe restaurant food"
 
+    /// Status copy set by `deliverBubble` when direct send was rejected and
+    /// the bubble was staged in the input field instead. `handleImIn` compares
+    /// against it to avoid expanding the extension over the staged bubble the
+    /// user still needs to tap send on.
+    private static let stagedDeliveryStatus = "Added to the message box — tap send to deliver."
+
     /// Hard cap for route resolution inside the extension (vs. 8 in the app).
     private static let rankCap = 5
     /// iMessage extensions are short-lived; don't let MapKit search leave the
@@ -63,6 +84,39 @@ final class MessagesViewController: MSMessagesAppViewController {
     private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
 
     // MARK: - Lifecycle
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Paint the extension's own view opaque at load time — before any
+        // presentUI() call can fail, arrive late, or briefly race a rootView
+        // swap. `embed()` already sets `.systemBackground` on `self.view` when
+        // it first attaches the hosting controller, but that only fires once
+        // presentUI() is reached; a very early lifecycle call (or a re-entry
+        // during willBecomeActive) can otherwise expose the Messages host
+        // paint underneath. See `docs/ui-research.md` §3.
+        view.backgroundColor = .systemBackground
+        installFallbackView()
+    }
+
+    /// Adds a permanent opaque tile beneath any future hosting view. Inserted
+    /// at index 0 so subsequent `addSubview(hosting.view)` calls always sit
+    /// on top of it (subview order = z-order, and `embed()` may run before or
+    /// after this depending on when the view is first loaded).
+    private func installFallbackView() {
+        guard fallbackView == nil else { return }
+        let fallback = UIView()
+        fallback.translatesAutoresizingMaskIntoConstraints = false
+        fallback.backgroundColor = .systemBackground
+        fallback.isUserInteractionEnabled = false
+        view.insertSubview(fallback, at: 0)
+        NSLayoutConstraint.activate([
+            fallback.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            fallback.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            fallback.topAnchor.constraint(equalTo: view.topAnchor),
+            fallback.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        fallbackView = fallback
+    }
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
@@ -81,6 +135,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             recentlySentSpotName = nil
             isRanking = false
             rankingTask?.cancel()
+            // Sessions are per-conversation; never reuse one across chats.
+            lastKnownSession = nil
+        }
+        if let session = conversation.selectedMessage?.session {
+            lastKnownSession = session
         }
         // Number of seats in the iMessage thread. The local participant always
         // counts as 1; remoteParticipantIdentifiers covers everyone else.
@@ -89,7 +148,13 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
         let snapshot = ConversationMeetupStore.load(key: key)
-        if !decodedIncoming, let snapshot {
+        // decodeAndCache returns true only when a PEER COORDINATE was saved, so
+        // a decoded message with no non-local participant (e.g. a .leave) still
+        // reports false. Gate the snapshot restore on `received == nil` so it
+        // only fills in when nothing decoded (drawer open, own bubble) instead
+        // of clobbering a just-decoded state — the leave-clears empty the
+        // snapshot, which erased the "X left" banner.
+        if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
             received = snapshot.agreedState ?? snapshot.proposedState
         }
@@ -132,6 +197,9 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func didReceive(_ message: MSMessage, conversation: MSConversation) {
         super.didReceive(message, conversation: conversation)
+        if let session = message.session {
+            lastKnownSession = session
+        }
         let savedPeer = decodeAndCache(message, in: conversation)
         recentlySentSpotName = nil
         // Stamp the inbound bubble so the host app can surface a "they replied"
@@ -143,6 +211,16 @@ final class MessagesViewController: MSMessagesAppViewController {
             kickOffRanking()
         }
         presentUI(for: presentationStyle)
+    }
+
+    override func didStartSending(_ message: MSMessage, conversation: MSConversation) {
+        super.didStartSending(message, conversation: conversation)
+        // The user tapped send on a staged (insert-fallback) bubble — the
+        // "tap send to deliver" hint has served its purpose.
+        if sendStatusMessage == Self.stagedDeliveryStatus {
+            sendStatusMessage = nil
+            presentUI(for: presentationStyle)
+        }
     }
 
     override func willResignActive(with conversation: MSConversation) {
@@ -388,6 +466,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     received: received,
                     isUserIn: isUserIn,
                     localParticipantID: localParticipantID(),
+                    currentParticipantCount: currentParticipants.isEmpty ? nil : currentParticipants.count,
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
@@ -572,7 +651,10 @@ final class MessagesViewController: MSMessagesAppViewController {
             // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
             if let fresh = await acquireLocation() {
-                LocationCache.save(fresh, isActive: true)
+                // Cache the fix but keep the prior active flag — the host app
+                // reads LocationCache.isActive as "you're in", so a join must
+                // not look successful before the bubble is actually delivered.
+                LocationCache.save(fresh, isActive: LocationCache.isActive)
                 coordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 coordinate = cached
@@ -586,9 +668,6 @@ final class MessagesViewController: MSMessagesAppViewController {
 
             let participants = self.nextParticipantList(myCoord: coordinate,
                                                        conversation: self.activeConversation)
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-            self.saveParticipantsForActiveConversation(participants)
 
             let state = TweenState(
                 text: "I'm in",
@@ -602,14 +681,33 @@ final class MessagesViewController: MSMessagesAppViewController {
             )
             logger.debug("Encoding I'm in reply participants=\(participants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                // Commit the join only once the bubble is delivered (or staged):
+                // a failed send must not leave this device claiming "You're in".
+                // deliverBubble already wrote the conversation-scoped roster via
+                // recordCanonicalSnapshot.
+                LocationCache.setActive(true)
+                self.currentParticipants = participants
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+            }
             isSending = false
-            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            if didSend {
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only clear the status when it's still our in-progress copy.
+                if sendStatusMessage == "Sharing your location..." { sendStatusMessage = nil }
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
             presentUI(for: presentationStyle)
 
             // Now that we have a fix, surface the fair spots: jump to expanded
             // (which triggers ranking) and also rank directly to cover the case
-            // where we're already expanded and no transition fires.
-            requestPresentationStyle(.expanded)
+            // where we're already expanded and no transition fires. Skip the
+            // expand when the bubble was only STAGED — expanding would cover
+            // the input field holding the bubble the user still has to send.
+            if sendStatusMessage != Self.stagedDeliveryStatus {
+                requestPresentationStyle(.expanded)
+            }
             kickOffRanking()
         }
     }
@@ -624,16 +722,6 @@ final class MessagesViewController: MSMessagesAppViewController {
             presentUI(for: presentationStyle)
 
             let remainingParticipants = participantListWithoutMe()
-            currentParticipants = []
-            // The outgoing leave bubble carries the remaining roster for
-            // recipients, but this device should stop rendering the meetup.
-            LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
-            if let conversationKey {
-                ConversationMeetupStore.saveParticipants([], key: conversationKey)
-            }
-            LocationCache.deactivateSelf()
-            LocationCache.clearAgreedMeetup()
-            rankedSpots = []
 
             let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
                 ?? remainingParticipants.first?.coordinate
@@ -650,8 +738,32 @@ final class MessagesViewController: MSMessagesAppViewController {
             )
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                // Leave took effect only once the bubble was delivered (or
+                // staged): the outgoing bubble carries the remaining roster for
+                // recipients, and this device stops rendering the meetup. On a
+                // failed send the user truthfully stays "in". The conversation-
+                // scoped clears are covered by recordCanonicalSnapshot (.leave).
+                currentParticipants = []
+                LocationCache.saveParticipantSnapshot([], localContext: localParticipantContext())
+                LocationCache.deactivateSelf()
+                LocationCache.clearAgreedMeetup()
+                rankedSpots = []
+                // Drop the decoded meetup too — CompactView's thumbnail and
+                // ExpandedView's peer pins render from `received.participants`,
+                // so leaving it set kept everyone on the leaver's map. The next
+                // activation stays clean via the snapshot-restore gate (the
+                // .leave canonical snapshot wiped the store).
+                received = nil
+            }
             isSending = false
-            sendStatusMessage = didSend ? nil : "Couldn't send the Tween message. Try again."
+            if didSend {
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only clear the status when it's still our in-progress copy.
+                if sendStatusMessage == "Leaving this meetup..." { sendStatusMessage = nil }
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
             presentUI(for: presentationStyle)
         }
     }
@@ -669,9 +781,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -684,7 +793,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             messageType: .propose,
             participants: participants
         )
-        sendBubble(state: state)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            // Commit the roster only on delivery; the conversation-scoped
+            // write is covered by recordCanonicalSnapshot (.propose).
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+        }
     }
 
     /// Agrees to a previously proposed place. Carries the participants forward
@@ -697,8 +812,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             // stale coord that might land you in a worst-case route the
             // ranker would have rejected.
             let senderCoordinate: CLLocationCoordinate2D?
+            var activateSelfOnDelivery = false
             if let fresh = await acquireLocation() {
-                LocationCache.save(fresh, isActive: true)
+                // Cache the fix but keep the prior active flag — activation
+                // (which the host app reads as "you're in") is committed only
+                // once the agree bubble is actually delivered.
+                LocationCache.save(fresh, isActive: LocationCache.isActive)
+                activateSelfOnDelivery = true
                 senderCoordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached
@@ -721,12 +841,15 @@ final class MessagesViewController: MSMessagesAppViewController {
                     ?? false
                 participants.append(Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide))
             }
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-            self.saveParticipantsForActiveConversation(participants)
 
             var agreed = proposed.agreedNames
-            if !agreed.contains(myName) { agreed.append(myName) }
+            // Case-insensitive replace-then-append: "hassan" and "Hassan" are
+            // the same person, so a case-variant duplicate would inflate the
+            // "X of Y agreed" copy — and appending keeps me as
+            // `agreedNames.last`, which captions read as the most recent
+            // agreer. agreedIDs drive real consensus; this is display-only.
+            agreed.removeAll { $0.caseInsensitiveCompare(myName) == .orderedSame }
+            agreed.append(myName)
             let myId = self.localParticipantID()
             var agreedIDs = proposed.agreedIDs
             if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
@@ -753,19 +876,28 @@ final class MessagesViewController: MSMessagesAppViewController {
             // "It's a plan!" with map-app direction choices, rather than being
             // bounced back to the iMessage thread. The receiver gets the same
             // view via didReceive → presentUI.
-            await sendBubbleNow(for: state)
-            // Persist the agreement so re-opening the extension (after iOS
-            // dispose, or after the user collapses + re-taps) re-renders
-            // MEETUP SET instead of the propose's Agree/Change buttons.
-            if state.isFullyAgreed {
-                LocationCache.saveAgreedMeetup(state)
-                if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+            let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                if activateSelfOnDelivery {
+                    LocationCache.setActive(true)
                 }
-            } else if let conversationKey = self.conversationKey {
-                ConversationMeetupStore.saveProposed(state, key: conversationKey)
+                self.currentParticipants = participants
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                // Persist the agreement so re-opening the extension (after iOS
+                // dispose, or after the user collapses + re-taps) re-renders
+                // MEETUP SET instead of the propose's Agree/Change buttons.
+                // Gated on delivery: a rejected send must not render MEETUP SET
+                // (or mark this user agreed) when no bubble ever left the device.
+                if state.isFullyAgreed {
+                    LocationCache.saveAgreedMeetup(state)
+                    if let conversationKey = self.conversationKey {
+                        ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+                    }
+                } else if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.saveProposed(state, key: conversationKey)
+                }
+                self.received = self.effectiveReceived(decoded: state)
             }
-            self.received = self.effectiveReceived(decoded: state)
             self.presentUI(for: self.presentationStyle)
         }
     }
@@ -782,9 +914,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -798,15 +927,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants: participants,
             agreedNames: []
         )
-        // A counter restarts negotiation — any prior agreement is invalidated,
-        // so the persisted terminal cache must be cleared too. Otherwise the
-        // user could agree, then counter, then re-open the extension and see
-        // MEETUP SET for the OLD agreed spot via the sticky cache.
-        LocationCache.clearAgreedMeetup()
-        if let conversationKey {
-            ConversationMeetupStore.saveProposed(state, key: conversationKey)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+            // A counter restarts negotiation — any prior agreement is
+            // invalidated, so the persisted terminal cache must be cleared
+            // too. Cleared only on delivery: a failed counter must not erase
+            // this device's MEETUP SET while peers still hold theirs. The
+            // conversation-scoped saveProposed (which also drops the scoped
+            // agreed state for counters) is covered by recordCanonicalSnapshot.
+            LocationCache.clearAgreedMeetup()
         }
-        sendBubble(state: state)
     }
 
     /// Confirms a host-app hand-off: composes the bubble for the staged draft,
@@ -820,9 +952,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: draft.spotName,
@@ -835,16 +964,24 @@ final class MessagesViewController: MSMessagesAppViewController {
             messageType: .propose,
             participants: participants
         )
-        OutgoingDraftStore.clear()
-        if let conversationKey {
-            ConversationMeetupStore.clearDraft(key: conversationKey)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+            // The staged hand-off is consumed only once the bubble is
+            // delivered — a failed send keeps the draft offered instead of
+            // losing it. Store-side draft clearing is covered by
+            // recordCanonicalSnapshot (.propose → clearDraft); sendBubble's
+            // own didSend block clears self.draft for place sends.
+            OutgoingDraftStore.clear()
         }
-        self.draft = nil
-        sendBubble(state: state)
-        presentUI(for: presentationStyle)
     }
 
-    private func sendBubble(state: TweenState) {
+    /// `onDelivered` runs only after the bubble was actually delivered (or
+    /// staged via the insert fallback) — callers park their local-state
+    /// commits there so a failed send never leaves this device claiming
+    /// something peers didn't receive. Nil default keeps legacy callers as-is.
+    private func sendBubble(state: TweenState, onDelivered: (() -> Void)? = nil) {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
@@ -854,13 +991,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             let didSend = await sendBubbleNow(for: state)
             isSending = false
             if didSend {
+                onDelivered?()
                 if state.kind == .place {
                     recentlySentSpotName = state.text
                     received = nil
                     draft = nil
                     rankedSpots = []
                 }
-                sendStatusMessage = sentMessage(for: state)
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only claim "sent" when the status is still our in-progress copy.
+                if sendStatusMessage == sendingMessage(for: state) {
+                    sendStatusMessage = sentMessage(for: state)
+                }
             } else {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
@@ -929,7 +1071,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         layout.image = image
         BubbleCaption.apply(to: layout, state: state, totalSeats: self.totalConversationParticipants)
 
-        let session = conversation.selectedMessage?.session ?? MSSession()
+        let session = conversation.selectedMessage?.session ?? lastKnownSession ?? MSSession()
         let message = MSMessage(session: session)
         message.url = url
         message.layout = layout
@@ -938,8 +1080,21 @@ final class MessagesViewController: MSMessagesAppViewController {
         do {
             switch mode {
             case .send:
-                try await conversation.send(message)
-                logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                do {
+                    try await conversation.send(message)
+                    logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                } catch {
+                    // Messages gates direct send on a recent user tap + a visible
+                    // extension (one send per detected interaction, WWDC17 Direct
+                    // Send API). Our sends run seconds after the tap (location
+                    // fix, snapshot render), so a rejection here is expected —
+                    // stage the bubble in the input field instead so delivery
+                    // never dead-ends. If insert also throws, the outer catch
+                    // reports the failure as before.
+                    logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
+                    try await conversation.insert(message)
+                    sendStatusMessage = Self.stagedDeliveryStatus
+                }
             case .insert(let dismissAfterInsert):
                 try await conversation.insert(message)
                 logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
@@ -991,8 +1146,21 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     /// Requests a single fix and polls the provider for up to ~5s for a result.
+    ///
+    /// First run only: while the When-In-Use permission alert is on screen
+    /// (authorization still .notDetermined), the 5s budget isn't burning —
+    /// wait out the alert (up to ~30s) BEFORE starting the fix window, so the
+    /// very first "I'm in" doesn't fail just because the user took a moment
+    /// to read the prompt. Already-authorized (or denied) users skip this
+    /// instantly and get exactly the original behavior.
     private func acquireLocation() async -> CLLocationCoordinate2D? {
         locationProvider.requestOnce()
+        var alertTicks = 0
+        while locationProvider.authorizationStatus == .notDetermined, alertTicks < 300 {
+            if Task.isCancelled { return nil }
+            try? await Task.sleep(for: .milliseconds(100))
+            alertTicks += 1
+        }
         for _ in 0..<50 {
             if Task.isCancelled { return nil }
             switch locationProvider.status {
