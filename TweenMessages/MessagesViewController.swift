@@ -713,6 +713,12 @@ final class MessagesViewController: MSMessagesAppViewController {
                 LocationCache.deactivateSelf()
                 LocationCache.clearAgreedMeetup()
                 rankedSpots = []
+                // Drop the decoded meetup too — CompactView's thumbnail and
+                // ExpandedView's peer pins render from `received.participants`,
+                // so leaving it set kept everyone on the leaver's map. The next
+                // activation stays clean via the snapshot-restore gate (the
+                // .leave canonical snapshot wiped the store).
+                received = nil
             }
             isSending = false
             if didSend {
