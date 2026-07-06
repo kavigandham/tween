@@ -33,12 +33,18 @@ Prompt Claude with **"do phase N of FIX_PLAN.md"**.
     `bannerAccessibilityLabel`, `proposedPlacePanel`/`panelSubcopy`.
     (T10's interactive-map path deliberately KEPT pending the product decision.)
 
-## Phase V — Device verification (do before more code)
+## Phase V/6 — Verification
 
-Run TODO_VERIFY.md's checklist on two real devices; App Group + iMessage delivery
-cannot be verified in the simulator. Everything below builds on that stack being
-confirmed. Add to it: re-verify Phase-1 UI on a small device (SE class) and at
-XL Dynamic Type — especially CompactView with a staged-send status line visible.
+Machine-checkable portion DONE (2026-07-06): **96/96 unit tests + 6/6 UI
+tests** green; Apple-Maps home surface finalized after device feedback — top
+band removed entirely, sheet pinned to `.regularMaterial`, native bridged
+`UISearchBar` (technique from the github.com/topics/uisearchbar wrappers, no
+dependency added), Friends moved from the segmented tab into its own sheet
+behind the avatar-slot circle button; screenshot-verified light + dark.
+
+Still human-only (two real devices, per TODO_VERIFY.md): iMessage delivery,
+App Group sharing, extension memory profile (T10 decision), the leave→
+tombstone flow across two phones, SE-class + XL Dynamic Type checks.
 
 ## Phase 2 — Remaining host-app flow bugs — DONE (2026-07-06)
 

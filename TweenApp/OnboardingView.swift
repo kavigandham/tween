@@ -116,8 +116,10 @@ struct OnboardingView: View {
     /// or a category) so the field's `onChange` doesn't treat it as fresh typing
     /// and cancel the very search we just kicked off.
     @State private var suppressNextQueryChange = false
-    /// Tracks the search field's focus so tapping it lifts the sheet to medium.
-    @FocusState private var searchFocused: Bool
+    /// Tracks the search field's focus so tapping it lifts the sheet to
+    /// medium. Plain state (not @FocusState): the field is a bridged
+    /// UISearchBar whose delegate reports focus both ways.
+    @State private var searchFocused = false
     /// Tracks the profile-name field so the name persists when focus leaves it.
     @FocusState private var nameFieldFocused: Bool
     /// The tapped/selected search result — drives the highlighted map pin and the
@@ -219,6 +221,7 @@ struct OnboardingView: View {
     /// Every secondary sheet the home surface can present, multiplexed through a
     /// single `.sheet(item:)`.
     enum ActiveSheet: Identifiable {
+        case friends
         case contacts
         case invite
         case message(PendingMessage)
@@ -226,6 +229,7 @@ struct OnboardingView: View {
 
         var id: String {
             switch self {
+            case .friends:           return "friends"
             case .contacts:          return "contacts"
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
@@ -334,6 +338,12 @@ struct OnboardingView: View {
         _isUserIn = State(initialValue: Self.isHostTabHarness)
         _panelTab = State(initialValue: Self.isHostTabHarness ? .waiting : .map)
         _friendsPanelTab = State(initialValue: CommandLine.arguments.contains("-HARNESS_HOST_RIDES") ? .rides : .people)
+        // Friends is its own sheet now (behind the search-row circle); the
+        // friends/rides harnesses open it directly so screenshots still land
+        // on the right surface. RIDE_MAP keeps the map visible.
+        let wantsFriendsSheet = CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
+            || CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
+        _activeSheet = State(initialValue: wantsFriendsSheet ? .friends : nil)
         let hostHarnessDetent: PresentationDetent = CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP")
             ? .height(Tokens.Layout.sheetPeekHeight)
             : .fraction(0.90)
@@ -400,23 +410,18 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        // The root GeometryReader reports the real device safe-area insets; the
-        // map ignores them (full bleed) while every floating control is laid
-        // out INSIDE them. Replaces the old per-overlay hardcoded paddings that
-        // each encoded a different guess about where the notch/home bar are.
-        GeometryReader { proxy in
-            ZStack {
-                mapLayer
-                    .overlay(alignment: .top) {
-                        topSafeAreaGlass(topInset: proxy.safeAreaInsets.top)
-                    }
-                topTrailingControls
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                viewModeToggle
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                compactCard
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            }
+        // Full-bleed map with floating controls laid out inside the safe area
+        // (the ZStack respects it; only the map ignores it). No top gradient
+        // or glass — Apple Maps runs the map clean to the screen edge, and
+        // every attempt at a status-bar treatment read as a weird band.
+        ZStack {
+            mapLayer
+            topTrailingControls
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            viewModeToggle
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            compactCard
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
@@ -458,11 +463,25 @@ struct OnboardingView: View {
                 }
                 .sheet(item: $activeSheet) { sheet in
                     switch sheet {
+                    case .friends:
+                        NavigationStack {
+                            friendsPanel
+                                .navigationTitle("Friends")
+                                .navigationBarTitleDisplayMode(.inline)
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Done") { activeSheet = nil }
+                                    }
+                                }
+                        }
+                        .presentationDetents([.large])
                     case .contacts:
                         ContactSearchView { friend in
                             FriendRoster.add(friend)
                             friends = FriendRoster.load()
-                            activeSheet = nil
+                            // Contacts was reached from the Friends sheet —
+                            // land back there with the new row visible.
+                            activeSheet = .friends
                         }
                     case .invite:
                         ActivityView(items: [Self.inviteText]) { activeSheet = nil }
@@ -620,28 +639,12 @@ struct OnboardingView: View {
             searchBar
 
             // Everything else is revealed once the sheet is lifted off its peek.
+            // The sheet is purely the search surface now, like Apple Maps —
+            // Friends moved behind the circle button in the search row.
             if !isMinimalDetent {
                 if !monitor.isOnline { offlineBanner }
                 replyBanner
-
-                // The Search/Friends switch — and the friend roster behind it —
-                // are reachable at the half detent too; only the collapsed peek
-                // hides them so it stays a clean search bar.
-                Picker("Panel", selection: $panelTab) {
-                    ForEach(HomePanelTab.allCases) { tab in
-                        Text(tab.title).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .frame(minHeight: Tokens.Layout.minTapTarget)
-                .accessibilityHint("Switches between place search and your friend roster")
-
-                if panelTab == .waiting {
-                    friendsPanel
-                } else {
-                    mapPanel
-                }
+                mapPanel
             }
         }
         // s4 keeps the first row clear of the system drag indicator, which
@@ -715,22 +718,6 @@ struct OnboardingView: View {
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    /// Status-bar legibility blur, Apple-Maps style: a soft fade that lives
-    /// entirely within the status-bar inset and is fully transparent by its
-    /// bottom edge. The old version extended 56pt past the inset at partial
-    /// opacity, which in dark mode read as a grey film laid over the map.
-    private func topSafeAreaGlass(topInset: CGFloat) -> some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .frame(height: topInset + Tokens.Spacing.s2)
-            .mask(
-                LinearGradient(
-                    colors: [.black, .clear],
-                    startPoint: .top,
-                    endPoint: .bottom)
-            )
-            .allowsHitTesting(false)
-    }
 
     private var mapStyleButton: some View {
         HStack(spacing: Tokens.Spacing.s2) {
@@ -1237,46 +1224,64 @@ struct OnboardingView: View {
         }
     }
 
+    /// Apple-Maps search row: the NATIVE search field (bridged UISearchBar —
+    /// the component family Maps itself uses) plus the circular Friends
+    /// button in their avatar slot. One persistent row, every detent.
     private var searchBar: some View {
         HStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Tokens.Palette.textSecondary)
-            TextField("Search for a spot...", text: $searchText)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .accessibilityLabel("Search for a spot")
-                .onSubmit(commitSearch)
+            NativeSearchBar(
+                text: $searchText,
+                isEditing: $searchFocused,
+                placeholder: "Search for a spot...",
+                onSubmit: commitSearch)
+                .frame(minHeight: Tokens.Layout.searchBarHeight)
                 .onChange(of: searchText) { _, query in
                     if query != selectedCategory?.searchQuery { selectedCategory = nil }
                     // A new query invalidates any pin/card from the old result set.
                     selectedResult = nil
                     handleQueryChange(query)
                 }
-            if !searchText.isEmpty {
-                Button(action: clearSearch) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
+
+            friendsButton
         }
-        .padding(Tokens.Spacing.s3)
-        .frame(minHeight: Tokens.Layout.searchBarHeight)
-        // Opaque inset fill, Apple-Maps style. The sheet behind this field is
-        // already a material surface; a second translucent layer here is what
-        // produced the "bar inside a bar" double-chrome look.
-        .background(Tokens.Palette.inputFill, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .padding(.horizontal)
-        // Tapping into the field lifts the collapsed sheet to medium so the chips
-        // and suggestions have room to appear.
-        .onTapGesture { expandToSearchDetent() }
+        .padding(.leading, Tokens.Spacing.s2)
+        .padding(.trailing)
         .onChange(of: searchFocused) { _, focused in
+            // Focusing the field lifts the collapsed sheet so suggestions
+            // have room — the begin-editing delegate replaces the old
+            // tap-gesture + @FocusState pair.
             if focused { focusSearchPanel() }
         }
+    }
+
+    /// The Friends surface lives behind this circle (where Apple Maps puts
+    /// the account avatar), not in a segmented tab — the tab swap reflowed
+    /// the whole sheet and never matched the Maps feel.
+    private var friendsButton: some View {
+        Button { activeSheet = .friends } label: {
+            Group {
+                if let name = UserName.load() {
+                    Text(Self.initials(for: name))
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(.white)
+                } else {
+                    Image(systemName: "person.2.fill")
+                        .font(Tokens.Typography.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: Tokens.Layout.searchBarHeight, height: Tokens.Layout.searchBarHeight)
+            .background(Tokens.Palette.brand, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Friends")
+        .accessibilityHint("Opens your friends, meetup roster, and rides")
+    }
+
+    private static func initials(for name: String) -> String {
+        let letters = name.split(separator: " ").prefix(2).compactMap(\.first)
+        let result = String(letters).uppercased()
+        return result.isEmpty ? "?" : result
     }
 
     private var categoryChips: some View {

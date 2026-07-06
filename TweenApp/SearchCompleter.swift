@@ -1,5 +1,70 @@
 import Foundation
 import MapKit
+import SwiftUI
+import UIKit
+
+/// The real UIKit `UISearchBar` bridged into SwiftUI.
+///
+/// Same technique as the community "missing UISearchBar" wrappers on the
+/// github.com/topics/uisearchbar list (SearchBarView, SearchBarSwiftUI):
+/// a `UIViewRepresentable` around the native component rather than a
+/// hand-rolled lookalike — so the field's chrome (inset fill, magnifier,
+/// clear button, Dynamic Type, dark mode) is pixel-identical to Apple Maps
+/// with zero third-party code (hard project constraint: no dependencies).
+/// Host app only; the extension's compact surface must never show a keyboard.
+struct NativeSearchBar: UIViewRepresentable {
+    @Binding var text: String
+    /// Two-way focus: the delegate reports begin/end editing, and setting it
+    /// from SwiftUI (commitSearch, expand-then-focus) moves first responder.
+    @Binding var isEditing: Bool
+    var placeholder: String
+    var onSubmit: () -> Void
+
+    func makeUIView(context: Context) -> UISearchBar {
+        let bar = UISearchBar()
+        bar.searchBarStyle = .minimal   // just the field, no outer chrome
+        bar.placeholder = placeholder
+        bar.autocorrectionType = .no
+        bar.returnKeyType = .search
+        bar.delegate = context.coordinator
+        bar.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        bar.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return bar
+    }
+
+    func updateUIView(_ bar: UISearchBar, context: Context) {
+        context.coordinator.parent = self
+        if bar.text != text { bar.text = text }
+        if isEditing, !bar.isFirstResponder, bar.window != nil {
+            bar.becomeFirstResponder()
+        } else if !isEditing, bar.isFirstResponder {
+            bar.resignFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        var parent: NativeSearchBar
+        init(_ parent: NativeSearchBar) { self.parent = parent }
+
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            parent.text = searchText
+        }
+
+        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+            parent.isEditing = true
+        }
+
+        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+            parent.isEditing = false
+        }
+
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+            parent.onSubmit()
+        }
+    }
+}
 
 /// Live search-suggestion source backing the search bar's "while typing" state.
 ///
