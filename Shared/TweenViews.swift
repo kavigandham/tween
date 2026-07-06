@@ -505,8 +505,10 @@ struct CompactView: View {
             result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
         }
         // For legacy bubbles (kind=.participant, empty participants[]) the
-        // main coord IS the friend's pin.
-        if state.kind == .participant && state.participants.isEmpty {
+        // main coord IS the friend's pin. representsParticipantLocation rules
+        // out `.leave` payloads, whose main coord is the LEAVER's last position
+        // — an empty-roster leave must not pin the person who just left.
+        if state.representsParticipantLocation && state.participants.isEmpty {
             result.append(MapMarker(coordinate: state.coordinate, role: .friend))
         }
 
