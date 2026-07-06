@@ -680,16 +680,6 @@ final class MessagesViewController: MSMessagesAppViewController {
             presentUI(for: presentationStyle)
 
             let remainingParticipants = participantListWithoutMe()
-            currentParticipants = []
-            // The outgoing leave bubble carries the remaining roster for
-            // recipients, but this device should stop rendering the meetup.
-            LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
-            if let conversationKey {
-                ConversationMeetupStore.saveParticipants([], key: conversationKey)
-            }
-            LocationCache.deactivateSelf()
-            LocationCache.clearAgreedMeetup()
-            rankedSpots = []
 
             let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
                 ?? remainingParticipants.first?.coordinate
@@ -706,6 +696,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             )
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                // Leave took effect only once the bubble was delivered (or
+                // staged): the outgoing bubble carries the remaining roster for
+                // recipients, and this device stops rendering the meetup. On a
+                // failed send the user truthfully stays "in". The conversation-
+                // scoped clears are covered by recordCanonicalSnapshot (.leave).
+                currentParticipants = []
+                LocationCache.saveParticipantSnapshot([], localName: Self.localParticipantName())
+                LocationCache.deactivateSelf()
+                LocationCache.clearAgreedMeetup()
+                rankedSpots = []
+            }
             isSending = false
             if didSend {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
