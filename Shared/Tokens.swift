@@ -22,7 +22,10 @@ enum Tokens {
         /// Opaque fill for text inputs (search bar, name field). Deliberately
         /// NOT a material: inputs sit inside the material bottom sheet, and
         /// material-on-material reads as a muddy "bar inside a bar".
-        static let inputFill = Color(uiColor: .tertiarySystemFill)
+        /// systemGray5 matches Apple Maps' search field in both modes
+        /// (#E5E5EA light / #2C2C2E dark) — tertiarySystemFill was too faint
+        /// to read as a field over the sheet blur.
+        static let inputFill = Color(uiColor: .systemGray5)
 
         // Brand — deep teal #008C8C, brightened in dark mode for contrast.
         static let brand = dynamicColor(

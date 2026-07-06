@@ -383,33 +383,16 @@ struct OnboardingView: View {
                     TweenPin(role: .fairSpot)
                 }
             }
-            // A selectable pin for every visible search result. The selected one
-            // becomes a custom annotation carrying the A/B distance label above a
-            // larger brand icon; the rest are category markers. Tapping the empty
-            // map clears the selection.
+            // A selectable pin for every visible search result. Selection uses
+            // MapKit's native Marker treatment (the same subtle pop Apple Maps
+            // does) — the old custom annotation ballooned into a chip + giant
+            // circle on tap, which read as a glitch. The A/B distances live in
+            // the floating card instead. Tapping the empty map clears the
+            // selection.
             ForEach(displayedItems, id: \.self) { item in
-                if item == selectedResult {
-                    Annotation(item.name ?? "Place", coordinate: item.placemark.coordinate, anchor: .bottom) {
-                        VStack(spacing: Tokens.Spacing.s1) {
-                            ABDistanceLabel(
-                                selfCoord: savedCoordinate,
-                                peerCoord: peerCoordinate,
-                                target: item.placemark.coordinate,
-                                ranked: rankedMatch(for: item))
-                            Image(systemName: resultSymbol(for: item))
-                                .font(Tokens.Typography.title2)
-                                .foregroundStyle(.white)
-                                .padding(Tokens.Spacing.s3)
-                                .background(resultRole(for: item).fill, in: Circle())
-                                .tweenElevation(.pin)
-                        }
-                    }
+                Marker(item.name ?? "Place", systemImage: resultSymbol(for: item), coordinate: item.placemark.coordinate)
+                    .tint(item == selectedResult ? Tokens.Palette.brand : resultRole(for: item).fill)
                     .tag(item)
-                } else {
-                    Marker(item.name ?? "Place", systemImage: resultSymbol(for: item), coordinate: item.placemark.coordinate)
-                        .tint(resultRole(for: item).fill)
-                        .tag(item)
-                }
             }
         }
         .ignoresSafeArea()
@@ -457,6 +440,11 @@ struct OnboardingView: View {
                     [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent
                 )
+                // Apple-Maps sheet material: a near-opaque blur. Without this
+                // the system default (liquid glass on current iOS) lets the
+                // map bleed through every control and the whole surface reads
+                // as a grey wash.
+                .presentationBackground(.regularMaterial)
                 .presentationBackgroundInteraction(.enabled)
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
@@ -620,13 +608,12 @@ struct OnboardingView: View {
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: Tokens.Spacing.s3) {
-            // At the minimal detent this is the entire sheet, an Apple-Maps-style
-            // search bar floating over a full-screen map. On the Friends tab it
-            // hides — otherwise it stacks directly above the visually identical
-            // name field and reads as two search bars.
-            if isMinimalDetent || panelTab == .map {
-                searchBar
-            }
+            // Always visible on every tab, Apple-Maps style: one persistent
+            // search bar anchoring the sheet. (An earlier fix hid it on the
+            // Friends tab, which made the whole sheet reflow by ~52pt on each
+            // tab switch — the "janky jump". The name field it clashed with is
+            // a form row now, so they no longer read as twins.)
+            searchBar
 
             // Everything else is revealed once the sheet is lifted off its peek.
             if !isMinimalDetent {
@@ -724,16 +711,17 @@ struct OnboardingView: View {
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    /// Fade-out blur behind the status bar. Sized from the measured safe-area
-    /// inset so it hugs the Dynamic Island / notch on every device instead of
-    /// assuming one fixed height.
+    /// Status-bar legibility blur, Apple-Maps style: a soft fade that lives
+    /// entirely within the status-bar inset and is fully transparent by its
+    /// bottom edge. The old version extended 56pt past the inset at partial
+    /// opacity, which in dark mode read as a grey film laid over the map.
     private func topSafeAreaGlass(topInset: CGFloat) -> some View {
         Rectangle()
             .fill(.ultraThinMaterial)
-            .frame(height: topInset + Tokens.Spacing.s9)
+            .frame(height: topInset + Tokens.Spacing.s2)
             .mask(
                 LinearGradient(
-                    colors: [.black, .black.opacity(0.72), .clear],
+                    colors: [.black, .clear],
                     startPoint: .top,
                     endPoint: .bottom)
             )
@@ -843,7 +831,7 @@ struct OnboardingView: View {
             .pickerStyle(.segmented)
             .frame(width: Tokens.Layout.minTapTarget * 4 + Tokens.Spacing.s6)
             .padding(Tokens.Spacing.s1)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(.regularMaterial, in: Capsule())
             .tweenElevation(.floating)
             .padding(.top, Tokens.Spacing.s2)
             .accessibilityHint("Switches between a list of results and pins on the map")
@@ -913,7 +901,9 @@ struct OnboardingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .animation(Tokens.Motion.quick, value: friendsPanelTab)
+        // No cross-animation on tab switches — the People/Rides panels differ
+        // wildly in height, so animating the swap stretched and snapped the
+        // content. Apple Maps swaps segment content instantly.
     }
 
     /// One scrolling List for the entire People tab. The old layout stacked the
