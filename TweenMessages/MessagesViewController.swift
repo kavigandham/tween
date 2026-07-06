@@ -761,8 +761,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             // stale coord that might land you in a worst-case route the
             // ranker would have rejected.
             let senderCoordinate: CLLocationCoordinate2D?
+            var activateSelfOnDelivery = false
             if let fresh = await acquireLocation() {
-                LocationCache.save(fresh, isActive: true)
+                // Cache the fix but keep the prior active flag — activation
+                // (which the host app reads as "you're in") is committed only
+                // once the agree bubble is actually delivered.
+                LocationCache.save(fresh, isActive: LocationCache.isActive)
+                activateSelfOnDelivery = true
                 senderCoordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached
@@ -785,9 +790,6 @@ final class MessagesViewController: MSMessagesAppViewController {
                     ?? false
                 participants.append(Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide))
             }
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-            self.saveParticipantsForActiveConversation(participants)
 
             var agreed = proposed.agreedNames
             if !agreed.contains(myName) { agreed.append(myName) }
@@ -817,19 +819,28 @@ final class MessagesViewController: MSMessagesAppViewController {
             // "It's a plan!" with map-app direction choices, rather than being
             // bounced back to the iMessage thread. The receiver gets the same
             // view via didReceive → presentUI.
-            await sendBubbleNow(for: state)
-            // Persist the agreement so re-opening the extension (after iOS
-            // dispose, or after the user collapses + re-taps) re-renders
-            // MEETUP SET instead of the propose's Agree/Change buttons.
-            if state.isFullyAgreed {
-                LocationCache.saveAgreedMeetup(state)
-                if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+            let didSend = await sendBubbleNow(for: state)
+            if didSend {
+                if activateSelfOnDelivery {
+                    LocationCache.setActive(true)
                 }
-            } else if let conversationKey = self.conversationKey {
-                ConversationMeetupStore.saveProposed(state, key: conversationKey)
+                self.currentParticipants = participants
+                LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+                // Persist the agreement so re-opening the extension (after iOS
+                // dispose, or after the user collapses + re-taps) re-renders
+                // MEETUP SET instead of the propose's Agree/Change buttons.
+                // Gated on delivery: a rejected send must not render MEETUP SET
+                // (or mark this user agreed) when no bubble ever left the device.
+                if state.isFullyAgreed {
+                    LocationCache.saveAgreedMeetup(state)
+                    if let conversationKey = self.conversationKey {
+                        ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+                    }
+                } else if let conversationKey = self.conversationKey {
+                    ConversationMeetupStore.saveProposed(state, key: conversationKey)
+                }
+                self.received = self.effectiveReceived(decoded: state)
             }
-            self.received = self.effectiveReceived(decoded: state)
             self.presentUI(for: self.presentationStyle)
         }
     }
