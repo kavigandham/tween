@@ -745,9 +745,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -760,7 +757,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             messageType: .propose,
             participants: participants
         )
-        sendBubble(state: state)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            // Commit the roster only on delivery; the conversation-scoped
+            // write is covered by recordCanonicalSnapshot (.propose).
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+        }
     }
 
     /// Agrees to a previously proposed place. Carries the participants forward
@@ -869,9 +872,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: item.name ?? "Spot",
@@ -885,15 +885,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             participants: participants,
             agreedNames: []
         )
-        // A counter restarts negotiation — any prior agreement is invalidated,
-        // so the persisted terminal cache must be cleared too. Otherwise the
-        // user could agree, then counter, then re-open the extension and see
-        // MEETUP SET for the OLD agreed spot via the sticky cache.
-        LocationCache.clearAgreedMeetup()
-        if let conversationKey {
-            ConversationMeetupStore.saveProposed(state, key: conversationKey)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            // A counter restarts negotiation — any prior agreement is
+            // invalidated, so the persisted terminal cache must be cleared
+            // too. Cleared only on delivery: a failed counter must not erase
+            // this device's MEETUP SET while peers still hold theirs. The
+            // conversation-scoped saveProposed (which also drops the scoped
+            // agreed state for counters) is covered by recordCanonicalSnapshot.
+            LocationCache.clearAgreedMeetup()
         }
-        sendBubble(state: state)
     }
 
     /// Confirms a host-app hand-off: composes the bubble for the staged draft,
@@ -907,9 +910,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             participants = currentParticipants
         }
-        currentParticipants = participants
-        LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
-        saveParticipantsForActiveConversation(participants)
 
         let state = TweenState(
             text: draft.spotName,
@@ -922,16 +922,24 @@ final class MessagesViewController: MSMessagesAppViewController {
             messageType: .propose,
             participants: participants
         )
-        OutgoingDraftStore.clear()
-        if let conversationKey {
-            ConversationMeetupStore.clearDraft(key: conversationKey)
+        sendBubble(state: state) { [weak self] in
+            guard let self else { return }
+            self.currentParticipants = participants
+            LocationCache.saveParticipantSnapshot(participants, localName: Self.localParticipantName())
+            // The staged hand-off is consumed only once the bubble is
+            // delivered — a failed send keeps the draft offered instead of
+            // losing it. Store-side draft clearing is covered by
+            // recordCanonicalSnapshot (.propose → clearDraft); sendBubble's
+            // own didSend block clears self.draft for place sends.
+            OutgoingDraftStore.clear()
         }
-        self.draft = nil
-        sendBubble(state: state)
-        presentUI(for: presentationStyle)
     }
 
-    private func sendBubble(state: TweenState) {
+    /// `onDelivered` runs only after the bubble was actually delivered (or
+    /// staged via the insert fallback) — callers park their local-state
+    /// commits there so a failed send never leaves this device claiming
+    /// something peers didn't receive. Nil default keeps legacy callers as-is.
+    private func sendBubble(state: TweenState, onDelivered: (() -> Void)? = nil) {
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
@@ -941,6 +949,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             let didSend = await sendBubbleNow(for: state)
             isSending = false
             if didSend {
+                onDelivered?()
                 if state.kind == .place {
                     recentlySentSpotName = state.text
                     received = nil
@@ -1095,8 +1104,21 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     /// Requests a single fix and polls the provider for up to ~5s for a result.
+    ///
+    /// First run only: while the When-In-Use permission alert is on screen
+    /// (authorization still .notDetermined), the 5s budget isn't burning —
+    /// wait out the alert (up to ~30s) BEFORE starting the fix window, so the
+    /// very first "I'm in" doesn't fail just because the user took a moment
+    /// to read the prompt. Already-authorized (or denied) users skip this
+    /// instantly and get exactly the original behavior.
     private func acquireLocation() async -> CLLocationCoordinate2D? {
         locationProvider.requestOnce()
+        var alertTicks = 0
+        while locationProvider.authorizationStatus == .notDetermined, alertTicks < 300 {
+            if Task.isCancelled { return nil }
+            try? await Task.sleep(for: .milliseconds(100))
+            alertTicks += 1
+        }
         for _ in 0..<50 {
             if Task.isCancelled { return nil }
             switch locationProvider.status {

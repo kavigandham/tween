@@ -29,6 +29,11 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     private(set) var status: Status = .idle
 
+    /// Mirror of the manager's authorization so callers can distinguish "the
+    /// permission alert is still on screen" (.notDetermined) from "we're
+    /// waiting on a fix" and budget their deadlines accordingly.
+    var authorizationStatus: CLAuthorizationStatus { manager.authorizationStatus }
+
     private let manager = CLLocationManager()
 
     override init() {

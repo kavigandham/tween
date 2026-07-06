@@ -39,8 +39,10 @@ struct RankedSpot: Identifiable {
 
     /// Ranking key (ascending). A flat 2-minute grace is forgiven, then the
     /// result is inflated for low-confidence estimates so guesses rank below
-    /// spots with real routes.
-    var score: Double { (worstETA - 120) / confidence }
+    /// spots with real routes. The numerator is clamped at 0: below the grace
+    /// period a negative value divided by a SMALLER confidence would rank
+    /// straight-line guesses ABOVE real routes (inverted penalty).
+    var score: Double { max(worstETA - 120, 0) / confidence }
 
     init(id: UUID = UUID(), item: MKMapItem?, etas: [ParticipantETA], confidence: Double) {
         self.id = id
