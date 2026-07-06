@@ -51,6 +51,10 @@ struct OnboardingView: View {
     @State private var savedCoordinate: CLLocationCoordinate2D?
     @State private var peerCoordinate: CLLocationCoordinate2D?
     @State private var agreedMeetup: TweenState?
+    /// The in-flight proposal/counter (not yet fully agreed) mirrored from the
+    /// conversation-scoped store, so the host app shows the SAME negotiation
+    /// the extension does — spot card, agreement progress, Agree & reply.
+    @State private var pendingProposal: TweenState?
     /// Every "in" participant beyond the local user and the primary peer —
     /// only populated in group chats (3+ people). Empty for DMs, preserving
     /// the original 2-person behaviour. Refreshed each tick of `pollPeer`.
@@ -146,6 +150,9 @@ struct OnboardingView: View {
     /// asked for while no coordinate was available yet. Mirrors
     /// `pendingNameAction`; without it those taps were silently discarded.
     @State private var pendingLocationAction: (() -> Void)?
+    /// Keeps the cross-process MeetupSync observation alive for the life of
+    /// this screen (registration ends when the token deallocates).
+    @State private var syncToken: MeetupSyncToken?
 
     // Hand-off / onboarding
     @State private var showTutorial = !OnboardingFlags.hasSeenOnboarding
@@ -370,6 +377,12 @@ struct OnboardingView: View {
                     TweenPin(role: .fairSpot)
                 }
             }
+            // The spot currently under negotiation (no agreement yet).
+            if agreedMeetup == nil, let pendingProposal, pendingProposal.kind == .place {
+                Annotation(pendingProposal.text, coordinate: pendingProposal.coordinate, anchor: .bottom) {
+                    TweenPin(role: .fairSpot)
+                }
+            }
             // A selectable pin for every visible search result. The selected one
             // becomes a custom annotation carrying the A/B distance label above a
             // larger brand icon; the rest are category markers. Tapping the empty
@@ -552,9 +565,31 @@ struct OnboardingView: View {
                 _ = refreshFromAppGroup()
             }
         }
-        .task { await pollPeer() }
+        .task {
+            // Darwin notifications are the primary cross-process signal now:
+            // every canonical App Group writer posts one, so extension state
+            // appears here the instant it lands instead of on the next poll
+            // tick. The poll below survives only as a slow fallback.
+            if syncToken == nil {
+                syncToken = MeetupSync.observe {
+                    Task { @MainActor in _ = pollRefreshFromAppGroup() }
+                }
+            }
+            await pollPeer()
+        }
         .task { requestInitialLocation() }
-        .onAppear { _ = refreshFromAppGroup() }
+        .onAppear {
+            _ = refreshFromAppGroup()
+            // Cold-open with a live negotiation: drop the sheet to its peek so
+            // the floating proposal/agreed card is visible. Explicit (not
+            // transition-driven) because the poll task's first tick often runs
+            // before this and consumes the nil→value transition under the
+            // anti-yank suppression gate.
+            if pendingProposal != nil || agreedMeetup != nil {
+                panelTab = .map
+                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+            }
+        }
         .onReceive(appGroupDidChangePublisher) { _ in
             // Catches in-process writes (e.g. host app's own "I'm in" button).
             // Extension writes don't fire this — see pollPeer + scenePhase
@@ -1497,7 +1532,92 @@ struct OnboardingView: View {
             compactCardContent(item: item, ranked: ranked, isAgreedMeetup: false)
         } else if let agreedMeetup, agreedMeetup.kind == .place {
             compactCardContent(item: mapItem(for: agreedMeetup), ranked: nil, isAgreedMeetup: true)
+        } else if let pendingProposal {
+            proposalCard(for: pendingProposal)
         }
+    }
+
+    /// The in-flight negotiation, rendered with the same vocabulary the
+    /// extension uses: who proposed, agreement progress, and either an
+    /// "Agree & reply" CTA or a waiting state — so switching from Messages to
+    /// the app never loses the thread of the meetup.
+    private func proposalCard(for proposal: TweenState) -> some View {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let myID = TweenIdentity.stableID
+        let needsMyAgreement = !proposal.isProposer(participantID: myID, name: myName)
+            && !proposal.hasAgreed(participantID: myID, name: myName)
+        let proposer = proposal.senderName ?? "Your friend"
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                Text(proposal.messageType == .counter ? "\(proposer) suggests instead" : "\(proposer) suggests")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .textCase(.uppercase)
+                Text(proposal.text)
+                    .font(Tokens.Typography.headline)
+                    .lineLimit(1)
+                if !proposal.agreedNames.isEmpty || !proposal.agreedIDs.isEmpty {
+                    Text(agreementProgress(for: proposal))
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+            }
+            ABDistanceLabel(
+                selfCoord: savedCoordinate,
+                peerCoord: peerCoordinate,
+                target: proposal.coordinate,
+                ranked: nil)
+            HStack(spacing: Tokens.Spacing.s2) {
+                if needsMyAgreement {
+                    Button { agreeToPendingProposal(proposal) } label: {
+                        Label("Agree & reply", systemImage: "checkmark.circle.fill")
+                    }
+                    .buttonStyle(.tweenPrimary())
+                    .accessibilityHint("Opens Messages with your agreement to \(proposal.text)")
+                } else {
+                    Label(waitingText(for: proposal), systemImage: "hourglass")
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+                        .background(Tokens.Palette.surfaceSecondary, in: Capsule())
+                }
+                Button { openDirections(to: mapItem(for: proposal)) } label: {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                }
+                .buttonStyle(.tweenPrimary(.subtle))
+            }
+        }
+        .padding(Tokens.Spacing.s4)
+        .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .tweenElevation(.floating)
+        .padding(.horizontal)
+        .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s2)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func agreementProgress(for proposal: TweenState) -> String {
+        let needed = max(proposal.participants.count - 1, 1)
+        let have = proposal.agreedIDs.isEmpty ? proposal.agreedNames.count : proposal.agreedIDs.count
+        return "\(have) of \(needed) agreed"
+    }
+
+    private func waitingText(for proposal: TweenState) -> String {
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let missing = proposal.missingAgreementNames(excluding: TweenIdentity.stableID, name: myName)
+        return missing.isEmpty ? "Waiting for replies" : "Waiting for \(missing.joined(separator: ", "))"
+    }
+
+    private func agreeToPendingProposal(_ proposal: TweenState) {
+        let selection = SpotSelection(item: mapItem(for: proposal), ranked: nil)
+        let incoming = IncomingProposalContext(
+            senderName: proposal.senderName,
+            senderID: proposal.senderID,
+            participants: proposal.participants,
+            agreedNames: proposal.agreedNames,
+            agreedIDs: proposal.agreedIDs,
+            isCounter: false)
+        sendAgreeReply(for: selection, incoming: incoming)
     }
 
     private func compactCardContent(item: MKMapItem, ranked: RankedSpot?, isAgreedMeetup: Bool) -> some View {
@@ -1780,28 +1900,34 @@ struct OnboardingView: View {
         }
 
         Task { @MainActor in
-            let image = await BubbleImageRenderer.makeImage(
-                state: state,
-                participants: state.participants,
-                localName: UserProfile.displayName ?? UserName.fallback)
-
-            let layout = MSMessageTemplateLayout()
-            layout.image = image
-            BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count + 1, 2))
-
-            // Match sendToChat's guard: never ship a payload-less bubble —
-            // an oversize encode returns nil and the recipient's extension
-            // would decode nothing from the tapped message.
-            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
-            let message = MSMessage()
-            message.url = bubbleURL
-            message.layout = layout
-
+            guard let message = await composeTweenMessage(
+                for: state, totalSeats: max(participants.count + 1, 2)) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [],
                 body: "I'm out of this meetup.",
                 message: message))
         }
+    }
+
+    /// Builds the Tween-styled `MSMessage` for a state: renders the bubble
+    /// image, applies the caption layout, and attaches the payload URL. The
+    /// single composer behind every host-app send — this block used to be
+    /// copy-pasted at five call sites. Returns nil when the payload can't be
+    /// encoded: never ship a payload-less bubble, the recipient's extension
+    /// would decode nothing from the tapped message.
+    private func composeTweenMessage(for state: TweenState, totalSeats: Int) async -> MSMessage? {
+        let image = await BubbleImageRenderer.makeImage(
+            state: state,
+            participants: state.participants,
+            localName: UserProfile.displayName ?? UserName.fallback)
+        let layout = MSMessageTemplateLayout()
+        layout.image = image
+        BubbleCaption.apply(to: layout, state: state, totalSeats: totalSeats)
+        guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return nil }
+        let message = MSMessage()
+        message.url = bubbleURL
+        message.layout = layout
+        return message
     }
 
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
@@ -1855,23 +1981,8 @@ struct OnboardingView: View {
         }
 
         Task { @MainActor in
-            let image = await BubbleImageRenderer.makeImage(
-                state: state,
-                participants: state.participants,
-                localName: myName)
-
-            let layout = MSMessageTemplateLayout()
-            layout.image = image
-            BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
-
-            // Match sendToChat's guard: never ship a payload-less bubble —
-            // an oversize encode returns nil and the recipient's extension
-            // would decode nothing from the tapped message.
-            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
-            let message = MSMessage()
-            message.url = bubbleURL
-            message.layout = layout
-
+            guard let message = await composeTweenMessage(
+                for: state, totalSeats: max(participants.count, 2)) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [],
                 body: needsRide ? "\(myName) needs a ride." : "\(myName) can meet there.",
@@ -1998,19 +2109,8 @@ struct OnboardingView: View {
 
             if MFMessageComposeViewController.canSendText() {
                 Task { @MainActor in
-                    let image = await BubbleImageRenderer.makeImage(
-                        state: state,
-                        participants: state.participants,
-                        localName: UserProfile.displayName ?? UserName.fallback)
-
-                    let layout = MSMessageTemplateLayout()
-                    layout.image = image
-                    BubbleCaption.apply(to: layout, state: state, totalSeats: max(participants.count, 2))
-
-                    let message = MSMessage()
-                    message.url = appURL
-                    message.layout = layout
-
+                    guard let message = await composeTweenMessage(
+                        for: state, totalSeats: max(participants.count, 2)) else { return }
                     // Route through the existing enum-driven sheet; empty recipients so
                     // the user picks who in Messages (no selected-friend concept here).
                     activeSheet = .message(PendingMessage(
@@ -2122,23 +2222,7 @@ struct OnboardingView: View {
         // round-trip — usually under a second, but we don't want to block).
         // Once ready, build the MSMessage on the main actor and present.
         Task { @MainActor in
-            let image = await BubbleImageRenderer.makeImage(
-                state: state,
-                participants: state.participants,
-                localName: myName)
-
-            let layout = MSMessageTemplateLayout()
-            layout.image = image
-            BubbleCaption.apply(to: layout, state: state, totalSeats: 2)
-
-            // Match sendToChat's guard: never ship a payload-less bubble —
-            // an oversize encode returns nil and the recipient's extension
-            // would decode nothing from the tapped message.
-            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
-            let message = MSMessage()
-            message.url = bubbleURL
-            message.layout = layout
-
+            guard let message = await composeTweenMessage(for: state, totalSeats: 2) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [handle],
                 body: Self.inviteText,
@@ -2427,9 +2511,12 @@ struct OnboardingView: View {
 
     @MainActor
     private func pollPeer() async {
+        // Fallback cadence only — MeetupSync Darwin notifications deliver
+        // changes immediately; this loop just catches anything a missed
+        // notification would leave behind (e.g. a writer predating the posts).
         while !Task.isCancelled {
             _ = pollRefreshFromAppGroup()
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .seconds(2))
         }
     }
 
@@ -2547,6 +2634,29 @@ struct OnboardingView: View {
                     panelTab = .map
                     selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
                 }
+            }
+        }
+
+        // Mirror the in-flight proposal (propose / counter / partial agree)
+        // so opening the app mid-negotiation shows it — previously only the
+        // terminal agreed state surfaced here.
+        let cachedProposal: TweenState? = {
+            guard cachedAgreedMeetup == nil,
+                  let proposal = scopedSnapshot?.proposedState,
+                  proposal.kind == .place
+            else { return nil }
+            return proposal
+        }()
+        if pendingProposal != cachedProposal {
+            pendingProposal = cachedProposal
+            didChange = true
+            // Same peek nudge as the agreed path: the proposal card floats
+            // over the map just above the collapsed sheet, so a half-open
+            // sheet would hide it. Gated like every background-driven write
+            // so a poll/notification tick can't yank controls mid-drag.
+            if cachedProposal != nil, !suppressPollDetentWrites {
+                panelTab = .map
+                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }
         }
 
@@ -2850,23 +2960,8 @@ struct OnboardingView: View {
         // recipient field is left empty so the user picks the same friend
         // they got the link from.
         Task { @MainActor in
-            let image = await BubbleImageRenderer.makeImage(
-                state: state,
-                participants: state.participants,
-                localName: myName)
-
-            let layout = MSMessageTemplateLayout()
-            layout.image = image
-            BubbleCaption.apply(to: layout, state: state, totalSeats: state.participants.count)
-
-            // Match sendToChat's guard: never ship a payload-less bubble —
-            // an oversize encode returns nil and the recipient's extension
-            // would decode nothing from the tapped message.
-            guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return }
-            let message = MSMessage()
-            message.url = bubbleURL
-            message.layout = layout
-
+            guard let message = await composeTweenMessage(
+                for: state, totalSeats: state.participants.count) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [],
                 body: "I'm in for \(selection.name)",

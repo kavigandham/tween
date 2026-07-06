@@ -49,6 +49,7 @@ enum LocationCache {
     static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
         write(coordinate, at: date, key: selfKey)
         defaults?.set(isActive, forKey: selfActiveKey)
+        MeetupSync.post()
     }
 
     static func loadSelf() -> CachedCoord? {
@@ -57,10 +58,12 @@ enum LocationCache {
 
     static func setActive(_ active: Bool) {
         defaults?.set(active, forKey: selfActiveKey)
+        MeetupSync.post()
     }
 
     static func deactivateSelf() {
         defaults?.set(false, forKey: selfActiveKey)
+        MeetupSync.post()
     }
 
     // MARK: - Peer
@@ -68,6 +71,7 @@ enum LocationCache {
     static func savePeer(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
         write(coordinate, at: date, key: peerKey)
         defaults?.set(isActive, forKey: peerActiveKey)
+        MeetupSync.post()
     }
 
     static func loadPeer() -> CachedCoord? {
@@ -76,6 +80,7 @@ enum LocationCache {
 
     static func setPeerActive(_ active: Bool) {
         defaults?.set(active, forKey: peerActiveKey)
+        MeetupSync.post()
     }
 
     static var isPeerActive: Bool {
@@ -117,6 +122,7 @@ enum LocationCache {
     static func saveParticipants(_ participants: [Participant]) {
         guard let data = try? JSONEncoder().encode(participants) else { return }
         defaults?.set(data, forKey: participantsKey)
+        MeetupSync.post()
     }
 
     /// Saves the canonical roster and keeps the legacy single-peer projection
@@ -154,6 +160,7 @@ enum LocationCache {
 
     static func clearParticipants() {
         defaults?.removeObject(forKey: participantsKey)
+        MeetupSync.post()
     }
 
     // MARK: - Agreed meetup (terminal state of a negotiation)
@@ -171,6 +178,7 @@ enum LocationCache {
     static func saveAgreedMeetup(_ state: TweenState) {
         guard let url = state.encodedURL(scheme: "tween", host: "m") else { return }
         defaults?.set(url.absoluteString, forKey: agreedMeetupKey)
+        MeetupSync.post()
     }
 
     static func loadAgreedMeetup() -> TweenState? {
@@ -181,6 +189,7 @@ enum LocationCache {
 
     static func clearAgreedMeetup() {
         defaults?.removeObject(forKey: agreedMeetupKey)
+        MeetupSync.post()
     }
 
     // MARK: - Lifecycle
@@ -190,6 +199,7 @@ enum LocationCache {
         defaults?.set(false, forKey: peerActiveKey)
         defaults?.removeObject(forKey: participantsKey)
         defaults?.removeObject(forKey: agreedMeetupKey)
+        MeetupSync.post()
     }
 
     static func clearAll() {

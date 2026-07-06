@@ -1,5 +1,54 @@
 import Foundation
 
+/// Cross-process change signal for App Group meetup state.
+///
+/// `UserDefaults.didChangeNotification` does NOT fire across processes, so
+/// without this the host app only noticed extension writes on its poll tick.
+/// Every canonical writer (`ConversationMeetupStore`, `LocationCache`,
+/// `OutgoingDraftStore`) posts a Darwin notification after writing; the host
+/// observes and refreshes immediately, keeping its (slower) poll only as a
+/// fallback. Darwin notifications carry no payload — pure "something changed".
+enum MeetupSync {
+    static let notificationName = "com.kavigandham.tween.stateChanged"
+
+    static func post() {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(notificationName as CFString),
+            nil, nil, true)
+    }
+
+    /// Registers `handler` (delivered on the main queue) for cross-process
+    /// change posts. Observation lasts as long as the returned token lives.
+    static func observe(_ handler: @escaping () -> Void) -> MeetupSyncToken {
+        MeetupSyncToken(handler: handler)
+    }
+}
+
+/// Lifetime handle for a `MeetupSync.observe` registration.
+final class MeetupSyncToken {
+    fileprivate let handler: () -> Void
+
+    init(handler: @escaping () -> Void) {
+        self.handler = handler
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(center, observer, { _, observer, _, _, _ in
+            guard let observer else { return }
+            let token = Unmanaged<MeetupSyncToken>.fromOpaque(observer).takeUnretainedValue()
+            DispatchQueue.main.async { token.handler() }
+        }, MeetupSync.notificationName as CFString, nil, .deliverImmediately)
+    }
+
+    deinit {
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName(MeetupSync.notificationName as CFString),
+            nil)
+    }
+}
+
 struct MeetupSnapshot: Codable, Equatable {
     let conversationKey: String
     var participants: [Participant]
@@ -94,10 +143,12 @@ enum ConversationMeetupStore {
         updated.updatedAt = Date()
         guard let data = try? JSONEncoder().encode(updated) else { return }
         defaults?.set(data, forKey: storageKey(for: key ?? snapshot.conversationKey))
+        MeetupSync.post()
     }
 
     static func clear(key: String) {
         defaults?.removeObject(forKey: storageKey(for: key))
+        MeetupSync.post()
     }
 
     static func clearTransientState(key: String) {

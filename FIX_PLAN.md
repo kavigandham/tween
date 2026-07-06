@@ -84,15 +84,28 @@ Still open (product decisions, unchanged): **T21** (leave clears every
 receiver's agreed meetup — confirm intent) and **T10** (re-enable the
 interactive expanded map after on-device memory profiling).
 
-## Phase 4 — Seamless app ↔ extension (MeetupStore)
+## Phase 4 — Seamless app ↔ extension — DONE (2026-07-06)
 
-Unchanged in intent from v1, resequenced after Phase 3 (the store keys on stable
-IDs). One `@Observable MeetupStore` in Shared owning conversation-scoped state;
-host app renders the full negotiation (proposal card, agreement status, MEETUP
-SET w/ directions); Darwin-notification refresh replaces the 300ms poll; one
-shared `MessageComposer` replaces OnboardingView's five MSMessage blocks.
-Honors HANDOFF HARD RULES: delivery gating preserved, decode core untouched,
-migration is additive with legacy shims removed only at the end.
+Delivered (build green, 94/94 tests, verified end-to-end by seeding the
+simulator's App Group with an extension-written proposal and cold-opening the
+app onto the full negotiation card):
+- ✅ **MeetupSync** Darwin-notification channel: every canonical App Group
+  writer (`ConversationMeetupStore`, `LocationCache`, `OutgoingDraftStore`)
+  posts on write; the host observes and refreshes instantly. The 300ms poll
+  became a 2s fallback.
+- ✅ **Host renders the full negotiation**: in-flight proposals/counters
+  surface as a floating card (proposer, spot, agreement progress, A/B
+  distances) with "Agree & reply" (routes through the existing composer
+  hand-off) or a waiting state, plus the proposal pin on the map. Cold-open
+  nudges the sheet to its peek; mid-session arrivals respect the T12
+  anti-yank gate.
+- ✅ **`composeTweenMessage`**: the five copy-pasted MSMessage-building blocks
+  in OnboardingView collapsed into one helper (render → caption → payload
+  guard → message).
+- Deliberately NOT done: a separate `@Observable MeetupStore` type. With
+  instant sync + full-state rendering shipped, the state-ownership extraction
+  folds into Phase 5's monolith split where the state has to move anyway —
+  extracting it twice would violate the minimal-diff rule.
 
 ## Phase 5 — Monolith split
 

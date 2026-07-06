@@ -39,6 +39,7 @@ enum OutgoingDraftStore {
     static func save(_ draft: OutgoingDraft) {
         guard let data = try? JSONEncoder().encode(draft) else { return }
         defaults?.set(data, forKey: storageKey)
+        MeetupSync.post()
     }
 
     static func load() -> OutgoingDraft? {
@@ -48,5 +49,6 @@ enum OutgoingDraftStore {
 
     static func clear() {
         defaults?.removeObject(forKey: storageKey)
+        MeetupSync.post()
     }
 }
