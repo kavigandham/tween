@@ -26,8 +26,12 @@ enum BubbleCaption {
             }
 
         case .leave:
+            // The subcaption must EARN the tap: a leave is only processed by
+            // whoever taps the bubble (nothing runs on the peers' devices), so
+            // "1 still ready" left everyone's map stale — nobody taps a status
+            // line. Point at the updated plan instead.
             layout.caption = "\(name) is out"
-            layout.subcaption = inCount > 0 ? "\(inCount) still ready" : "Tap to join"
+            layout.subcaption = inCount > 0 ? "Tap for the updated plan" : "Tap to start over"
 
         case .propose:
             layout.caption = "\(name) suggests \(state.text)"

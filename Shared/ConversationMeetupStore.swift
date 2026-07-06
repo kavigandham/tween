@@ -64,6 +64,13 @@ struct MeetupSnapshot: Codable, Equatable {
     /// this tombstone stops those stale rosters from re-adopting the local
     /// user as "in". Cleared by an explicit "I'm in" / agree.
     var localUserLeft: Bool? = nil
+    /// Identity keys (stable install IDs, or names for legacy payloads) of
+    /// OTHER participants whose `.leave` this device has processed. Rosters
+    /// broadcast by peers who never saw the leave keep listing them;
+    /// `RosterMerge` filters against this set so a departure sticks until
+    /// that person's own explicit rejoin. Device-local; never serialised
+    /// into payload URLs. Optional so older snapshots keep decoding.
+    var departedKeys: [String]? = nil
 
     var proposedState: TweenState? {
         get { proposedStateURL.flatMap(TweenState.init(url:)) }
@@ -218,6 +225,32 @@ enum ConversationMeetupStore {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         guard (snapshot.localUserLeft ?? false) != left else { return }
         snapshot.localUserLeft = left
+        save(snapshot, key: key)
+    }
+
+    // MARK: - Departure tombstones (other participants)
+
+    static func departedParticipants(key: String) -> Set<String> {
+        Set(load(key: key)?.departedKeys ?? [])
+    }
+
+    /// Records that the participants behind `keys` left this conversation.
+    static func noteDeparted(_ keys: [String], key: String) {
+        guard !keys.isEmpty else { return }
+        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        let updated = Set(snapshot.departedKeys ?? []).union(keys)
+        guard updated != Set(snapshot.departedKeys ?? []) else { return }
+        snapshot.departedKeys = updated.sorted()
+        save(snapshot, key: key)
+    }
+
+    /// Lifts departure tombstones — a participant's own rejoin message.
+    static func clearDeparted(_ keys: [String], key: String) {
+        guard !keys.isEmpty, var current = load(key: key)?.departedKeys, !current.isEmpty else { return }
+        current.removeAll(where: Set(keys).contains)
+        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        guard Set(current) != Set(snapshot.departedKeys ?? []) else { return }
+        snapshot.departedKeys = current
         save(snapshot, key: key)
     }
 

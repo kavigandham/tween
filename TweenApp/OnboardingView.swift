@@ -1857,41 +1857,33 @@ struct OnboardingView: View {
     }
 
     private func leave() {
-        withAnimation(Tokens.Motion.spring) { isUserIn = false }
-        localNeedsRide = false
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
             ?? LocationCache.loadParticipants().first(where: { $0.matches(localContext) })?.coordinate
             ?? Self.defaultCenter
         let remainingParticipants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
-        // The outgoing leave bubble tells everyone else who remains in.
-        // Locally, leaving means this device is no longer watching the meetup.
-        LocationCache.saveParticipantSnapshot([], localContext: localContext)
-        if let key = ConversationMeetupStore.lastActiveConversationKey {
-            ConversationMeetupStore.saveParticipants([], key: key)
-            ConversationMeetupStore.clearProposalState(key: key)
-            // Tombstone: stale peer rosters must not re-add this user as "in".
-            ConversationMeetupStore.setLocalUserLeft(true, key: key)
-        }
-        LocationCache.deactivateSelf()
-        LocationCache.clearAgreedMeetup()
-        agreedMeetup = nil
-        selectedResult = nil
-        _ = refreshFromAppGroup()
+        // Nothing commits here. Leaving takes effect only once the leave
+        // bubble is actually sent (commitLeaveLocally, via onSent) — the same
+        // didSend gating the extension uses. Committing up front left this
+        // device "out" with no leave bubble in the chat when the composer was
+        // cancelled: a split-brain the peers could never repair.
         presentLeaveMessage(participants: remainingParticipants, fallbackCoordinate: fallbackCoordinate)
     }
 
     private func presentLeaveMessage(participants: [Participant],
                                      fallbackCoordinate: CLLocationCoordinate2D) {
+        let revision = nextOutgoingRevisionForActiveConversation()
         let state = TweenState(
             text: "I'm out",
             latitude: fallbackCoordinate.latitude,
             longitude: fallbackCoordinate.longitude,
             senderName: UserProfile.displayName,
+            senderID: TweenIdentity.stableID,
             kind: .participant,
             messageType: .leave,
-            participants: participants
+            participants: participants,
+            revision: revision
         )
 
         guard MFMessageComposeViewController.canSendText() else {
@@ -1906,8 +1898,52 @@ struct OnboardingView: View {
             activeSheet = .message(PendingMessage(
                 recipients: [],
                 body: "I'm out of this meetup.",
-                message: message))
+                message: message,
+                onSent: {
+                    commitLeaveLocally(remaining: participants, revision: revision)
+                }))
         }
+    }
+
+    /// The local effects of leaving, applied only after the leave bubble was
+    /// actually sent. Keeps the REMAINING roster rather than wiping to [] —
+    /// the meetup is still live for everyone else (group-session semantics),
+    /// and an empty roster made the next rejoin broadcast just [me], erasing
+    /// the group on every device that tapped it. "Out" is expressed by
+    /// membership + the leave tombstone, not by roster emptiness.
+    private func commitLeaveLocally(remaining: [Participant], revision: Int?) {
+        withAnimation(Tokens.Motion.spring) { isUserIn = false }
+        localNeedsRide = false
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
+        noteOutgoingRevision(revision)
+        LocationCache.saveParticipantSnapshot(remaining, localContext: localContext)
+        if let key = ConversationMeetupStore.lastActiveConversationKey {
+            ConversationMeetupStore.saveParticipants(remaining, key: key)
+            ConversationMeetupStore.clearProposalState(key: key)
+            // Tombstone: stale peer rosters must not re-add this user as "in".
+            ConversationMeetupStore.setLocalUserLeft(true, key: key)
+        }
+        LocationCache.deactivateSelf()
+        LocationCache.clearAgreedMeetup()
+        agreedMeetup = nil
+        selectedResult = nil
+        _ = refreshFromAppGroup()
+    }
+
+    /// Mints the next outgoing payload revision for the most recently active
+    /// conversation, mirroring the extension. Deliberately NOT recorded at
+    /// mint time — `noteOutgoingRevision` runs in the composer's onSent so a
+    /// cancelled send never burns a revision (burned revisions made the
+    /// peer's genuinely-new bubbles decode as stale and vanish).
+    private func nextOutgoingRevisionForActiveConversation() -> Int? {
+        guard let key = ConversationMeetupStore.lastActiveConversationKey else { return nil }
+        return ConversationMeetupStore.lastRevision(key: key) + 1
+    }
+
+    private func noteOutgoingRevision(_ revision: Int?) {
+        guard let revision, let key = ConversationMeetupStore.lastActiveConversationKey else { return }
+        ConversationMeetupStore.noteRevision(revision, key: key)
     }
 
     /// Builds the Tween-styled `MSMessage` for a state: renders the bubble
@@ -1917,6 +1953,15 @@ struct OnboardingView: View {
     /// encoded: never ship a payload-less bubble, the recipient's extension
     /// would decode nothing from the tapped message.
     private func composeTweenMessage(for state: TweenState, totalSeats: Int) async -> MSMessage? {
+        // Departure gossip, mirroring the extension's deliverBubble: outgoing
+        // payloads carry this device's tombstones so any later tap anywhere
+        // in the group propagates removals.
+        var outgoing = state
+        if let key = ConversationMeetupStore.lastActiveConversationKey {
+            outgoing.departed = RosterMerge.gossipKeys(
+                departed: ConversationMeetupStore.departedParticipants(key: key),
+                roster: state.participants)
+        }
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             participants: state.participants,
@@ -1924,7 +1969,11 @@ struct OnboardingView: View {
         let layout = MSMessageTemplateLayout()
         layout.image = image
         BubbleCaption.apply(to: layout, state: state, totalSeats: totalSeats)
-        guard let bubbleURL = state.encodedURL(scheme: "tween", host: "m") else { return nil }
+        // https, never tween:// — MSMessage.url is resolved by recipients
+        // without the app (and macOS Messages) through the browser fallback,
+        // and the hard constraint mandates https/file. The extension already
+        // sends https; the decoder accepts both.
+        guard let bubbleURL = outgoing.encodedURL() else { return nil }
         let message = MSMessage()
         message.url = bubbleURL
         message.layout = layout
@@ -1947,15 +1996,14 @@ struct OnboardingView: View {
     }
 
     private func setNeedsRide(_ needsRide: Bool) {
-        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else {
+        // Requires being IN, not just having a cached coordinate: the ride
+        // toggle used to auto-rejoin (and clear the leave tombstone) for a
+        // user who had explicitly said "I'm out" — a silent resurrection.
+        guard isUserIn, let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else {
             showToast("Tap I'm in first so friends know where to pick you up")
             return
         }
         localNeedsRide = needsRide
-        if !isUserIn {
-            withAnimation(Tokens.Motion.spring) { isUserIn = true }
-            LocationCache.save(coordinate, isActive: true)
-        }
         saveLocalParticipant(coordinate)
         _ = refreshFromAppGroup()
         presentRideStatusMessage(needsRide: needsRide, coordinate: coordinate)
@@ -1965,14 +2013,17 @@ struct OnboardingView: View {
     private func presentRideStatusMessage(needsRide: Bool, coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
         let participants = LocationCache.loadParticipants()
+        let revision = nextOutgoingRevisionForActiveConversation()
         let state = TweenState(
             text: needsRide ? "I need a ride" : "I can meet there",
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             senderName: UserProfile.displayName,
+            senderID: TweenIdentity.stableID,
             kind: .participant,
             messageType: .invite,
-            participants: participants
+            participants: participants,
+            revision: revision
         )
 
         guard MFMessageComposeViewController.canSendText() else {
@@ -1991,6 +2042,7 @@ struct OnboardingView: View {
                 body: needsRide ? "\(myName) needs a ride." : "\(myName) can meet there.",
                 message: message,
                 onSent: {
+                    noteOutgoingRevision(revision)
                     showToast(needsRide ? "Ride request sent" : "Ride update sent")
                 }))
         }
@@ -2092,15 +2144,18 @@ struct OnboardingView: View {
                 showToast("Tap I'm in first so your friend has a way to join")
                 return
             }
+            let revision = nextOutgoingRevisionForActiveConversation()
             let state = TweenState(
                 text: selection.name,
                 latitude: coord.latitude,
                 longitude: coord.longitude,
                 senderName: UserProfile.displayName,
+                senderID: TweenIdentity.stableID,
                 kind: .place,
                 senderCoordinate: savedCoordinate,        // set by ensureNamed
                 messageType: .propose,
-                participants: participants)
+                participants: participants,
+                revision: revision)
             guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
@@ -2121,6 +2176,7 @@ struct OnboardingView: View {
                         body: "Let's go to \(selection.name).",
                         message: message,
                         onSent: {
+                            noteOutgoingRevision(revision)
                             PingLog.logGenericInvite()
                             lastGenericInviteAt = PingLog.lastGenericInviteAt
                             showOwnProposalOnMap(state)
@@ -2785,15 +2841,50 @@ struct OnboardingView: View {
             peerCoordinate = peer
             logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
         }
-        // Refresh participants array too so the group view sees everyone "in".
-        // A `.leave` message may intentionally carry an empty roster.
-        if !state.participants.isEmpty || state.messageType == .leave {
-            let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
-            LocationCache.saveParticipantSnapshot(state.participants, localContext: localContext)
-            if let activeConversationKey {
-                ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
+        // Roster adoption mirrors the extension's decode path — revision
+        // guard, self-tombstone filter, and MERGE instead of verbatim
+        // replace. This URL path used to bypass all three, so opening an old
+        // link resurrected a stale roster (including this user after they'd
+        // left). A `.leave` message may intentionally carry an empty roster.
+        var adoptRoster = true
+        if let revision = state.revision, let activeConversationKey {
+            adoptRoster = revision >= ConversationMeetupStore.lastRevision(key: activeConversationKey)
+            if adoptRoster {
+                ConversationMeetupStore.noteRevision(revision, key: activeConversationKey)
             }
-            if let firstRemote = state.participants.first(where: { !$0.matches(localContext) }) {
+        }
+        if adoptRoster, !state.participants.isEmpty || state.messageType == .leave {
+            let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
+            let senderKeys = RosterMerge.senderKeys(senderID: state.senderID, senderName: state.senderName)
+            if let activeConversationKey {
+                // Absorb gossiped departures — minus the local user, whose
+                // presence is governed solely by localUserLeft.
+                let myKeys: Set<String> = [TweenIdentity.stableID, myName]
+                ConversationMeetupStore.noteDeparted(state.departed.filter { !myKeys.contains($0) },
+                                                     key: activeConversationKey)
+                if state.messageType == .leave {
+                    ConversationMeetupStore.noteDeparted(senderKeys, key: activeConversationKey)
+                } else {
+                    ConversationMeetupStore.clearDeparted(senderKeys, key: activeConversationKey)
+                }
+            }
+            var incoming = state.participants
+            if let activeConversationKey, ConversationMeetupStore.localUserLeft(key: activeConversationKey) {
+                incoming.removeAll { $0.matches(localContext) }
+            }
+            let departed = activeConversationKey
+                .map { ConversationMeetupStore.departedParticipants(key: $0) } ?? []
+            let merged = RosterMerge.merge(
+                local: LocationCache.loadParticipants(),
+                incoming: incoming,
+                messageType: state.messageType,
+                senderKeys: senderKeys,
+                departed: departed)
+            LocationCache.saveParticipantSnapshot(merged, localContext: localContext)
+            if let activeConversationKey {
+                ConversationMeetupStore.saveParticipants(merged, key: activeConversationKey)
+            }
+            if let firstRemote = merged.first(where: { !$0.matches(localContext) }) {
                 peerCoordinate = firstRemote.coordinate
             } else {
                 peerCoordinate = nil
@@ -2937,6 +3028,7 @@ struct OnboardingView: View {
             participants.append(Participant(id: myID, name: myName, coordinate: mySelf, needsRide: localNeedsRide))
         }
 
+        let revision = nextOutgoingRevisionForActiveConversation()
         let state = TweenState(
             text: selection.name,
             latitude: selection.coordinate.latitude,
@@ -2949,26 +3041,34 @@ struct OnboardingView: View {
             messageType: .agree,
             participants: participants,
             agreedNames: agreed,
-            agreedIDs: agreedIDs
+            agreedIDs: agreedIDs,
+            revision: revision
         )
-        if let key = ConversationMeetupStore.lastActiveConversationKey {
-            if state.isFullyAgreed {
-                ConversationMeetupStore.saveAgreed(state, key: key)
-            } else {
-                ConversationMeetupStore.saveProposed(state, key: key)
-            }
-        }
 
         // Async render the bubble image, then present the composer. The
         // recipient field is left empty so the user picks the same friend
-        // they got the link from.
+        // they got the link from. The agreement is committed in onSent ONLY:
+        // committing before the composer meant a cancelled send still
+        // rendered MEETUP SET here for an agreement the peer never received
+        // (the extension has always gated these commits on didSend).
         Task { @MainActor in
             guard let message = await composeTweenMessage(
                 for: state, totalSeats: state.participants.count) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [],
                 body: "I'm in for \(selection.name)",
-                message: message))
+                message: message,
+                onSent: {
+                    noteOutgoingRevision(revision)
+                    if let key = ConversationMeetupStore.lastActiveConversationKey {
+                        if state.isFullyAgreed {
+                            ConversationMeetupStore.saveAgreed(state, key: key)
+                        } else {
+                            ConversationMeetupStore.saveProposed(state, key: key)
+                        }
+                    }
+                    _ = refreshFromAppGroup()
+                }))
         }
     }
 

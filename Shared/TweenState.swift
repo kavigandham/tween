@@ -76,6 +76,15 @@ struct TweenState: Equatable {
     /// Nil for payloads from older builds (and host-app sends), which keep
     /// the legacy trust-the-tap semantics.
     let revision: Int?
+    /// Departure gossip: identity keys of participants known to have left.
+    /// A leave bubble is only processed by whoever taps it — everyone else's
+    /// roster keeps the leaver forever. Gossiping tombstones through EVERY
+    /// subsequent payload lets any later tap propagate the removal, so one
+    /// person processing a leave inoculates the rest of the group through
+    /// their next message. Capped small (see RosterMerge.gossipCap); empty
+    /// for payloads from older builds. `var` so the composers can inject the
+    /// device's current tombstones at send time without rebuilding the state.
+    var departed: [String]
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -183,6 +192,9 @@ struct TweenState: Equatable {
             items.append(URLQueryItem(name: "agreedIds",
                                       value: Self.encodeNames(agreedIDs)))
         }
+        if !departed.isEmpty {
+            items.append(URLQueryItem(name: "gone", value: Self.encodeNames(departed)))
+        }
         if let revision {
             items.append(URLQueryItem(name: "rev", value: String(revision)))
         }
@@ -193,8 +205,13 @@ struct TweenState: Equatable {
         // `p=` + `pids=` carry the same data far more compactly — instead of
         // hard-failing the whole send.
         components.queryItems = items.filter { $0.name != "pj" }
-        guard let slim = components.url, slim.absoluteString.count <= 5000 else { return nil }
-        return slim
+        if let slim = components.url, slim.absoluteString.count <= 5000 { return slim }
+        // Still oversize: sacrifice the departure gossip before failing the
+        // send outright — tombstones also travel device-locally, so losing
+        // the gossip degrades propagation, not correctness.
+        components.queryItems = items.filter { $0.name != "pj" && $0.name != "gone" }
+        guard let slimmer = components.url, slimmer.absoluteString.count <= 5000 else { return nil }
+        return slimmer
     }
 
     private static func coordinateString(_ value: Double) -> String {
@@ -268,7 +285,8 @@ struct TweenState: Equatable {
         participants: [Participant] = [],
         agreedNames: [String] = [],
         agreedIDs: [String] = [],
-        revision: Int? = nil
+        revision: Int? = nil,
+        departed: [String] = []
     ) {
         self.text = text
         self.latitude = latitude
@@ -285,6 +303,7 @@ struct TweenState: Equatable {
         self.agreedNames = agreedNames
         self.agreedIDs = agreedIDs
         self.revision = revision
+        self.departed = departed
     }
 
     init?(url: URL) {
@@ -384,6 +403,7 @@ struct TweenState: Equatable {
             self.agreedIDs = []
         }
         self.revision = items.first(where: { $0.name == "rev" })?.value.flatMap(Int.init)
+        self.departed = items.first(where: { $0.name == "gone" })?.value.map(Self.decodeNames) ?? []
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {

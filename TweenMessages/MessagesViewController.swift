@@ -344,12 +344,31 @@ final class MessagesViewController: MSMessagesAppViewController {
             ConversationMeetupStore.saveProposed(state, key: conversationKey)
         }
 
-        // Roster snapshot: trust the incoming list — EXCEPT for the local
-        // user's own entry after they've left. Peers who never tapped the
-        // leave bubble still broadcast this user in their canonical rosters
-        // (a bubble is only processed when tapped, and nobody taps "X is
-        // out" — they just read it). Without the tombstone filter, any later
-        // bubble from such a peer silently re-adds the leaver as "in".
+        // Roster adoption is a MERGE, not a replace (group-session semantics:
+        // the conversation is a standing meetup people join and leave freely).
+        // The incoming list is one sender's view — treating it as canonical
+        // let a leave→rejoin bubble carrying `[me]` wipe the whole group on
+        // every device that tapped it. Joins/updates merge additively; only
+        // an explicit `.leave` removes (its sender), and departure tombstones
+        // keep the removal sticky against rosters from peers who never
+        // processed the leave — until that person's own rejoin lifts theirs.
+        let senderKeys = RosterMerge.senderKeys(senderID: state.senderID, senderName: state.senderName)
+        // Absorb gossiped departures — minus the local user, whose own
+        // presence is governed solely by the localUserLeft tombstone.
+        let myKeys: Set<String> = [localParticipantID(), Self.localParticipantName()]
+        ConversationMeetupStore.noteDeparted(state.departed.filter { !myKeys.contains($0) },
+                                             key: revisionKey)
+        if state.messageType == .leave {
+            ConversationMeetupStore.noteDeparted(senderKeys, key: revisionKey)
+        } else {
+            ConversationMeetupStore.clearDeparted(senderKeys, key: revisionKey)
+        }
+
+        // The local user's own entry after they've left still gets the
+        // dedicated tombstone filter: peers who never tapped the leave bubble
+        // keep broadcasting this user in their rosters (a bubble is only
+        // processed when tapped, and nobody taps "X is out" — they just read
+        // it). Without it, any later bubble silently re-adds the leaver.
         var incomingRoster = state.participants
         if ConversationMeetupStore.localUserLeft(key: revisionKey) {
             let myName = Self.localParticipantName()
@@ -358,9 +377,16 @@ final class MessagesViewController: MSMessagesAppViewController {
             incomingRoster.removeAll { $0.matches(id: myId, name: myName) || $0.id == legacyID }
         }
         if !incomingRoster.isEmpty || state.messageType == .leave {
-            currentParticipants = incomingRoster
-            LocationCache.saveParticipantSnapshot(incomingRoster, localContext: localParticipantContext())
-            saveParticipantsForActiveConversation(incomingRoster)
+            let known = currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
+            let merged = RosterMerge.merge(
+                local: known,
+                incoming: incomingRoster,
+                messageType: state.messageType,
+                senderKeys: senderKeys,
+                departed: ConversationMeetupStore.departedParticipants(key: revisionKey))
+            currentParticipants = merged
+            LocationCache.saveParticipantSnapshot(merged, localContext: localParticipantContext())
+            saveParticipantsForActiveConversation(merged)
         }
 
         // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
@@ -418,14 +444,15 @@ final class MessagesViewController: MSMessagesAppViewController {
             remotes: conversation.remoteParticipantIdentifiers.map(\.uuidString))
     }
 
-    /// Mints the next outgoing payload revision for the active conversation
-    /// and records it, so this device's own stale bubbles are rejected by the
-    /// decode guard too. Nil (legacy semantics) when no conversation is known.
+    /// Mints the next outgoing payload revision for the active conversation.
+    /// Deliberately NOT recorded here: the revision is noted by deliverBubble
+    /// only once the bubble is actually sent/staged. Recording at mint time
+    /// meant every failed or cancelled send burned a revision, and after two
+    /// of those the peer's genuinely-new bubbles decoded as "stale" and were
+    /// silently dropped. Nil (legacy semantics) when no conversation is known.
     private func nextOutgoingRevision() -> Int? {
         guard let conversationKey else { return nil }
-        let next = ConversationMeetupStore.lastRevision(key: conversationKey) + 1
-        ConversationMeetupStore.noteRevision(next, key: conversationKey)
-        return next
+        return ConversationMeetupStore.lastRevision(key: conversationKey) + 1
     }
 
     private func activeSnapshotParticipants() -> [Participant] {
@@ -666,7 +693,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             let dLon = abs(p.longitude - center.longitude)
             return max(acc, max(dLat, dLon) * 2.0)
         }
-        let cap = FairnessRanker.recommendedCap(for: participants.count)
+        // recommendedCap scales with group size (10 for two people) — inside
+        // the extension the ~120 MB ceiling caps candidates at 5 regardless.
+        let cap = min(Self.rankCap, FairnessRanker.recommendedCap(for: participants.count))
 
         rankingTask = Task { @MainActor in
             let request = MKLocalSearch.Request()
@@ -857,12 +886,14 @@ final class MessagesViewController: MSMessagesAppViewController {
             let didSend = await sendBubbleNow(for: state)
             if didSend {
                 // Leave took effect only once the bubble was delivered (or
-                // staged): the outgoing bubble carries the remaining roster for
-                // recipients, and this device stops rendering the meetup. On a
-                // failed send the user truthfully stays "in". The conversation-
-                // scoped clears are covered by recordCanonicalSnapshot (.leave).
-                currentParticipants = []
-                LocationCache.saveParticipantSnapshot([], localContext: localParticipantContext())
+                // staged): on a failed send the user truthfully stays "in".
+                // Keep the REMAINING roster, not [] — the meetup is still live
+                // for everyone else (group-session semantics), and wiping it
+                // here made the next rejoin broadcast a roster of just [me],
+                // erasing the group on every device that tapped it. "Am I in"
+                // is answered by membership, not roster emptiness.
+                currentParticipants = remainingParticipants
+                LocationCache.saveParticipantSnapshot(remainingParticipants, localContext: localParticipantContext())
                 LocationCache.deactivateSelf()
                 LocationCache.clearAgreedMeetup()
                 // Tombstone: peers who never tap this leave bubble will keep
@@ -1199,7 +1230,17 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     @discardableResult
     private func deliverBubble(for state: TweenState, mode: BubbleDeliveryMode) async -> Bool {
-        guard let conversation = activeConversation, let url = state.encodedURL() else { return false }
+        guard let conversation = activeConversation else { return false }
+        // Departure gossip: every outgoing payload carries the tombstones this
+        // device holds, so ANY later bubble tap propagates removals — without
+        // it, a leave only ever reached whoever tapped the leave bubble itself.
+        var outgoing = state
+        if let conversationKey {
+            outgoing.departed = RosterMerge.gossipKeys(
+                departed: ConversationMeetupStore.departedParticipants(key: conversationKey),
+                roster: state.participants)
+        }
+        guard let url = outgoing.encodedURL() else { return false }
 
         let localName = UserProfile.displayName
         let image = await BubbleImageRenderer.makeImage(
@@ -1244,6 +1285,11 @@ final class MessagesViewController: MSMessagesAppViewController {
                     dismiss()
                 }
             }
+            // Delivery succeeded — NOW the minted revision becomes the floor
+            // for the decode guard (this device's own stale bubbles included).
+            if let revision = state.revision, let conversationKey {
+                ConversationMeetupStore.noteRevision(revision, key: conversationKey)
+            }
             recordCanonicalSnapshot(for: state)
             recordPendingInviteIfNeeded(for: state)
             return true
@@ -1269,9 +1315,10 @@ final class MessagesViewController: MSMessagesAppViewController {
                 ConversationMeetupStore.saveProposed(state, key: conversationKey)
             }
         case .leave:
-            // Outgoing leave bubbles carry the remaining roster for recipients,
-            // but this device is out and should render no active meetup locally.
-            ConversationMeetupStore.saveParticipants([], key: conversationKey)
+            // Keep the remaining roster — the meetup stays live for everyone
+            // else, and a later rejoin must broadcast the full group, not
+            // [me]. This device renders as "out" via membership + tombstone.
+            ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
             ConversationMeetupStore.clearProposalState(key: conversationKey)
         }
     }

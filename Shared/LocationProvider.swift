@@ -59,9 +59,15 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         case .authorizedWhenInUse, .authorizedAlways:
             requestFix()
         case .denied, .restricted:
-            status = .denied
+            // Already-denied MUST settle asynchronously. A synchronous
+            // `status = .denied` here makes the whole call collapse to
+            // .denied → .requesting → .denied within one run-loop turn, which
+            // SwiftUI coalesces into "no change" — so the `.onChange(of:
+            // status)` observers that clear spinners and parked send intents
+            // never fire, and every denied tap dead-ends on "Finding you...".
+            settle(.denied)
         @unknown default:
-            status = .failed
+            settle(.failed)
         }
     }
 
@@ -104,7 +110,11 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
-            if status == .requesting {
+            // .requesting: the user just answered the permission alert.
+            // .denied: the user re-granted in Settings mid-session — without
+            // this arm the provider stayed wedged at .denied until relaunch.
+            if status == .requesting || status == .denied {
+                status = .requesting
                 requestFix()
             }
         case .denied, .restricted:
