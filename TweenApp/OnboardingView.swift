@@ -442,7 +442,9 @@ struct OnboardingView: View {
                 }
             }
             // The spot currently under negotiation (no agreement yet).
-            if agreedMeetup == nil, let pendingProposal, pendingProposal.kind == .place {
+            // Dual-render (W8): the proposal pin shows even while a meetup
+            // is set — visiblePendingProposal already filtered same-spot.
+            if let pendingProposal, pendingProposal.kind == .place {
                 Annotation(pendingProposal.text, coordinate: pendingProposal.coordinate, anchor: .bottom) {
                     TweenPin(role: .fairSpot)
                 }
@@ -1574,11 +1576,35 @@ struct OnboardingView: View {
         if let item = selectedResult {
             let ranked = rankedMatch(for: item)
             compactCardContent(item: item, ranked: ranked, isAgreedMeetup: false)
-        } else if let agreedMeetup, agreedMeetup.kind == .place {
-            compactCardContent(item: mapItem(for: agreedMeetup), ranked: nil, isAgreedMeetup: true)
-        } else if let pendingProposal {
-            proposalCard(for: pendingProposal)
+        } else {
+            // Owner decision (audit W8): a set meetup and a newer suggestion
+            // render TOGETHER — a new proposal does not cancel the agreement,
+            // and hiding the proposal made the host silently disagree with
+            // the extension mid-negotiation.
+            VStack(spacing: Tokens.Spacing.s2) {
+                if let agreedMeetup, agreedMeetup.kind == .place {
+                    compactCardContent(item: mapItem(for: agreedMeetup), ranked: nil, isAgreedMeetup: true)
+                }
+                if let pendingProposal {
+                    proposalCard(for: pendingProposal)
+                }
+            }
         }
+    }
+
+    /// Which in-flight proposal deserves its own card given the agreement
+    /// state. Owner decision (audit W8): a new suggestion does NOT cancel a
+    /// set meetup — both render. The exclusions are load-bearing:
+    /// `saveAgreed` also writes `proposedState = state`, so without the
+    /// messageType + same-spot checks every agreement would double-render
+    /// as its own "new suggestion".
+    static func visiblePendingProposal(proposed: TweenState?, agreed: TweenState?) -> TweenState? {
+        guard let proposed, proposed.kind == .place else { return nil }
+        guard let agreed else { return proposed }
+        guard proposed.messageType == .propose || proposed.messageType == .counter,
+              !proposed.sameSpot(as: agreed)
+        else { return nil }
+        return proposed
     }
 
     /// The in-flight negotiation, rendered with the same vocabulary the
@@ -1593,7 +1619,11 @@ struct OnboardingView: View {
         let proposer = proposal.senderName ?? "Your friend"
         return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                Text(proposal.messageType == .counter ? "\(proposer) suggests instead" : "\(proposer) suggests")
+                // Over a standing agreement, the header must mark this as a
+                // CHANGE ("new spot") so it can't be misread as the plan.
+                Text(agreedMeetup != nil
+                     ? "\(proposer) suggests a new spot"
+                     : (proposal.messageType == .counter ? "\(proposer) suggests instead" : "\(proposer) suggests"))
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .textCase(.uppercase)
@@ -2212,11 +2242,13 @@ struct OnboardingView: View {
             guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
-            // they open Tween in the drawer (device-local; not how the friend gets it).
+            // they open Tween in the drawer (device-local; not how the friend gets
+            // it). Bound to the last-active conversation so no other chat adopts it.
             OutgoingDraftStore.save(OutgoingDraft(
                 spotName: selection.name,
                 latitude: coord.latitude,
-                longitude: coord.longitude))
+                longitude: coord.longitude,
+                conversationKey: ConversationMeetupStore.lastActiveConversationKey))
 
             if MFMessageComposeViewController.canSendText() {
                 Task { @MainActor in
@@ -2235,6 +2267,10 @@ struct OnboardingView: View {
                             showOwnProposalOnMap(state)
                         },
                         onCancelled: {
+                            // Cancel rollback: the staged hand-off must die with
+                            // the send, or the extension force-expands over a
+                            // proposal the user abandoned (W7).
+                            OutgoingDraftStore.clear()
                             showToast("Not sent — your proposal stayed here")
                         }))
                 }
@@ -2322,6 +2358,9 @@ struct OnboardingView: View {
         }
 
         let myName = UserProfile.displayName ?? UserName.fallback
+        // The last host send path without a revision (audit W9) — without it
+        // this bubble decodes under legacy trust-the-tap semantics forever.
+        let revision = nextOutgoingRevisionForActiveConversation()
         let state = TweenState(
             text: "I'm in",
             latitude: myCoord.latitude,
@@ -2330,7 +2369,8 @@ struct OnboardingView: View {
             senderID: TweenIdentity.stableID,
             kind: .participant,
             messageType: .invite,
-            participants: [Participant(id: TweenIdentity.stableID, name: myName, coordinate: myCoord, needsRide: localNeedsRide)]
+            participants: [Participant(id: TweenIdentity.stableID, name: myName, coordinate: myCoord, needsRide: localNeedsRide)],
+            revision: revision
         )
 
         // Render the bubble image off the main actor (it's an MKMapSnapshotter
@@ -2343,6 +2383,7 @@ struct OnboardingView: View {
                 body: Self.inviteText,
                 message: message,
                 onSent: {
+                    noteOutgoingRevision(revision)
                     PingLog.logPing(for: friend.id)
                     pingTick += 1
                     showToast("\(friend.name) is pending")
@@ -2753,15 +2794,11 @@ struct OnboardingView: View {
         }
 
         // Mirror the in-flight proposal (propose / counter / partial agree)
-        // so opening the app mid-negotiation shows it — previously only the
-        // terminal agreed state surfaced here.
-        let cachedProposal: TweenState? = {
-            guard cachedAgreedMeetup == nil,
-                  let proposal = scopedSnapshot?.proposedState,
-                  proposal.kind == .place
-            else { return nil }
-            return proposal
-        }()
+        // so opening the app mid-negotiation shows it. Renders ALONGSIDE a
+        // set meetup when both exist — see visiblePendingProposal.
+        let cachedProposal = Self.visiblePendingProposal(
+            proposed: scopedSnapshot?.proposedState,
+            agreed: cachedAgreedMeetup)
         if pendingProposal != cachedProposal {
             pendingProposal = cachedProposal
             didChange = true

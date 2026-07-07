@@ -217,8 +217,13 @@ final class MessagesViewController: MSMessagesAppViewController {
         // banner and auto-ranked spots are front and center).
         draft = ConversationMeetupStore.loadDraft(key: key)
         if draft == nil, let globalDraft = OutgoingDraftStore.load() {
-            draft = globalDraft
-            ConversationMeetupStore.saveDraft(globalDraft, key: key)
+            // Adopt only drafts staged for THIS conversation (or unbound
+            // legacy ones) that are still fresh; a foreign or stale draft is
+            // consumed either way so it can't haunt the next chat (W7).
+            if OutgoingDraftStore.shouldAdopt(globalDraft, conversationKey: key) {
+                draft = globalDraft
+                ConversationMeetupStore.saveDraft(globalDraft, key: key)
+            }
             OutgoingDraftStore.clear()
         }
         if draft != nil || received != nil {
@@ -279,6 +284,9 @@ final class MessagesViewController: MSMessagesAppViewController {
         rankingTask?.cancel()
         sendTask?.cancel()
         isSending = false
+        // The cancelled task can't run its own reset — without this,
+        // reactivating mid-rank shows a stuck "Finding fair spots...".
+        isRanking = false
     }
 
     override func didReceiveMemoryWarning() {
@@ -527,8 +535,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// inside any GPS jitter, well outside any float-roundtrip noise from
     /// `coordinateString`'s %.6f formatting.
     private static func sameSpot(_ a: TweenState, _ b: TweenState) -> Bool {
-        abs(a.latitude  - b.latitude)  < 1e-4 &&
-        abs(a.longitude - b.longitude) < 1e-4
+        a.sameSpot(as: b)   // shared epsilon — see TweenState.sameSpot(as:)
     }
 
     /// Builds the next outgoing participant list by removing any prior entry
@@ -764,8 +771,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
 
         let myId = localParticipantID()
+        let rosterSelfCoordinate = source.first(where: { $0.matches(id: myId, name: myName) })?.coordinate
         source = source.filter { !$0.matches(id: myId, name: myName) }
-        if isLocalUserInCurrentConversation, let mySelf = LocationCache.loadSelf()?.coordinate {
+        // Rank with the cached fix only while it's FRESH (isActive = opted
+        // in + within the 5-min window); otherwise fall back to the roster
+        // entry — the coordinate peers already see — instead of skewing
+        // fairness with a stale private cache (audit W4).
+        let selfCoordinate = (LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil)
+            ?? rosterSelfCoordinate
+        if isLocalUserInCurrentConversation, let mySelf = selfCoordinate {
             let needsRide = currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                 ?? activeSnapshotParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
                 ?? false
@@ -931,7 +945,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func sendChosenSpot(_ spot: RankedSpot) {
         guard let item = spot.item else { return }
         let coordinate = item.placemark.coordinate
-        let mySelf = LocationCache.loadSelf()?.coordinate
+        // Fresh-only (audit W4): a cache older than the 5-min window must
+        // not ride into the outgoing roster as if it were current — the
+        // roster/currentParticipants fallback below carries the last
+        // coordinate peers actually saw instead.
+        let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
         // Make sure my own entry is in the participants list before proposing.
         let participants: [Participant]
         if let mySelf {
@@ -982,7 +1000,10 @@ final class MessagesViewController: MSMessagesAppViewController {
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached
             } else {
-                senderCoordinate = LocationCache.loadSelf()?.coordinate
+                // No fresh fix and the cache is stale/inactive: omit the
+                // sender coordinate (bubble drops slat/slon) rather than
+                // broadcasting a stale location as current (audit W4).
+                senderCoordinate = nil
             }
 
             let myName = Self.localParticipantName()
@@ -1082,7 +1103,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func sendCounter(_ spot: RankedSpot) {
         guard let item = spot.item else { return }
         let coordinate = item.placemark.coordinate
-        let mySelf = LocationCache.loadSelf()?.coordinate
+        // Fresh-only (audit W4): a cache older than the 5-min window must
+        // not ride into the outgoing roster as if it were current — the
+        // roster/currentParticipants fallback below carries the last
+        // coordinate peers actually saw instead.
+        let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
         let participants: [Participant]
         if let mySelf {
             participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
@@ -1121,7 +1146,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// clears it so it isn't offered again, and re-renders.
     private func sendDraft() {
         guard let draft else { return }
-        let mySelf = LocationCache.loadSelf()?.coordinate
+        // Fresh-only (audit W4): a cache older than the 5-min window must
+        // not ride into the outgoing roster as if it were current — the
+        // roster/currentParticipants fallback below carries the last
+        // coordinate peers actually saw instead.
+        let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
         let participants: [Participant]
         if let mySelf {
             participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)

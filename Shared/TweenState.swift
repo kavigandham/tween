@@ -144,6 +144,15 @@ struct TweenState: Equatable {
         }.map(\.name)
     }
 
+    /// Two states point at the "same" spot when their coordinates match
+    /// within ~11 m (1e-4°) — inside GPS jitter, outside float-roundtrip
+    /// noise from `coordinateString`'s %.6f formatting. Shared so the host's
+    /// dual-render gate and the extension's sticky-agreement rule agree.
+    func sameSpot(as other: TweenState) -> Bool {
+        abs(latitude - other.latitude) < 1e-4 &&
+        abs(longitude - other.longitude) < 1e-4
+    }
+
     func encodedURL(scheme: String = "https", host: String = "tween.app") -> URL? {
         var components = URLComponents()
         components.scheme = scheme

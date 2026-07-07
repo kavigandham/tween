@@ -164,4 +164,71 @@ final class RosterMergeTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["B"],
                        "Unrelated snapshot writes must not drop departure tombstones")
     }
+
+    // MARK: - Dual-render gate (audit W8, owner decision: show both)
+
+    private func place(_ name: String, lat: Double, lon: Double,
+                       type: TweenState.MessageType, agreedNames: [String] = []) -> TweenState {
+        TweenState(text: name, latitude: lat, longitude: lon, senderName: "Kavi",
+                   senderID: "kavi-id", kind: .place, messageType: type,
+                   agreedNames: agreedNames)
+    }
+
+    func testProposalVisibleWithoutAgreement() {
+        let proposed = place("Cafe", lat: 10, lon: 10, type: .propose)
+        XCTAssertEqual(OnboardingView.visiblePendingProposal(proposed: proposed, agreed: nil)?.text, "Cafe")
+        XCTAssertNil(OnboardingView.visiblePendingProposal(proposed: nil, agreed: nil))
+    }
+
+    func testNewSpotProposalRendersAlongsideAgreement() {
+        let agreed = place("Old Spot", lat: 10, lon: 10, type: .agree, agreedNames: ["Hassan"])
+        let proposed = place("New Spot", lat: 11, lon: 11, type: .propose)
+        XCTAssertEqual(OnboardingView.visiblePendingProposal(proposed: proposed, agreed: agreed)?.text,
+                       "New Spot",
+                       "Owner decision: a new suggestion renders WITH the set meetup, not instead of it")
+        let counter = place("Counter Spot", lat: 12, lon: 12, type: .counter)
+        XCTAssertEqual(OnboardingView.visiblePendingProposal(proposed: counter, agreed: agreed)?.text,
+                       "Counter Spot")
+    }
+
+    func testAgreementDoesNotDoubleRenderAsItsOwnSuggestion() {
+        // saveAgreed writes proposedState = the agree state itself — the gate
+        // must not present it as a "new suggestion" beside the meetup card.
+        let agreed = place("Spot", lat: 10, lon: 10, type: .agree, agreedNames: ["Hassan"])
+        XCTAssertNil(OnboardingView.visiblePendingProposal(proposed: agreed, agreed: agreed),
+                     "The agreement's own .agree proposedState must not double-render")
+        // Same spot re-proposed (someone re-taps propose on the agreed place):
+        // still one card, the meetup card.
+        let sameSpotPropose = place("Spot", lat: 10.00001, lon: 10.00001, type: .propose)
+        XCTAssertNil(OnboardingView.visiblePendingProposal(proposed: sameSpotPropose, agreed: agreed))
+    }
+
+    // MARK: - Draft hand-off binding (audit W7)
+
+    func testDraftAdoptionRequiresFreshnessAndConversationMatch() {
+        let fresh = OutgoingDraft(spotName: "Cafe", latitude: 1, longitude: 2,
+                                  conversationKey: "chat-A")
+        XCTAssertTrue(OutgoingDraftStore.shouldAdopt(fresh, conversationKey: "chat-A"))
+        XCTAssertFalse(OutgoingDraftStore.shouldAdopt(fresh, conversationKey: "chat-B"),
+                       "A draft staged for chat A must never pre-fill chat B")
+
+        let stale = OutgoingDraft(spotName: "Cafe", latitude: 1, longitude: 2,
+                                  timestamp: Date(timeIntervalSinceNow: -16 * 60),
+                                  conversationKey: "chat-A")
+        XCTAssertFalse(OutgoingDraftStore.shouldAdopt(stale, conversationKey: "chat-A"),
+                       "A 16-minute-old hand-off is debris, not intent")
+
+        let unbound = OutgoingDraft(spotName: "Cafe", latitude: 1, longitude: 2)
+        XCTAssertTrue(OutgoingDraftStore.shouldAdopt(unbound, conversationKey: "chat-B"),
+                      "Legacy drafts without a key keep adopting anywhere")
+    }
+
+    func testLegacyDraftJSONWithoutConversationKeyDecodes() throws {
+        let legacyJSON = """
+        {"spotName":"Cafe","latitude":1.5,"longitude":2.5,"timestamp":700000000}
+        """
+        let decoded = try JSONDecoder().decode(OutgoingDraft.self, from: Data(legacyJSON.utf8))
+        XCTAssertNil(decoded.conversationKey)
+        XCTAssertEqual(decoded.spotName, "Cafe")
+    }
 }
