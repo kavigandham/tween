@@ -1,72 +1,63 @@
-# AUDIT REPORT — tween — 2026-07-06 (HEAD `201c262`)
+# AUDIT REPORT — tween — 2026-07-07 (HEAD `38d865e`)
 
-*Method: 3 parallel read-only auditors over all Swift sources + config; every CRITICAL/MAJOR claim hand-verified against source before inclusion. Six agent claims rejected on verification (3 false iOS-availability "criticals" — `symbolEffect`/`sensoryFeedback` are iOS 17 APIs, `UnevenRoundedRectangle` is 16.4+; a misread of the documented iOS 26 hand-background-to-system design; a "strong-self-capture leak" in a process-rooted extension VC; an `effectiveReceived` speculation). Note: `CONTEXT.md` referenced by the audit brief does not exist in this repo — CLAUDE.md + HANDOFF.md were used. Where a finding matches DIAGNOSTIC_2026-07-06.md, its W-number is cited; each was re-verified as still open at HEAD.*
+*Re-audit of the four fix commits (`9ba5568`, `6014f23`, `9faf78d`, `38d865e`) that worked through the 2026-07-06 report's fix-first list. Same methodology: 3 parallel read-only auditors, every CRITICAL/MAJOR claim hand-verified against source before inclusion (one agent claim rejected this round — the "rename alert re-presents after Save" scenario is impossible: `commitRename`, Cancel, and the binding setter all clear `editorMode`). Toolchain note: HEAD references iOS 26 SDK symbols (`glassEffect`), so the repo now **requires Xcode 26+ to build** — this machine's Xcode 16.2 fails at `OnboardingView.swift:42`, meaning local test execution here is blocked and the 125/125-unit + 6/6-UI green counts are from the collaborator's Xcode 26.5 toolchain.*
+
+## PREVIOUS FINDINGS — VERIFICATION AT `38d865e`
+
+| 07-06 item | Verdict | Evidence |
+|---|---|---|
+| W8 propose vs stale MEETUP SET | **FIXED (host dual-render)** — with intentional extension asymmetry, see MINOR | `OnboardingView.swift:~1600` `visiblePendingProposal` renders agreement + new suggestion together |
+| W2 revision ties | **FIXED** | `ConversationMeetupStore.shouldAcceptInbound(revision:senderID:)` :~411 — at-floor accepted only from the same sender; 7-case tiebreak matrix test |
+| 24h TTL wipes tombstones | **FIXED** | sync state moved to its own TTL-exempt `conversationMeetup.sync.<key>` blob; `clear(key:)` :~216 leaves it untouched; tested |
+| W6 snapshot RMW races | **FIXED (structural)** | `ConversationSyncState` :~60 — revision floor, sender, `localUserLeft`, `departedKeys` in their own atomic key; snapshot writers can't clobber them; race test green |
+| W13 rename alert host | **FIXED** (hand-verified) | alert now inside the Friends sheet's NavigationStack, `OnboardingView.swift:~538`, with explanatory comment |
+| W15 suppress-flag arming | **FIXED** | armed only when the programmatic assignment changes `searchText` (:~2523) |
+| W16 search failure spinner | **FIXED** | `SearchCompleter.Phase` idle/searching/resolved/failed (:~81); "No matches" / "Search unavailable" rows (`OnboardingView.swift:~764`); lifecycle tests |
+| W7 draft TTL/binding | **FIXED** | `OutgoingDraft.conversationKey` + 15-min TTL + `shouldAdopt` (:~53); extension clears foreign/stale drafts; adoption-matrix tests |
+| W12 contact PII | **RESOLVED BY DOCUMENTATION** | CLAUDE.md §6 sanctioned exception (2026-07-06); wording matches `TweenFriend.swift` fields exactly |
+| W4 stale coords | **PARTIALLY FIXED** → the one remaining MAJOR, below | extension paths gated on `LocationCache.isActive` (`MessagesViewController.swift:~945, ~1103, ~1146`); host paths not |
+| W9 host payload revisions | **FIXED** | every composer (incl. `pingFriend` :~2396) stamps `revision` + `senderID`; noted at delivery with sender |
+| W11 multi-key torn reads | **FIXED** | `isActive` folded into the `CachedCoord` blob (`LocationCache.swift:~33`); legacy mirror keys kept for downgrade; old-format blobs decode via optional field — migration-safe, tested |
+| isRanking not reset | **FIXED** (hand-verified) | `willResignActive` now sets `isRanking = false` with audit-referencing comment |
+| panelTab dead state | **FIXED** | property, enum, and all 8 writes deleted; zero dangling references |
+| W20 dark-mode contrast | **FIXED** | `Tokens.onBrand` — white on `#008C8C` ≈ 4.1:1 (light), on `#003535` ≈ 13:1 (dark); adopted at button style, chips, Friends circle |
+| AX friends circle | **FIXED** | `@ScaledMetric(relativeTo: .caption)` + initials clamping |
+| UISearchBar Dynamic Type | **STILL OPEN** | no `preferredFont`/`UIFontMetrics` adoption in the bridge |
+
+**14 of 15 items closed. The sync-layer redesign (separate atomic sync-state key) is the right structural fix, not a patch.**
 
 ## CRITICAL (will crash, corrupt state, or break core flow)
 
-**None found.** All five criticals from the collaborator's diagnostic (D1 https scheme, D2/D3 host commit-on-sent, D4 roster nuke, D5 denied dead-end) were verified **fixed** at HEAD with source evidence (`OnboardingView.swift:~2026, ~1911, ~3117`; `RosterMerge.swift`; `LocationProvider.swift:~62`). No force-unwrap crashes, no availability violations, no MKMapView in the compact/bubble paths.
+**None found.**
 
 ## MAJOR (wrong behavior, UX broken, data loss risk)
 
 ### State machine / sync
-- New `.propose` never clears a prior agreement — `saveProposed` clears `agreedState` only for `.counter`, so after a set meetup, a fresh proposal renders next to a stale MEETUP SET (host reads `agreedState` first) — `ConversationMeetupStore.swift:~186` *(W8, verified open)*
-  Suggested fix: clear `snapshot.agreedState` for `.propose` too (any new place restarts negotiation).
-- Revision guard accepts ties (`revision >= lastRevision`) — two devices minting the same revision concurrently make the outcome tap-order-dependent and can resurrect a leaver group-wide — `MessagesViewController.swift:~315` *(W2, verified open)*
-  Suggested fix: tiebreak `(revision, senderID)` lexicographically; keep `>=` only for the same sender.
-- Cross-process load→mutate→save on the whole `MeetupSnapshot` blob — host and extension racing can silently drop `lastRevision`/`localUserLeft`/`pendingDraft` (last writer wins the entire snapshot) — `ConversationMeetupStore.swift:~180-240` *(W6, verified open)*
-  Suggested fix: split hot fields (revision, tombstones) into their own keys, or re-merge before save.
-- 24 h snapshot TTL also wipes the departure tombstone — after a day, tapping an old bubble resurrects a leaver again, undoing the D4 fix cluster *(diagnostic INFO, still open)* — `ConversationMeetupStore.swift` (TTL path)
-  Suggested fix: exempt tombstones from the TTL clear (or TTL them separately, much longer).
-- Stale self-coordinates embedded in propose/counter/draft rosters — `loadSelf()` consumed without a freshness check in three send paths — `MessagesViewController.swift:~930, ~1081, ~1120` *(W4, partially fixed: explicit joins use fresh fixes)*
-  Suggested fix: gate on `LocationCache.isActive` (freshness window) before embedding.
-- Draft hand-off has no TTL, rollback, or conversation binding — a cancelled host draft is adopted by whichever conversation opens the extension next — `Shared/OutgoingDraft.swift:~10-26`, `OnboardingView.swift:~2216` *(W7, verified open)*
-  Suggested fix: stamp draft with conversation key + created-at; extension ignores foreign/stale drafts.
-
-### SwiftUI / presentation
-- Rename-Friend alert is attached to the main sheet's content but triggered from inside the separate Friends sheet — it cannot present while Friends is frontmost; Rename silently no-ops — `OnboardingView.swift:~578` vs the Friends sheet *(W13, verified open — the :574 comment fixed the map-level trap, but Friends became its own sheet in `5898ebc`)*
-  Suggested fix: move the `.alert` inside the Friends sheet's view.
-- "Searching nearby…" spinner never resolves on completer failure — the failure path only empties results, no failed state, no "no matches" row — `SearchCompleter.swift:~140` *(W16, verified open)*
-  Suggested fix: track `.searching/.resolved/.failed`; render an empty/failure row.
-- Stale `suppressNextQueryChange` swallows the clear-(x) gesture — armed without an actual text change, leaving ghost results/pins behind an empty field — `OnboardingView.swift:~2331 vs ~2303` *(W15, verified open)*
-  Suggested fix: arm only when the programmatic assignment actually changes `searchText`.
-
-### App Group persistence
-- Contact PII (name + CNContact ID + phone/email handle) persisted in the unencrypted App Group — violates the "coordinates and preferences only" hard constraint — `Shared/TweenFriend.swift:~7-46` *(W12, verified open)*
-  Suggested fix: store only the CN identifier; re-fetch display name/handle at compose time (or document the sanctioned exception in CLAUDE.md).
-- Coordinate blob and its active flag written as two separate keys — a cross-process reader between the writes sees fresh coord + stale flag (or vice versa), defeating the 5-min freshness logic — `LocationCache.swift:~49-53, ~71-75`; same pattern `PingLog.swift:~62-65` *(W11, verified open)*
-  Suggested fix: fold `isActive` into the `CachedCoord` JSON blob — one atomic write.
+- Host coordinate-freshness laundering — `autoJoinForOutgoingMessage()` takes a cached coordinate of ANY age (`savedCoordinate ?? loadSelf()`, no freshness gate) and re-saves it with `isActive: true`, re-stamping the timestamp — a stale coordinate becomes "fresh" and defeats the 5-minute window the extension paths now honor. Three downstream host sites then embed ungated `loadSelf()` coords into payloads: `sendAgreeReply` (~3157), `pingFriend` (~2381), `setNeedsRide → presentRideStatusMessage` (~2113) — `TweenApp/OnboardingView.swift:~2324-2331` *(W4, host half still open; extension half verified fixed)*
+  Suggested fix: in `autoJoinForOutgoingMessage`, only reuse the cached coord when `LocationCache.isActive` (else park the action and `requestOnce()`, the pattern already used when no coord exists), and preserve the original timestamp on re-save; gate the three `loadSelf()` sites on `isActive`.
 
 ## MINOR (suboptimal, cleanup, hardening)
 
-### Extension lifecycle
-- `willResignActive` cancels `rankingTask`/`sendTask` but never resets `isRanking` — reactivating mid-rank can show a stuck "Finding fair spots…" until the next ranking kick — `MessagesViewController.swift:~276-282` *(verified open)*
-  Suggested fix: add `isRanking = false` beside `isSending = false`.
-
-### Dead code / accessibility
-- `panelTab`/`HomePanelTab` is write-only dead state after the tabs removal — 8 write sites, zero reads — `OnboardingView.swift:~178, ~388, ~2749, ~2773, ~3032` *(verified: never read)*
-  Suggested fix: delete the property, enum, and all assignments.
-- Dark-mode brand fill fails WCAG (white on `#29C7C7` ≈ 2.1:1) on CTAs, chips, and the Friends circle — `Shared/Tokens.swift:~33` *(W20, verified open)*
-  Suggested fix: near-black foreground on the dark-mode brand color.
-- Bridged `UISearchBar` doesn't adopt Dynamic Type; 44 pt Friends circle overflows at AX sizes — `OnboardingView.swift:~1279`
-  Suggested fix: set the search field font from `UIFont.preferredFont`; test at AX3+.
+- Pre-migration `save()` double-load window — between the `loadSync()` migration read and the second snapshot load (:~183-190), a concurrent extension write can be clobbered; bounded to the first launch after the update × concurrent write — `ConversationMeetupStore.swift:~179-214`
+  Suggested fix: single `load()` before migration; compare against that one snapshot.
+- W8 surface divergence — host dual-renders [set meetup + new suggestion]; the extension's `effectiveReceived` still resolves to one state, so the two surfaces can show different things for the same conversation (documented owner decision; on record) — `MessagesViewController.swift:~513` vs `OnboardingView.swift:~1600`
+  Suggested fix: none required; if it confuses testers, render a "meetup set" chip on the extension's proposal view.
+- `setFlag()` writes the blob then the legacy mirror key non-atomically — readers prefer the blob so impact is bounded to pre-split data windows — `LocationCache.swift:~237-246`
+  Suggested fix: accept until the legacy mirrors are retired; then delete both writes.
+- Bridged `UISearchBar` still doesn't adopt Dynamic Type — `OnboardingView.swift:~1279` *(carried from 07-06)*
+  Suggested fix: `searchBar.searchTextField.font = .preferredFont(forTextStyle: .body)` + `adjustsFontForContentSizeCategory = true`.
 
 ## ARCHITECTURE NOTES
-- **Files over 1500 lines:** `OnboardingView.swift` (3226) and `TweenViews.swift` (2001); `MessagesViewController.swift` is 1396 and rising. Only four methods exceed 100 lines (`refreshFromAppGroup` ~127, `handleIncomingURL` ~152, `decodeAndCache` ~114, `sendAgreedPlace` ~112) — each is a genuinely dense orchestrator, but all four sit on the highest-risk paths and deserve tests before any refactor.
-- **The mechanical sweeps came back clean** — every View initializer matches every call site (params/order/defaults); all Compact/ExpandedView callbacks are wired in `presentUI`; the App Group key inventory (13 keys) shows no spelling mismatches, no write-only/read-only orphans; `project.yml`/Info.plists/entitlements are consistent, all Shared files in both targets.
-- **The host app now mirrors the extension's commit-on-delivery discipline** (D2/D3 fixes) — the two send stacks are intentionally parallel implementations; future changes must be applied to both (a known duplication cost, documented in FIX_PLAN).
-- The sanctioned interactive expanded map remains deliberately dead (`usesStaticMapForCurrentState` hardcoded `true`, `TweenViews.swift:~1193`) pending the T10 on-device memory decision — result-row "fly the map" taps silently no-op until then.
-- Host sends still lack payload revisions on some paths (W9) — leave now carries `revision`+`senderID`, but not all four host composers were verifiable in this pass; worth a 10-minute sweep.
-- The extension's negotiation core (revision guard, tombstones, gossip, delivery gating, conversation scoping) verified solid at HEAD — matching the collaborator's own "verified solid" list.
+- **The repo now requires Xcode 26+ to build.** `glassEffect` and related iOS 26 SDK symbols are referenced directly (runtime-gated correctly with `#available(iOS 26.0, *)`, but older SDKs lack the symbols entirely — Xcode 16.2 fails at `OnboardingView.swift:42`). CLAUDE.md documents Xcode 26.5. If anyone needs to build on an older toolchain, wrap the glass paths in `#if compiler(>=6.2)` (or equivalent SDK check) with the pre-glass fallback as the else-branch.
+- **`TweenApp.xcodeproj` is now tracked in git** alongside the `xcodegen` workflow — regeneration will churn the tracked file; a known, documented cost, but pick one source of truth eventually.
+- The sync-state redesign (per-conversation `conversationMeetup.sync.` atomic blob, TTL-exempt, sender-attributed revision floor) is a genuine architecture improvement — it closed W2/W6/TTL in one move and is well-tested (tiebreak matrix, TTL survival, race structure).
+- Test discipline notably improved: every fix in this batch landed with pinning tests (new `SearchCompleterTests`, +177 lines of ParticipantCodec sync tests, +67 RosterMerge draft/adoption tests). Collaborator-reported: 125/125 unit, 6/6 UI.
+- File sizes: `OnboardingView.swift` 3302, `TweenViews.swift` 2001, `MessagesViewController.swift` 1430 — all still monoliths; unchanged advice: split only with tests in place.
+- Verification rigor this round: one agent claim rejected (rename-alert state trap — all dismissal paths verified to clear `editorMode`); the W4 host findings were confirmed by hand before inclusion.
 
 ## FIX-FIRST PRIORITY LIST
-1. **W8 — clear `agreedState` on new `.propose`** (`ConversationMeetupStore.swift:~186`) — one line; stale MEETUP SET beside a live proposal is the worst remaining core-flow wrongness.
-2. **W2 — break revision ties with `(revision, senderID)`** (`MessagesViewController.swift:~315`) — closes the last leaver-resurrection vector.
-3. **TTL/tombstone interaction** — exempt tombstones from the 24 h clear, or D4 re-breaks after a day.
-4. **W13 — move the Rename alert into the Friends sheet** — a fully dead feature, 5-line fix.
-5. **W6 — protect `lastRevision`/`localUserLeft` from snapshot last-writer-wins** — the enabler behind several resurrection paths.
-6. **W16 + W15 — search failure state + clear-gesture fix** — the two most user-visible search papercuts.
-7. **W7 — conversation-bind + TTL the outgoing draft.**
-8. **W12 — reduce TweenFriend to CN identifier only** (constraint compliance).
-9. **`isRanking = false` in `willResignActive`.**
-10. **W11 — fold active flags into the coord blobs.**
-11. **W20 + Dynamic Type + `panelTab` deletion** — polish pass.
+1. **W4 host half — stop the coordinate laundering** (`autoJoinForOutgoingMessage` + the three ungated `loadSelf()` sites): gate on `LocationCache.isActive`, park-and-request otherwise, preserve timestamps on re-save.
+2. **Pre-migration `save()` single-load** — one-line hardening of the migration window.
+3. **UISearchBar Dynamic Type** — the last open item from the 07-06 list.
+4. *(Optional, only if older-toolchain contributors matter)* `#if compiler` guard around the Liquid Glass paths so Xcode 16 can still build the repo.
+5. Then the two-phone TODO_VERIFY.md run — with 14/15 audit items closed and the sync layer redesigned, the device pass is the real remaining gate.
