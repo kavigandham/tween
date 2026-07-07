@@ -1993,7 +1993,7 @@ struct OnboardingView: View {
 
     private func noteOutgoingRevision(_ revision: Int?) {
         guard let revision, let key = ConversationMeetupStore.lastActiveConversationKey else { return }
-        ConversationMeetupStore.noteRevision(revision, key: key)
+        ConversationMeetupStore.noteRevision(revision, sender: TweenIdentity.stableID, key: key)
     }
 
     /// Builds the Tween-styled `MSMessage` for a state: renders the bubble
@@ -2904,9 +2904,11 @@ struct OnboardingView: View {
         // left). A `.leave` message may intentionally carry an empty roster.
         var adoptRoster = true
         if let revision = state.revision, let activeConversationKey {
-            adoptRoster = revision >= ConversationMeetupStore.lastRevision(key: activeConversationKey)
+            adoptRoster = ConversationMeetupStore.shouldAcceptInbound(
+                revision: revision, senderID: state.senderID, key: activeConversationKey)
             if adoptRoster {
-                ConversationMeetupStore.noteRevision(revision, key: activeConversationKey)
+                ConversationMeetupStore.noteRevision(
+                    revision, sender: state.senderID, key: activeConversationKey)
             }
         }
         if adoptRoster, !state.participants.isEmpty || state.messageType == .leave {

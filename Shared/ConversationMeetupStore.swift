@@ -49,27 +49,48 @@ final class MeetupSyncToken {
     }
 }
 
+/// TTL-exempt per-conversation sync state: the payload-revision floor (with
+/// the sender who set it, for tie-breaking) and the leave tombstones.
+///
+/// Split out of `MeetupSnapshot` into its OWN storage key (2026-07 audit:
+/// W6/W2/TTL findings) so that (a) the 24 h snapshot TTL can clear a dead
+/// meetup WITHOUT wiping tombstones — wiping them let any old bubble
+/// resurrect a leaver a day later — and (b) the big snapshot mutators in
+/// either process can no longer last-writer-wins these hot fields away.
+struct ConversationSyncState: Codable, Equatable {
+    /// Highest payload revision seen (or delivered) for this conversation.
+    var lastRevision: Int? = nil
+    /// Identity key of the sender whose bubble set `lastRevision` — the W2
+    /// tie-breaker. A same-sender re-tap at the floor revision is accepted;
+    /// a DIFFERENT sender at the same revision is a concurrent mint and is
+    /// rejected (last-tap-wins made the outcome order-dependent).
+    var lastRevisionSender: String? = nil
+    /// True after this user said "I'm out" here. See `setLocalUserLeft`.
+    var localUserLeft: Bool? = nil
+    /// Identity keys of OTHER participants whose `.leave` this device has
+    /// processed (or learned via gossip). See `RosterMerge`.
+    var departedKeys: [String]? = nil
+
+    var isEmpty: Bool {
+        lastRevision == nil && lastRevisionSender == nil
+            && localUserLeft == nil && (departedKeys ?? []).isEmpty
+    }
+}
+
 struct MeetupSnapshot: Codable, Equatable {
     let conversationKey: String
     var participants: [Participant]
     private var proposedStateURL: URL?
     private var agreedStateURL: URL?
-    var pendingDraft: OutgoingDraft?
     var updatedAt: Date
-    /// Highest payload revision seen (or emitted) for this conversation.
-    /// Optional so snapshots written by older builds keep decoding.
+    // The four fields below are LEGACY-DECODE ONLY. They now live under their
+    // own storage keys (`ConversationSyncState`, the draft key) so the 24 h
+    // TTL and the whole-blob mutators can't destroy them. They stay declared
+    // so old blobs decode; `save` nils them after `loadSync`/`loadDraft`
+    // migrate their values out. Do not read them outside the migration path.
+    var pendingDraft: OutgoingDraft?
     var lastRevision: Int? = nil
-    /// True after this user said "I'm out" here. Peers who never tapped the
-    /// leave bubble keep broadcasting this user in their canonical rosters;
-    /// this tombstone stops those stale rosters from re-adopting the local
-    /// user as "in". Cleared by an explicit "I'm in" / agree.
     var localUserLeft: Bool? = nil
-    /// Identity keys (stable install IDs, or names for legacy payloads) of
-    /// OTHER participants whose `.leave` this device has processed. Rosters
-    /// broadcast by peers who never saw the leave keep listing them;
-    /// `RosterMerge` filters against this set so a departure sticks until
-    /// that person's own explicit rejoin. Device-local; never serialised
-    /// into payload URLs. Optional so older snapshots keep decoding.
     var departedKeys: [String]? = nil
 
     var proposedState: TweenState? {
@@ -99,6 +120,10 @@ struct MeetupSnapshot: Codable, Equatable {
 
 enum ConversationMeetupStore {
     private static let storagePrefix = "conversationMeetup."
+    // Conversation keys are base64url (no dots), so these prefixed keyspaces
+    // can never collide with a real snapshot key.
+    private static let syncPrefix = "conversationMeetup.sync."
+    private static let draftPrefix = "conversationMeetup.draft."
     private static let lastActiveKey = "conversationMeetup.lastActive"
 
     /// How long a per-conversation snapshot stays trustworthy. Meetups are
@@ -111,14 +136,15 @@ enum ConversationMeetupStore {
     /// within `ttl` — a roster, a proposal/agreement, or a pending draft. The
     /// host app checks this before wiping caches on cold launch.
     static func hasLiveMeetup(within ttl: TimeInterval) -> Bool {
-        guard let key = lastActiveConversationKey,
-              let snapshot = load(key: key),
-              Date().timeIntervalSince(snapshot.updatedAt) <= ttl
-        else { return false }
-        return !snapshot.participants.isEmpty
-            || snapshot.proposedState != nil
-            || snapshot.agreedState != nil
-            || snapshot.pendingDraft != nil
+        guard let key = lastActiveConversationKey else { return false }
+        if let snapshot = load(key: key),
+           Date().timeIntervalSince(snapshot.updatedAt) <= ttl,
+           !snapshot.participants.isEmpty
+               || snapshot.proposedState != nil
+               || snapshot.agreedState != nil {
+            return true
+        }
+        return loadDraft(key: key) != nil
     }
 
     private static var defaults: UserDefaults? {
@@ -151,30 +177,72 @@ enum ConversationMeetupStore {
     }
 
     static func save(_ snapshot: MeetupSnapshot, key: String? = nil) {
+        let storage = key ?? snapshot.conversationKey
+        // Migrate the TTL-exempt fields (and any inline draft) out BEFORE the
+        // legacy inline copies are stripped below — else the only copy dies.
+        _ = loadSync(key: storage)
+        migrateDraftIfNeeded(key: storage)
+        // A caller may still hand us a snapshot with inline values — fold
+        // those into the split keys rather than dropping them. Only values
+        // that DIFFER from the stored blob count: identical ones are the
+        // stale legacy copies (already migrated above), and re-applying
+        // them would resurrect exactly the state the caller moved past.
+        let stored = load(key: storage)
+        if let inlineDraft = snapshot.pendingDraft, inlineDraft != stored?.pendingDraft {
+            saveDraft(inlineDraft, key: storage)
+        }
+        if let inlineRevision = snapshot.lastRevision, inlineRevision != stored?.lastRevision {
+            noteRevision(inlineRevision, key: storage)
+        }
+        if snapshot.localUserLeft == true, stored?.localUserLeft != true {
+            setLocalUserLeft(true, key: storage)
+        }
+        if let inlineDeparted = snapshot.departedKeys, inlineDeparted != stored?.departedKeys {
+            noteDeparted(inlineDeparted, key: storage)
+        }
         var updated = snapshot
         updated.updatedAt = Date()
+        // Legacy inline fields live under their own keys now; nil them so a
+        // stale inline value can never shadow the canonical copy.
+        updated.lastRevision = nil
+        updated.localUserLeft = nil
+        updated.departedKeys = nil
+        updated.pendingDraft = nil
         guard let data = try? JSONEncoder().encode(updated) else { return }
-        defaults?.set(data, forKey: storageKey(for: key ?? snapshot.conversationKey))
+        defaults?.set(data, forKey: storageKey(for: storage))
         MeetupSync.post()
     }
 
+    /// TTL/expiry clear: removes the meetup snapshot and any pending draft
+    /// but — BY DESIGN — keeps the sync state (revision floor + tombstones).
+    /// Wiping tombstones with the TTL meant a leaver resurrected a day later
+    /// from any old bubble; the revision floor only ever blocks stale
+    /// bubbles (composers mint floor+1 from this same store), so keeping it
+    /// indefinitely costs nothing.
     static func clear(key: String) {
+        // Rescue never-migrated legacy sync fields before the blob vanishes.
+        _ = loadSync(key: key)
         defaults?.removeObject(forKey: storageKey(for: key))
+        defaults?.removeObject(forKey: draftKey(for: key))
         MeetupSync.post()
+    }
+
+    /// The full wipe, sync state included — for tests and hard resets only.
+    static func clearIncludingSync(key: String) {
+        defaults?.removeObject(forKey: syncKey(for: key))
+        clear(key: key)
     }
 
     static func clearTransientState(key: String) {
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        snapshot.pendingDraft = nil
-        save(snapshot, key: key)
+        clearDraft(key: key)
     }
 
     static func clearProposalState(key: String) {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.proposedState = nil
         snapshot.agreedState = nil
-        snapshot.pendingDraft = nil
         save(snapshot, key: key)
+        clearDraft(key: key)
     }
 
     static func saveParticipants(_ participants: [Participant], key: String) {
@@ -203,75 +271,162 @@ enum ConversationMeetupStore {
         save(snapshot, key: key)
     }
 
+    // MARK: - Pending draft (own key; cleared with the TTL, never with sync)
+
+    static func loadDraft(key: String) -> OutgoingDraft? {
+        migrateDraftIfNeeded(key: key)
+        guard let data = defaults?.data(forKey: draftKey(for: key)) else { return nil }
+        return try? JSONDecoder().decode(OutgoingDraft.self, from: data)
+    }
+
     static func saveDraft(_ draft: OutgoingDraft, key: String) {
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        snapshot.pendingDraft = draft
-        save(snapshot, key: key)
+        guard let data = try? JSONEncoder().encode(draft) else { return }
+        defaults?.set(data, forKey: draftKey(for: key))
+        MeetupSync.post()
     }
 
     static func clearDraft(key: String) {
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        snapshot.pendingDraft = nil
-        save(snapshot, key: key)
+        defaults?.removeObject(forKey: draftKey(for: key))
+        // A never-migrated legacy inline draft must not resurrect on the
+        // next load — strip it from the old blob too (save nils it).
+        if let legacy = load(key: key), legacy.pendingDraft != nil {
+            save(legacy, key: key)
+        }
+        MeetupSync.post()
+    }
+
+    private static func migrateDraftIfNeeded(key: String) {
+        guard defaults?.data(forKey: draftKey(for: key)) == nil,
+              let legacyDraft = load(key: key)?.pendingDraft,
+              let data = try? JSONEncoder().encode(legacyDraft)
+        else { return }
+        defaults?.set(data, forKey: draftKey(for: key))
+    }
+
+    // MARK: - Sync state (TTL-exempt: revision floor + tombstones)
+
+    /// Loads the sync blob, lazily migrating the legacy inline snapshot
+    /// fields the first time a conversation is touched by this build.
+    /// Presence of the sync key is the migration marker.
+    private static func loadSync(key: String) -> ConversationSyncState {
+        if let data = defaults?.data(forKey: syncKey(for: key)),
+           let state = try? JSONDecoder().decode(ConversationSyncState.self, from: data) {
+            return state
+        }
+        guard let legacy = load(key: key) else { return ConversationSyncState() }
+        let migrated = ConversationSyncState(
+            lastRevision: legacy.lastRevision,
+            localUserLeft: legacy.localUserLeft,
+            departedKeys: legacy.departedKeys)
+        if !migrated.isEmpty { saveSync(migrated, key: key) }
+        return migrated
+    }
+
+    private static func saveSync(_ state: ConversationSyncState, key: String) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        defaults?.set(data, forKey: syncKey(for: key))
+        MeetupSync.post()
     }
 
     // MARK: - Leave tombstone
 
     static func localUserLeft(key: String) -> Bool {
-        load(key: key)?.localUserLeft ?? false
+        loadSync(key: key).localUserLeft ?? false
     }
 
     static func setLocalUserLeft(_ left: Bool, key: String) {
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        guard (snapshot.localUserLeft ?? false) != left else { return }
-        snapshot.localUserLeft = left
-        save(snapshot, key: key)
+        var sync = loadSync(key: key)
+        guard (sync.localUserLeft ?? false) != left else { return }
+        sync.localUserLeft = left
+        saveSync(sync, key: key)
     }
 
     // MARK: - Departure tombstones (other participants)
 
     static func departedParticipants(key: String) -> Set<String> {
-        Set(load(key: key)?.departedKeys ?? [])
+        Set(loadSync(key: key).departedKeys ?? [])
     }
 
     /// Records that the participants behind `keys` left this conversation.
     static func noteDeparted(_ keys: [String], key: String) {
         guard !keys.isEmpty else { return }
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        let updated = Set(snapshot.departedKeys ?? []).union(keys)
-        guard updated != Set(snapshot.departedKeys ?? []) else { return }
-        snapshot.departedKeys = updated.sorted()
-        save(snapshot, key: key)
+        var sync = loadSync(key: key)
+        let updated = Set(sync.departedKeys ?? []).union(keys)
+        guard updated != Set(sync.departedKeys ?? []) else { return }
+        sync.departedKeys = updated.sorted()
+        saveSync(sync, key: key)
     }
 
     /// Lifts departure tombstones — a participant's own rejoin message.
     static func clearDeparted(_ keys: [String], key: String) {
-        guard !keys.isEmpty, var current = load(key: key)?.departedKeys, !current.isEmpty else { return }
+        guard !keys.isEmpty else { return }
+        var sync = loadSync(key: key)
+        guard var current = sync.departedKeys, !current.isEmpty else { return }
         current.removeAll(where: Set(keys).contains)
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        guard Set(current) != Set(snapshot.departedKeys ?? []) else { return }
-        snapshot.departedKeys = current
-        save(snapshot, key: key)
+        guard Set(current) != Set(sync.departedKeys ?? []) else { return }
+        sync.departedKeys = current
+        saveSync(sync, key: key)
     }
 
     // MARK: - Payload revisions
 
     static func lastRevision(key: String) -> Int {
-        load(key: key)?.lastRevision ?? 0
+        loadSync(key: key).lastRevision ?? 0
     }
 
-    /// Records the highest payload revision seen for this conversation. Both
-    /// directions go through here: decode notes inbound revisions, compose
-    /// notes the ones this device mints — so a bubble older than either can
-    /// never re-adopt a stale roster.
-    static func noteRevision(_ revision: Int, key: String) {
-        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        guard revision > (snapshot.lastRevision ?? 0) else { return }
-        snapshot.lastRevision = revision
-        save(snapshot, key: key)
+    static func lastRevisionSender(key: String) -> String? {
+        loadSync(key: key).lastRevisionSender
+    }
+
+    /// Records the highest payload revision seen for this conversation, and
+    /// who set it. Both directions go through here: decode notes inbound
+    /// revisions, delivery notes the ones this device mints — so a bubble
+    /// older than either can never re-adopt a stale roster.
+    static func noteRevision(_ revision: Int, sender: String? = nil, key: String) {
+        var sync = loadSync(key: key)
+        let floor = sync.lastRevision ?? 0
+        if revision > floor {
+            sync.lastRevision = revision
+            sync.lastRevisionSender = sender
+            saveSync(sync, key: key)
+        } else if revision == floor, sync.lastRevisionSender == nil, sender != nil {
+            // Backfill the sender on a pre-migration floor so future ties
+            // stop falling into the legacy accept-all row.
+            sync.lastRevisionSender = sender
+            saveSync(sync, key: key)
+        }
+    }
+
+    /// W2 tie-break: whether an inbound payload should be adopted.
+    ///
+    ///   nil revision      → accept (legacy trust-the-tap, unchanged)
+    ///   above the floor   → accept · below → reject
+    ///   AT the floor      → accept only for the sender who set it (re-taps
+    ///                       of the same bubble keep working) or when the
+    ///                       floor predates sender tracking. A DIFFERENT
+    ///                       sender at the same revision is a concurrent
+    ///                       mint — accepting it made the outcome
+    ///                       tap-order-dependent and could resurrect a
+    ///                       leaver group-wide.
+    static func shouldAcceptInbound(revision: Int?, senderID: String?, key: String) -> Bool {
+        guard let revision else { return true }
+        let sync = loadSync(key: key)
+        let floor = sync.lastRevision ?? 0
+        if revision > floor { return true }
+        if revision < floor { return false }
+        guard let floorSender = sync.lastRevisionSender else { return true }
+        return senderID == floorSender
     }
 
     private static func storageKey(for key: String) -> String {
         storagePrefix + key
+    }
+
+    private static func syncKey(for key: String) -> String {
+        syncPrefix + key
+    }
+
+    private static func draftKey(for key: String) -> String {
+        draftPrefix + key
     }
 }

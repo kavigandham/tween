@@ -425,9 +425,11 @@ final class ParticipantCodecTests: XCTestCase {
         let abSnapshot = try XCTUnwrap(ConversationMeetupStore.load(key: ab))
         let acSnapshot = try XCTUnwrap(ConversationMeetupStore.load(key: ac))
         XCTAssertEqual(abSnapshot.proposedState?.text, "Hangry Joe's")
-        XCTAssertEqual(abSnapshot.pendingDraft?.spotName, "Hangry Joe's")
+        // Drafts live under their own conversation-scoped key now; an inline
+        // draft handed to save() is folded into it, never silently dropped.
+        XCTAssertEqual(ConversationMeetupStore.loadDraft(key: ab)?.spotName, "Hangry Joe's")
         XCTAssertNil(acSnapshot.proposedState)
-        XCTAssertNil(acSnapshot.pendingDraft)
+        XCTAssertNil(ConversationMeetupStore.loadDraft(key: ac))
     }
 
     func testSameConversationRestoresParticipants() throws {
@@ -652,5 +654,141 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(decoded.participants.map(\.id), participants.map(\.id),
                        "Identity survives the compact fallback via pids")
         XCTAssertEqual(decoded.revision, 1)
+    }
+
+    // MARK: - Sync-state split (TTL exemption, migration, tie-break)
+
+    private func legacySnapshotData(key: String,
+                                    lastRevision: Int? = nil,
+                                    localUserLeft: Bool? = nil,
+                                    departedKeys: [String]? = nil,
+                                    pendingDraft: OutgoingDraft? = nil) -> Data {
+        var snapshot = MeetupSnapshot(conversationKey: key)
+        snapshot.lastRevision = lastRevision
+        snapshot.localUserLeft = localUserLeft
+        snapshot.departedKeys = departedKeys
+        snapshot.pendingDraft = pendingDraft
+        return try! JSONEncoder().encode(snapshot)
+    }
+
+    func testTTLClearKeepsRevisionFloorAndTombstones() {
+        let key = "ttl-survival"
+        ConversationMeetupStore.noteRevision(7, sender: "sender-A", key: key)
+        ConversationMeetupStore.setLocalUserLeft(true, key: key)
+        ConversationMeetupStore.noteDeparted(["gone-B"], key: key)
+        ConversationMeetupStore.saveParticipants(
+            [Participant(id: "peer", name: "Kavi", latitude: 1, longitude: 2)], key: key)
+        ConversationMeetupStore.saveDraft(
+            OutgoingDraft(spotName: "Cafe", latitude: 1, longitude: 2), key: key)
+
+        ConversationMeetupStore.clear(key: key)   // the 24 h TTL path
+
+        XCTAssertNil(ConversationMeetupStore.load(key: key), "Snapshot cleared")
+        XCTAssertNil(ConversationMeetupStore.loadDraft(key: key), "Draft cleared with the TTL")
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 7,
+                       "Revision floor must survive the TTL — it only blocks stale bubbles")
+        XCTAssertEqual(ConversationMeetupStore.lastRevisionSender(key: key), "sender-A")
+        XCTAssertTrue(ConversationMeetupStore.localUserLeft(key: key),
+                      "Leave tombstone must survive the TTL or D4 re-breaks after a day")
+        XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["gone-B"])
+    }
+
+    func testLegacySnapshotFieldsMigrateToSyncAndDraftKeys() {
+        let key = "legacy-migrate"
+        let draft = OutgoingDraft(spotName: "Old Draft", latitude: 3, longitude: 4)
+        let data = legacySnapshotData(key: key, lastRevision: 5, localUserLeft: true,
+                                      departedKeys: ["gone-X"], pendingDraft: draft)
+        UserDefaults(suiteName: LocationCache.appGroup)?
+            .set(data, forKey: "conversationMeetup." + key)
+
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 5)
+        XCTAssertTrue(ConversationMeetupStore.localUserLeft(key: key))
+        XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["gone-X"])
+        XCTAssertEqual(ConversationMeetupStore.loadDraft(key: key)?.spotName, "Old Draft")
+
+        // The migrated values survive the legacy blob being cleared by TTL.
+        ConversationMeetupStore.clear(key: key)
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 5)
+        XCTAssertTrue(ConversationMeetupStore.localUserLeft(key: key))
+    }
+
+    func testLegacyInlineValuesDoNotResurrectAfterLaterWrites() {
+        let key = "legacy-no-resurrect"
+        let data = legacySnapshotData(key: key, lastRevision: 5, localUserLeft: true)
+        UserDefaults(suiteName: LocationCache.appGroup)?
+            .set(data, forKey: "conversationMeetup." + key)
+
+        // Migrate, then move the canonical values on.
+        ConversationMeetupStore.noteRevision(9, sender: "sender-B", key: key)
+        ConversationMeetupStore.setLocalUserLeft(false, key: key)
+        // A later big-blob mutation must not shadow them with stale inline copies.
+        ConversationMeetupStore.saveParticipants(
+            [Participant(id: "peer", name: "Kavi", latitude: 1, longitude: 2)], key: key)
+
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 9)
+        XCTAssertFalse(ConversationMeetupStore.localUserLeft(key: key))
+        XCTAssertNil(ConversationMeetupStore.load(key: key)?.lastRevision,
+                     "save() must strip the legacy inline fields")
+    }
+
+    func testRevisionTieBreakMatrix() {
+        let key = "tie-break"
+        // Legacy payloads (no revision) always accept.
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: nil, senderID: "A", key: key))
+        // Empty floor: anything accepts.
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: 1, senderID: "A", key: key))
+
+        ConversationMeetupStore.noteRevision(5, sender: "A", key: key)
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: 6, senderID: "B", key: key),
+                      "Above the floor always accepts")
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 4, senderID: "A", key: key),
+                       "Below the floor always rejects, even for the floor sender")
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "A", key: key),
+                      "Re-tap of the bubble that set the floor keeps working")
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "B", key: key),
+                       "Concurrent same-revision mint by another device rejects")
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: nil, key: key),
+                       "Tie with unknown sender rejects once a floor sender exists")
+
+        // Pre-migration floor (no sender recorded): legacy >= behavior.
+        let legacyKey = "tie-break-legacy"
+        ConversationMeetupStore.noteRevision(5, key: legacyKey)
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "B", key: legacyKey))
+        // First sender-carrying note at the floor backfills the sender.
+        ConversationMeetupStore.noteRevision(5, sender: "A", key: legacyKey)
+        XCTAssertEqual(ConversationMeetupStore.lastRevisionSender(key: legacyKey), "A")
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "B", key: legacyKey))
+    }
+
+    func testStaleSnapshotSaveCannotDropConcurrentRevision() {
+        let key = "race-structural"
+        // Process A holds a snapshot...
+        ConversationMeetupStore.saveParticipants(
+            [Participant(id: "a", name: "A", latitude: 1, longitude: 1)], key: key)
+        let stale = ConversationMeetupStore.load(key: key)!
+        // ...process B notes a revision + tombstone meanwhile...
+        ConversationMeetupStore.noteRevision(3, sender: "B", key: key)
+        ConversationMeetupStore.noteDeparted(["gone-C"], key: key)
+        // ...and process A writes its stale snapshot back.
+        ConversationMeetupStore.save(stale, key: key)
+
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 3,
+                       "Sync state lives under its own key — a stale snapshot save can't clobber it")
+        XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["gone-C"])
+    }
+
+    func testDraftSurvivesSnapshotMutationsAndClearsWithTTL() {
+        let key = "draft-key-split"
+        ConversationMeetupStore.saveDraft(
+            OutgoingDraft(spotName: "Boba", latitude: 1, longitude: 2), key: key)
+        ConversationMeetupStore.saveParticipants(
+            [Participant(id: "a", name: "A", latitude: 1, longitude: 1)], key: key)
+        XCTAssertEqual(ConversationMeetupStore.loadDraft(key: key)?.spotName, "Boba",
+                       "Snapshot mutations must not drop the pending draft")
+        ConversationMeetupStore.lastActiveConversationKey = key
+        XCTAssertTrue(ConversationMeetupStore.hasLiveMeetup(within: 60),
+                      "A pending draft alone counts as a live meetup")
+        ConversationMeetupStore.clear(key: key)
+        XCTAssertNil(ConversationMeetupStore.loadDraft(key: key))
     }
 }

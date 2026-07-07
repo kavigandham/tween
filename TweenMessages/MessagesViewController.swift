@@ -215,7 +215,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
         // banner and auto-ranked spots are front and center).
-        draft = snapshot?.pendingDraft
+        draft = ConversationMeetupStore.loadDraft(key: key)
         if draft == nil, let globalDraft = OutgoingDraftStore.load() {
             draft = globalDraft
             ConversationMeetupStore.saveDraft(globalDraft, key: key)
@@ -312,11 +312,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         // legacy trust-the-tap semantics.
         let revisionKey = conversationKey ?? Self.conversationKey(for: conversation)
         if let revision = state.revision {
-            guard revision >= ConversationMeetupStore.lastRevision(key: revisionKey) else {
+            // Older-than-floor bubbles reject; AT the floor only the sender
+            // who set it is accepted (re-taps keep working, concurrent
+            // same-revision mints by another device don't — W2 tie-break).
+            guard ConversationMeetupStore.shouldAcceptInbound(
+                revision: revision, senderID: state.senderID, key: revisionKey) else {
                 logger.debug("Ignoring stale bubble rev=\(revision, privacy: .public)")
                 return false
             }
-            ConversationMeetupStore.noteRevision(revision, key: revisionKey)
+            ConversationMeetupStore.noteRevision(revision, sender: state.senderID, key: revisionKey)
         }
         received = effectiveReceived(decoded: state)
         logger.debug("Decoded incoming Tween message type=\(state.messageType.rawValue, privacy: .public) participants=\(state.participants.count, privacy: .public) agreed=\(state.agreedNames.count, privacy: .public)")
@@ -1288,7 +1292,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             // Delivery succeeded — NOW the minted revision becomes the floor
             // for the decode guard (this device's own stale bubbles included).
             if let revision = state.revision, let conversationKey {
-                ConversationMeetupStore.noteRevision(revision, key: conversationKey)
+                ConversationMeetupStore.noteRevision(
+                    revision, sender: localParticipantID(), key: conversationKey)
             }
             recordCanonicalSnapshot(for: state)
             recordPendingInviteIfNeeded(for: state)
