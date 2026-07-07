@@ -175,7 +175,6 @@ struct OnboardingView: View {
     @State private var searchTask: Task<Void, Never>?
 
     // Friends / social
-    @State private var panelTab: HomePanelTab = .map
     @State private var friendsPanelTab: FriendsPanelTab = .people
     @State private var friends: [TweenFriend] = FriendRoster.load()
     @State private var editorMode: FriendEditor?
@@ -385,7 +384,6 @@ struct OnboardingView: View {
         _additionalParticipants = State(initialValue: Array(harnessParticipants.dropFirst(2)))
         _localNeedsRide = State(initialValue: harnessParticipants.first?.needsRide ?? false)
         _isUserIn = State(initialValue: Self.isHostTabHarness)
-        _panelTab = State(initialValue: Self.isHostTabHarness ? .waiting : .map)
         _friendsPanelTab = State(initialValue: CommandLine.arguments.contains("-HARNESS_HOST_RIDES") ? .rides : .people)
         // Friends is its own sheet now (behind the search-row circle); the
         // friends/rides harnesses open it directly so screenshots still land
@@ -529,6 +527,18 @@ struct OnboardingView: View {
                                         Button("Done") { activeSheet = nil }
                                     }
                                 }
+                                // Presented from THIS sheet: the trigger is a
+                                // swipe action inside it, and UIKit refuses to
+                                // present an alert from a VC that's already
+                                // presenting — attached one level up, Rename
+                                // silently never appeared (audit W13).
+                                .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
+                                    TextField("Name", text: $renameText)
+                                    Button("Save", action: commitRename)
+                                    Button("Cancel", role: .cancel) { editorMode = nil }
+                                } message: { editor in
+                                    Text("Choose a new name for \(editor.friend.name).")
+                                }
                         }
                         .presentationDetents([.large])
                     case .contacts:
@@ -577,13 +587,9 @@ struct OnboardingView: View {
                 // sheet. Attached to the Map they sat beneath the permanently
                 // presented bottom sheet and silently never appeared — the
                 // same trap the ActiveSheet consolidation comment documents.
-                .alert("Rename Friend", isPresented: renameBinding, presenting: editorMode) { _ in
-                    TextField("Name", text: $renameText)
-                    Button("Save", action: commitRename)
-                    Button("Cancel", role: .cancel) { editorMode = nil }
-                } message: { editor in
-                    Text("Choose a new name for \(editor.friend.name).")
-                }
+                // (Rename Friend lives one level deeper still — on the
+                // Friends sheet's own content — because its trigger is a
+                // swipe action inside THAT sheet; audit W13.)
                 .alert("Location Unavailable", isPresented: $showLocationAlert) {
                     Button("OK", role: .cancel) {}
                 } message: {
@@ -662,7 +668,6 @@ struct OnboardingView: View {
             // before this and consumes the nil→value transition under the
             // anti-yank suppression gate.
             if pendingProposal != nil || agreedMeetup != nil {
-                panelTab = .map
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }
         }
@@ -748,11 +753,29 @@ struct OnboardingView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if completer.results.isEmpty {
+                    // Phase-aware empty state (audit W16): the spinner was
+                    // shown for EVERY empty result set, so a completer
+                    // failure or a no-match query spun forever.
                     HStack(spacing: Tokens.Spacing.s2) {
-                        ProgressView()
-                        Text("Searching nearby...")
-                            .font(Tokens.Typography.footnote)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
+                        switch completer.phase {
+                        case .failed:
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                            Text("Search unavailable — check your connection")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        case .resolved:
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                            Text("No matches — try a different name")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        case .idle, .searching:
+                            ProgressView()
+                            Text("Searching nearby...")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Tokens.Spacing.s3)
@@ -2180,7 +2203,6 @@ struct OnboardingView: View {
     /// out of the sheet between call and fire would get an unexpected
     /// keyboard.
     private func expandThenFocusSearch() {
-        panelTab = .map
         withAnimation(Tokens.Motion.snappy) {
             selectedSheetDetent = .fraction(0.45)
         }
@@ -2481,9 +2503,19 @@ struct OnboardingView: View {
     }
 
     /// Commits a suggestion as a full search.
+    /// Programmatic `searchText` assignment with the suppress flag armed
+    /// ONLY when the text actually changes. Arming unconditionally left the
+    /// flag set when the assignment was a no-op (tapping a completion titled
+    /// exactly what you typed) — SwiftUI's onChange never fired, and the
+    /// stale flag then swallowed the NEXT real change: the clear-(x)
+    /// gesture, leaving ghost results behind an empty field (audit W15).
+    private func setSearchTextProgrammatically(_ text: String) {
+        suppressNextQueryChange = text != searchText
+        searchText = text
+    }
+
     private func selectSuggestion(_ completion: MKLocalSearchCompletion) {
-        suppressNextQueryChange = true
-        searchText = completion.title
+        setSearchTextProgrammatically(completion.title)
         commitSearch()
     }
 
@@ -2503,14 +2535,12 @@ struct OnboardingView: View {
     }
 
     private func focusSearchPanel() {
-        panelTab = .map
         expandToSearchDetent()
     }
 
     private func startShortcutSearch(_ shortcut: QuickSpotShortcut) {
-        suppressNextQueryChange = true
         selectedCategory = nil
-        searchText = shortcut.query
+        setSearchTextProgrammatically(shortcut.query)
         focusSearchPanel()
         commitSearch()
     }
@@ -2648,9 +2678,8 @@ struct OnboardingView: View {
         if selectedCategory == preset {
             clearSearch()
         } else {
-            suppressNextQueryChange = true
             selectedCategory = preset
-            searchText = preset.searchQuery
+            setSearchTextProgrammatically(preset.searchQuery)
             expandToSearchDetent()
             commitSearch()
         }
@@ -2787,7 +2816,6 @@ struct OnboardingView: View {
                 // the user may be interacting with. User-initiated refresh
                 // paths keep the peek nudge. See docs/ui-research.md §1.
                 if !suppressPollDetentWrites {
-                    panelTab = .map
                     selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
                 }
             }
@@ -2807,7 +2835,6 @@ struct OnboardingView: View {
             // sheet would hide it. Gated like every background-driven write
             // so a poll/notification tick can't yank controls mid-drag.
             if cachedProposal != nil, !suppressPollDetentWrites {
-                panelTab = .map
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }
         }
@@ -3068,7 +3095,6 @@ struct OnboardingView: View {
     }
 
     private func showOwnProposalOnMap(_ state: TweenState) {
-        panelTab = .map
         selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
         let placemark = MKPlacemark(coordinate: state.coordinate)
         let item = MKMapItem(placemark: placemark)

@@ -74,8 +74,15 @@ struct NativeSearchBar: UIViewRepresentable {
 /// app only; the extension never offers typed suggestions.
 @Observable
 final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
+    /// Where the current completion request stands, so the UI can tell
+    /// "still searching" from "nothing matched" from "MapKit failed" —
+    /// without this, the failure path just emptied `results` and the
+    /// suggestions list spun "Searching nearby..." forever (audit W16).
+    enum Phase { case idle, searching, resolved, failed }
+
     /// The current suggestions for the typed query.
     private(set) var results: [MKLocalSearchCompletion] = []
+    private(set) var phase: Phase = .idle
 
     private let completer = MKLocalSearchCompleter()
 
@@ -103,9 +110,11 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             results = []
+            phase = .idle
             completer.queryFragment = ""
             return
         }
+        phase = .searching
         if let region { completer.region = region }
         completer.queryFragment = trimmed
     }
@@ -124,6 +133,8 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
             update(query: "", region: region)
             return
         }
+        // The spinner must be honest during the debounce window too.
+        phase = .searching
         debounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: debounceMs * 1_000_000)
             guard !Task.isCancelled else { return }
@@ -135,9 +146,11 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         results = completer.results
+        phase = .resolved
     }
 
     func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
         results = []
+        phase = .failed
     }
 }

@@ -4,22 +4,6 @@ import UIKit
 import MessageUI
 import Messages
 
-/// Which face of the bottom sheet is showing: place search, or the friend
-/// roster you're waiting on.
-enum HomePanelTab: String, CaseIterable, Identifiable {
-    case map
-    case waiting
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .map:     return "Search"
-        case .waiting: return "Friends"
-        }
-    }
-}
-
 /// Subsections inside the Friends surface. Keeping this nested tab structure
 /// gives future group pickup / ride coordination a stable home without
 /// disturbing the existing friend roster flow.
