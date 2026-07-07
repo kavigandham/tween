@@ -60,6 +60,9 @@ enum PingLog {
     }
 
     static func logGenericInvite(at date: Date = Date(), count: Int = 1) {
+        // Two keys, deliberately NOT atomic (accepted exception to the
+        // one-blob rule): this is a display-only banner hint, the count
+        // clamps to ≥1 on read, and a torn read costs a cosmetic frame.
         lastGenericInviteAt = date
         defaults?.set(max(count, 1), forKey: genericInviteCountKey)
     }

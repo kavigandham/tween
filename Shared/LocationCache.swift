@@ -34,6 +34,12 @@ enum LocationCache {
         let latitude: Double
         let longitude: Double
         let timestamp: Date
+        /// Presence flag folded INTO the blob (audit W11): written as two
+        /// separate keys, a cross-process reader between the writes saw a
+        /// fresh coordinate with a stale flag (or vice versa), defeating
+        /// the freshness logic. Optional so pre-split blobs keep decoding;
+        /// nil defers to the legacy bool key.
+        var isActive: Bool? = nil
 
         var coordinate: CLLocationCoordinate2D {
             CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -47,8 +53,8 @@ enum LocationCache {
     // MARK: - Self
 
     static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
-        write(coordinate, at: date, key: selfKey)
-        defaults?.set(isActive, forKey: selfActiveKey)
+        write(coordinate, at: date, key: selfKey, isActive: isActive)
+        defaults?.set(isActive, forKey: selfActiveKey)   // legacy mirror
         MeetupSync.post()
     }
 
@@ -57,20 +63,18 @@ enum LocationCache {
     }
 
     static func setActive(_ active: Bool) {
-        defaults?.set(active, forKey: selfActiveKey)
-        MeetupSync.post()
+        setFlag(active, blobKey: selfKey, legacyKey: selfActiveKey)
     }
 
     static func deactivateSelf() {
-        defaults?.set(false, forKey: selfActiveKey)
-        MeetupSync.post()
+        setActive(false)
     }
 
     // MARK: - Peer
 
     static func savePeer(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
-        write(coordinate, at: date, key: peerKey)
-        defaults?.set(isActive, forKey: peerActiveKey)
+        write(coordinate, at: date, key: peerKey, isActive: isActive)
+        defaults?.set(isActive, forKey: peerActiveKey)   // legacy mirror
         MeetupSync.post()
     }
 
@@ -79,15 +83,16 @@ enum LocationCache {
     }
 
     static func setPeerActive(_ active: Bool) {
-        defaults?.set(active, forKey: peerActiveKey)
-        MeetupSync.post()
+        setFlag(active, blobKey: peerKey, legacyKey: peerActiveKey)
     }
 
     static var isPeerActive: Bool {
         guard let cached = loadPeer() else { return false }
-        if defaults?.object(forKey: peerActiveKey) != nil,
-           defaults?.bool(forKey: peerActiveKey) != true {
-            return false
+        if let flag = cached.isActive {
+            guard flag else { return false }
+        } else if defaults?.object(forKey: peerActiveKey) != nil,
+                  defaults?.bool(forKey: peerActiveKey) != true {
+            return false   // pre-split blob: legacy bool key decides
         }
         return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
     }
@@ -100,15 +105,18 @@ enum LocationCache {
     /// still gates whether the cached COORDINATE is reusable — use `isActive`
     /// for that.
     static var isOptedIn: Bool {
-        defaults?.bool(forKey: selfActiveKey) ?? false
+        if let flag = loadSelf()?.isActive { return flag }
+        return defaults?.bool(forKey: selfActiveKey) ?? false
     }
 
     /// True when self explicitly opted in and the coordinate is fresh.
     static var isActive: Bool {
         guard let cached = loadSelf() else { return false }
-        if defaults?.object(forKey: selfActiveKey) != nil,
-           defaults?.bool(forKey: selfActiveKey) != true {
-            return false
+        if let flag = cached.isActive {
+            guard flag else { return false }
+        } else if defaults?.object(forKey: selfActiveKey) != nil,
+                  defaults?.bool(forKey: selfActiveKey) != true {
+            return false   // pre-split blob: legacy bool key decides
         }
         return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
     }
@@ -195,8 +203,8 @@ enum LocationCache {
     // MARK: - Lifecycle
 
     static func startFreshMeetup() {
-        defaults?.set(false, forKey: selfActiveKey)
-        defaults?.set(false, forKey: peerActiveKey)
+        setFlag(false, blobKey: selfKey, legacyKey: selfActiveKey)
+        setFlag(false, blobKey: peerKey, legacyKey: peerActiveKey)
         defaults?.removeObject(forKey: participantsKey)
         defaults?.removeObject(forKey: agreedMeetupKey)
         MeetupSync.post()
@@ -213,12 +221,28 @@ enum LocationCache {
 
     // MARK: - Atomic single-key codec
 
-    private static func write(_ coordinate: CLLocationCoordinate2D, at date: Date, key: String) {
+    private static func write(_ coordinate: CLLocationCoordinate2D, at date: Date,
+                              key: String, isActive: Bool) {
         let coord = CachedCoord(latitude: coordinate.latitude,
                                 longitude: coordinate.longitude,
-                                timestamp: date)
+                                timestamp: date,
+                                isActive: isActive)
         guard let data = try? JSONEncoder().encode(coord) else { return }
         defaults?.set(data, forKey: key)
+    }
+
+    /// Flag flips are a read-modify-write of the blob (one atomic set), with
+    /// the legacy bool key mirrored for downgrade safety and for the
+    /// no-blob-yet case (a flag set before any coordinate exists).
+    private static func setFlag(_ active: Bool, blobKey: String, legacyKey: String) {
+        if var cached = read(key: blobKey) {
+            cached.isActive = active
+            if let data = try? JSONEncoder().encode(cached) {
+                defaults?.set(data, forKey: blobKey)
+            }
+        }
+        defaults?.set(active, forKey: legacyKey)
+        MeetupSync.post()
     }
 
     private static func read(key: String) -> CachedCoord? {

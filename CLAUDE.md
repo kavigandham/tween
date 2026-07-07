@@ -3,7 +3,7 @@
 A serverless, iMessage-native meetup coordinator. Two friends share locations; the app proposes the fairest places to meet by drive time.
 
 ## Environment
-**No Xcode is available.** Write Swift source files only. Do not attempt to run `xcodebuild`, `xcrun`, `simctl`, or any iOS build tools. The Xcode project is generated from `project.yml` by a collaborator on a Mac.
+Xcode 26.5 is installed. Build and test locally: run `xcodegen generate` after adding/removing files (all targets use directory globs in `project.yml`), then `xcodebuild test -project TweenApp.xcodeproj -scheme TweenApp -destination 'platform=iOS Simulator,...'`. Extension memory profiling and real iMessage delivery still require physical devices.
 
 ## Stack
 - Swift 5.9+, SwiftUI, iOS 17+ deployment target
@@ -47,6 +47,7 @@ Files in `Shared/` must be listed under BOTH `TweenApp` and `TweenMessages` sour
 5. **No API keys** in code or URLs.
 
 6. **App Group UserDefaults is unencrypted.** Coordinates and preferences only.
+   - *Sanctioned exception (product decision 2026-07-06):* `FriendRoster` (`Shared/TweenFriend.swift`) persists friend display name, optional CNContact identifier, and phone/email handle — so ping compose keeps working even if Contacts access is later revoked. Nothing else PII-bearing may be added.
 
 7. **`@Observable`**, not `ObservableObject`. `@State` owns, `@Bindable` for two-way.
 

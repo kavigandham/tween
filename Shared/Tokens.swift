@@ -31,6 +31,14 @@ enum Tokens {
         static let brand = dynamicColor(
             light: UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1),   // #008C8C
             dark:  UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1))    // #29C7C7
+        /// Foreground for content sitting ON a brand fill (audit W20).
+        /// White on the light-mode teal is ~4.1:1 (passes for the semibold
+        /// CTA text sizes); white on the BRIGHT dark-mode teal was ~2.1:1 —
+        /// a WCAG failure — so dark mode uses a near-black teal (~7:1),
+        /// the same trick Apple uses on its bright green/yellow fills.
+        static let onBrand = dynamicColor(
+            light: UIColor.white,
+            dark:  UIColor(red: 0.00, green: 0.208, blue: 0.208, alpha: 1))    // #003535
         static let brandLight = dynamicColor(
             light: UIColor(red: 0.878, green: 0.953, blue: 0.953, alpha: 1),   // #E0F3F3
             dark:  UIColor(red: 0.082, green: 0.176, blue: 0.204, alpha: 1))   // #152D34
@@ -230,7 +238,7 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
 
     private var foreground: Color {
         switch variant {
-        case .prominent: return .white
+        case .prominent: return Tokens.Palette.onBrand
         case .subtle:    return Tokens.Palette.brand
         case .neutral:   return Tokens.Palette.textPrimary
         case .destructive: return Tokens.Palette.destructive

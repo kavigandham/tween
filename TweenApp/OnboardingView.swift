@@ -144,6 +144,9 @@ struct OnboardingView: View {
     /// `resetMapButton` and `infoButton`, and the pattern other icon-button
     /// call sites should follow.
     @ScaledMetric private var floatingControlSize: CGFloat = Tokens.Layout.minTapTarget
+    /// Friends-circle diameter, scaled relative to the caption type its
+    /// initials render in — a fixed 44pt let AX-size initials overflow it.
+    @ScaledMetric(relativeTo: .caption) private var friendsCircleSize: CGFloat = Tokens.Layout.searchBarHeight
 
     // Search
     @State private var searchText = ""
@@ -1333,14 +1336,22 @@ struct OnboardingView: View {
                 if let name = UserName.load() {
                     Text(Self.initials(for: name))
                         .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Tokens.Palette.onBrand)
+                        // The circle scales with Dynamic Type (below), but at
+                        // AX sizes the initials can still outgrow it — clamp
+                        // rather than overflow the capsule row.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else {
                     Image(systemName: "person.2.fill")
                         .font(Tokens.Typography.footnote.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Tokens.Palette.onBrand)
                 }
             }
-            .frame(width: Tokens.Layout.searchBarHeight, height: Tokens.Layout.searchBarHeight)
+            // @ScaledMetric, not the fixed searchBarHeight: caption-relative
+            // scaling keeps the circle wrapped around its initials at AX
+            // text sizes instead of letting them spill out of a 44pt frame.
+            .frame(width: friendsCircleSize, height: friendsCircleSize)
             .background(Tokens.Palette.brand, in: Circle())
         }
         .buttonStyle(.plain)
@@ -1368,7 +1379,7 @@ struct OnboardingView: View {
                                 selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
                                 in: Capsule()
                             )
-                            .foregroundStyle(selected ? Color.white : Tokens.Palette.textPrimary)
+                            .foregroundStyle(selected ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.title)

@@ -777,6 +777,41 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["gone-C"])
     }
 
+    // MARK: - Coordinate blob active flags (audit W11)
+
+    func testActiveFlagRidesInsideCoordinateBlob() {
+        LocationCache.save(CLLocationCoordinate2D(latitude: 1, longitude: 2), isActive: true)
+        XCTAssertEqual(LocationCache.loadSelf()?.isActive, true,
+                       "Coord + flag must land in ONE atomic blob write")
+        XCTAssertTrue(LocationCache.isActive)
+        LocationCache.deactivateSelf()
+        XCTAssertEqual(LocationCache.loadSelf()?.isActive, false)
+        XCTAssertFalse(LocationCache.isActive)
+        XCTAssertFalse(LocationCache.isOptedIn)
+    }
+
+    func testLegacyCoordBlobWithoutFlagHonorsLegacyBoolKey() throws {
+        // A pre-split blob (no isActive field) must keep deferring to the
+        // legacy bool key so nothing regresses mid-upgrade.
+        let legacy = LocationCache.CachedCoord(latitude: 1, longitude: 2, timestamp: Date())
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: LocationCache.appGroup))
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "tween.cache.self")
+        defaults.set(true, forKey: "tween.cache.self.active")
+        XCTAssertNil(LocationCache.loadSelf()?.isActive)
+        XCTAssertTrue(LocationCache.isActive)
+        defaults.set(false, forKey: "tween.cache.self.active")
+        XCTAssertFalse(LocationCache.isActive)
+    }
+
+    func testStaleCoordinateDefeatsIsActiveDespiteFlag() {
+        LocationCache.save(CLLocationCoordinate2D(latitude: 1, longitude: 2),
+                           at: Date(timeIntervalSinceNow: -6 * 60), isActive: true)
+        XCTAssertFalse(LocationCache.isActive,
+                       "The 5-min freshness window still gates the coordinate (locks the W4 fix)")
+        XCTAssertTrue(LocationCache.isOptedIn,
+                      "Opt-in is a user decision, not a freshness question")
+    }
+
     func testDraftSurvivesSnapshotMutationsAndClearsWithTTL() {
         let key = "draft-key-split"
         ConversationMeetupStore.saveDraft(

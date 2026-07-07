@@ -278,7 +278,7 @@ struct ResultActionButtonStyle: ButtonStyle {
 
     private var foreground: Color {
         switch variant {
-        case .prominent: return .white
+        case .prominent: return Tokens.Palette.onBrand
         case .subtle:    return Tokens.Palette.brand
         }
     }
