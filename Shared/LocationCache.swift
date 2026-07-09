@@ -62,6 +62,20 @@ enum LocationCache {
         read(key: selfKey)
     }
 
+    /// The cached self coordinate ONLY when it's within the freshness
+    /// window — i.e. safe to embed in an outgoing bubble as "where I am
+    /// now". Nil when the only cached fix is stale (the caller should
+    /// request a fresh one) or absent. Independent of opt-in: this answers
+    /// "is this coordinate current", not "am I in" (audit W4). Callers must
+    /// use this — never a raw `loadSelf()` — when a coordinate is about to
+    /// travel in a payload or seed fairness ranking.
+    static func freshSelfCoordinate() -> CLLocationCoordinate2D? {
+        guard let cached = loadSelf(),
+              Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
+        else { return nil }
+        return cached.coordinate
+    }
+
     static func setActive(_ active: Bool) {
         setFlag(active, blobKey: selfKey, legacyKey: selfActiveKey)
     }

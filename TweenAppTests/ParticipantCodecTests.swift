@@ -812,6 +812,25 @@ final class ParticipantCodecTests: XCTestCase {
                       "Opt-in is a user decision, not a freshness question")
     }
 
+    func testFreshSelfCoordinateGatesStrictlyOnAge() {
+        XCTAssertNil(LocationCache.freshSelfCoordinate(), "No cache → nil")
+
+        // A stale coordinate must NOT be offered for an outgoing payload,
+        // even though it's the user's real (old) location — this is the
+        // funnel that stops host-side coordinate laundering (audit W4).
+        LocationCache.save(CLLocationCoordinate2D(latitude: 10, longitude: 20),
+                           at: Date(timeIntervalSinceNow: -6 * 60), isActive: true)
+        XCTAssertNil(LocationCache.freshSelfCoordinate(),
+                     "A 6-minute-old fix is stale and must not travel in a bubble")
+
+        // A fresh coordinate is offered regardless of opt-in — freshness is
+        // "is this current", not "am I in".
+        LocationCache.save(CLLocationCoordinate2D(latitude: 30, longitude: 40), isActive: false)
+        let fresh = LocationCache.freshSelfCoordinate()
+        XCTAssertEqual(fresh?.latitude, 30)
+        XCTAssertEqual(fresh?.longitude, 40)
+    }
+
     func testDraftSurvivesSnapshotMutationsAndClearsWithTTL() {
         let key = "draft-key-split"
         ConversationMeetupStore.saveDraft(

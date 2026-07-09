@@ -102,6 +102,13 @@ struct OnboardingView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var savedCoordinate: CLLocationCoordinate2D?
+    /// When the in-memory `savedCoordinate` was last set from an ACTUAL
+    /// device fix. A silent launch fix updates `savedCoordinate` (to recenter
+    /// the map) but deliberately doesn't write the cache, so this is how a
+    /// pending send knows that in-memory coordinate is current. Nil for a
+    /// coordinate restored from disk at launch, whose age is unknown — those
+    /// fall through to the cache's own freshness check.
+    @State private var savedCoordinateAt: Date?
     @State private var peerCoordinate: CLLocationCoordinate2D?
     @State private var agreedMeetup: TweenState?
     /// The in-flight proposal/counter (not yet fully agreed) mirrored from the
@@ -615,6 +622,10 @@ struct OnboardingView: View {
             if case let .got(coord) = status {
                 withAnimation(Tokens.Motion.spring) {
                     savedCoordinate = coord
+                    // Stamp the freshness of this in-memory fix so a pending
+                    // send (which resumes right below) knows it's current even
+                    // though the silent branch doesn't touch the cache.
+                    savedCoordinateAt = Date()
                     // Only the explicit "I'm in" gesture flips presence on and
                     // persists the coordinate for the peer hand-off. The silent
                     // launch fix just recenters the map on a self dot.
@@ -2126,8 +2137,17 @@ struct OnboardingView: View {
         // Requires being IN, not just having a cached coordinate: the ride
         // toggle used to auto-rejoin (and clear the leave tombstone) for a
         // user who had explicitly said "I'm out" — a silent resurrection.
-        guard isUserIn, let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else {
+        guard isUserIn else {
             showToast("Tap I'm in first so friends know where to pick you up")
+            return
+        }
+        // Fresh-only: a ride update broadcasts a pickup point, so a stale
+        // coordinate must not ride along (audit W4). Park + request a fresh
+        // fix and resume, rather than sending an old location.
+        guard let coordinate = freshSelfCoordinateForSend else {
+            pendingLocationAction = { setNeedsRide(needsRide) }
+            provider.requestOnce()
+            showToast("Getting your location — updating your ride status right after")
             return
         }
         localNeedsRide = needsRide
@@ -2333,11 +2353,33 @@ struct OnboardingView: View {
         }
     }
 
+    /// The coordinate safe to embed in an outgoing payload as "where I am
+    /// now": the in-memory fix if we know it's fresh, else the cache's own
+    /// fresh coordinate. Nil when everything we have is stale/absent — the
+    /// caller must then request a fresh fix rather than shipping an old one.
+    /// This is the single funnel that stops stale-coordinate laundering on
+    /// the host side (audit W4).
+    private var freshSelfCoordinateForSend: CLLocationCoordinate2D? {
+        if let saved = savedCoordinate, let at = savedCoordinateAt,
+           Date().timeIntervalSince(at) <= LocationCache.freshnessWindow {
+            return saved
+        }
+        return LocationCache.freshSelfCoordinate()
+    }
+
     @discardableResult
     private func autoJoinForOutgoingMessage() -> Bool {
-        guard let coordinate = savedCoordinate ?? LocationCache.loadSelf()?.coordinate else { return false }
+        // Only join with a coordinate we KNOW is current. This used to reuse
+        // a cached coord of ANY age and re-save it isActive:true with a
+        // now-timestamp — laundering a stale location into the outgoing
+        // bubble and defeating the 5-min freshness window the fairness
+        // ranking depends on (audit W4, host half). No fresh fix → return
+        // false; callers park the action + requestOnce(), then resume once a
+        // current coordinate lands (their existing no-coordinate path).
+        guard let coordinate = freshSelfCoordinateForSend else { return false }
         withAnimation(Tokens.Motion.spring) {
             savedCoordinate = coordinate
+            savedCoordinateAt = Date()
             isUserIn = true
         }
         LocationCache.save(coordinate, isActive: true)
@@ -2388,10 +2430,11 @@ struct OnboardingView: View {
             return
         }
 
-        // If we don't have a self coord yet, fall back to the plain-text
-        // composer immediately — no point waiting on a snapshot for an empty
-        // map. The user can still tap "I'm in" themselves once they open Tween.
-        guard let myCoord = LocationCache.loadSelf()?.coordinate else {
+        // No FRESH self coord → fall back to the plain-text invite (audit W4:
+        // a stale coordinate must not ride into the bubble). The invite still
+        // works; your location shares once you're both in. Matches this
+        // method's doc contract — "no fresh self coord → plain text".
+        guard let myCoord = freshSelfCoordinateForSend else {
             activeSheet = .message(PendingMessage(
                 recipients: [handle],
                 body: Self.inviteText,
@@ -2817,6 +2860,12 @@ struct OnboardingView: View {
         let cachedSelf = LocationCache.loadSelf()?.coordinate
         if !same(savedCoordinate, cachedSelf) {
             savedCoordinate = cachedSelf
+            // This coordinate came from the cache, not a live fix — clear the
+            // in-memory freshness stamp so `freshSelfCoordinateForSend` judges
+            // it by the cache's own timestamp rather than treating it as fresh
+            // as of now. (Otherwise a refresh could overwrite a live fix with
+            // an older cache value while the stamp still read "recent".)
+            savedCoordinateAt = nil
             didChange = true
         }
         // Presence tracks the opt-in flag, NOT coordinate freshness — the old
@@ -3167,7 +3216,11 @@ struct OnboardingView: View {
             showToast("Getting your location — agreeing right after")
             return
         }
-        let mySelf = LocationCache.loadSelf()?.coordinate
+        // Fresh-only (audit W4). autoJoin above only returns true after
+        // caching a current fix, so this is non-nil here — but reading the
+        // fresh accessor (not raw loadSelf) keeps a stale coord from ever
+        // entering the agreement roster if that invariant changes.
+        let mySelf = freshSelfCoordinateForSend
         var participants = incoming.participants.filter { !$0.matches(LocalParticipantContext(id: myID, name: myName)) }
         if let mySelf {
             participants.append(Participant(id: myID, name: myName, coordinate: mySelf, needsRide: localNeedsRide))

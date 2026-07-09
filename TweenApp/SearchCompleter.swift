@@ -29,6 +29,12 @@ struct NativeSearchBar: UIViewRepresentable {
         bar.delegate = context.coordinator
         bar.setContentHuggingPriority(.defaultLow, for: .horizontal)
         bar.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Dynamic Type: the plain UISearchBar text field doesn't scale on its
+        // own (audit — last open item). Anchor it to the .body metric and let
+        // it track the content-size category so the field grows with the
+        // user's text size instead of staying pinned at the default.
+        bar.searchTextField.font = .preferredFont(forTextStyle: .body)
+        bar.searchTextField.adjustsFontForContentSizeCategory = true
         return bar
     }
 

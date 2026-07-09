@@ -178,6 +178,12 @@ enum ConversationMeetupStore {
 
     static func save(_ snapshot: MeetupSnapshot, key: String? = nil) {
         let storage = key ?? snapshot.conversationKey
+        // Read the current snapshot ONCE, up front. The migration helpers
+        // below only touch the sync/draft keys — never the snapshot key — so
+        // this value stays valid throughout, and reusing it (instead of a
+        // second `load()` after migration) closes the window where a
+        // concurrent write between two loads could be compared against.
+        let stored = load(key: storage)
         // Migrate the TTL-exempt fields (and any inline draft) out BEFORE the
         // legacy inline copies are stripped below — else the only copy dies.
         _ = loadSync(key: storage)
@@ -187,7 +193,6 @@ enum ConversationMeetupStore {
         // that DIFFER from the stored blob count: identical ones are the
         // stale legacy copies (already migrated above), and re-applying
         // them would resurrect exactly the state the caller moved past.
-        let stored = load(key: storage)
         if let inlineDraft = snapshot.pendingDraft, inlineDraft != stored?.pendingDraft {
             saveDraft(inlineDraft, key: storage)
         }
