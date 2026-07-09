@@ -3,6 +3,23 @@ import MapKit
 import CoreLocation
 import UIKit
 
+extension MKPlacemark {
+    /// A clean, single-line address for cards. `title` is the full postal
+    /// string ("13061 Fair Lakes Shopping Center, Fairfax, VA 22033"), which
+    /// under `.lineLimit(1)` truncated mid-token to "…VA 22…". This keeps the
+    /// street line + city and drops the state/ZIP/country noise, so it reads
+    /// as an address rather than a severed postal code.
+    var cleanLine: String? {
+        let street = [subThoroughfare, thoroughfare]
+            .compactMap { $0 }.joined(separator: " ")
+        let primary = street.isEmpty ? (name ?? "") : street
+        if let city = locality, !city.isEmpty {
+            return primary.isEmpty ? city : "\(primary), \(city)"
+        }
+        return primary.isEmpty ? title : primary
+    }
+}
+
 /// A plain place row: category-style icon, name, and address. Used for search
 /// hits before two coordinates exist (no ETAs to show yet).
 struct ResultRow: View {
@@ -83,18 +100,31 @@ struct ABDistanceLabel: View {
     let target: CLLocationCoordinate2D
     var ranked: RankedSpot?
 
+    /// True once we have a second person to compare against — either a ranked
+    /// A/B pair or a peer coordinate. Until then the "A …/B …" framing is
+    /// meaningless (and rendered a bare "B --"), so we show a single plain
+    /// distance instead.
+    private var hasBoth: Bool {
+        ranked != nil || peerCoord != nil
+    }
+
     var body: some View {
         HStack(spacing: Tokens.Spacing.s1) {
-            Text("A \(aValue)")
-            Text("·").foregroundStyle(Tokens.Palette.textSecondary)
-            Text("B \(bValue)")
+            if hasBoth {
+                Text("A \(aValue)")
+                Text("·").foregroundStyle(Tokens.Palette.textSecondary)
+                Text("B \(bValue)")
+            } else {
+                // Solo: no peer yet — one clean "0.8 mi" instead of "A 0.8 · B --".
+                Text(aValue == "nearby" ? "nearby" : "\(aValue) away")
+            }
         }
         .font(Tokens.Typography.captionBold.monospacedDigit())
         .padding(.horizontal, Tokens.Spacing.s2)
         .padding(.vertical, Tokens.Spacing.s1)
         .background(.ultraThinMaterial, in: Capsule())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("You \(aValue), your friend \(bValue)")
+        .accessibilityLabel(hasBoth ? "You \(aValue), your friend \(bValue)" : "\(aValue) away")
     }
 
     private var aValue: String {

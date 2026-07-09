@@ -269,7 +269,7 @@ struct OnboardingView: View {
         var incoming: IncomingProposalContext? = nil
 
         var name: String { item.name ?? "Spot" }
-        var address: String? { item.placemark.title }
+        var address: String? { item.placemark.cleanLine }
         var coordinate: CLLocationCoordinate2D { item.placemark.coordinate }
     }
 
@@ -714,6 +714,10 @@ struct OnboardingView: View {
     /// True when the sheet is collapsed to its search-bar-only peek.
     private var isMinimalDetent: Bool { selectedSheetDetent == .height(Tokens.Layout.sheetPeekHeight) }
 
+    /// True while a tapped spot's floating card owns the bottom edge — the
+    /// search row hides so the two don't compete for the same space.
+    private var isSpotCardActive: Bool { selectedResult != nil }
+
     @ViewBuilder
     private var sheetContent: some View {
         VStack(spacing: Tokens.Spacing.s3) {
@@ -731,8 +735,18 @@ struct OnboardingView: View {
             // `isMinimalDetent`, which flips when the detent SETTLES, not
             // while dragging — the bar floated during peek↔half drags and
             // teleported when the value caught up.
-            searchBar
-                .frame(height: Tokens.Layout.sheetPeekHeight)
+            // Hidden while a spot card owns the bottom edge — the card and
+            // the search field competing for the same space read as clutter
+            // (device feedback). The header height is preserved so the peek
+            // geometry / detent choreography is untouched; only the row's
+            // content is gated. Restored automatically when the card closes
+            // (selectedResult → nil).
+            if !isSpotCardActive {
+                searchBar
+                    .frame(height: Tokens.Layout.sheetPeekHeight)
+            } else {
+                Color.clear.frame(height: Tokens.Layout.sheetPeekHeight)
+            }
 
             // Everything else is revealed once the sheet is lifted off its peek.
             // The sheet is purely the search surface now, like Apple Maps —
@@ -1760,7 +1774,7 @@ struct OnboardingView: View {
                     Text(item.name ?? "Place")
                         .font(Tokens.Typography.headline)
                         .lineLimit(1)
-                    if let address = item.placemark.title, !address.isEmpty {
+                    if let address = item.placemark.cleanLine, !address.isEmpty {
                         Text(address)
                             .font(Tokens.Typography.caption)
                             .foregroundStyle(Tokens.Palette.textSecondary)
@@ -3041,8 +3055,12 @@ struct OnboardingView: View {
         // left). A `.leave` message may intentionally carry an empty roster.
         var adoptRoster = true
         if let revision = state.revision, let activeConversationKey {
+            // Pass messageType so a concurrent .invite opened via the host
+            // tween:// path unions too — host/extension must agree on the
+            // same payload (parity with decodeAndCache).
             adoptRoster = ConversationMeetupStore.shouldAcceptInbound(
-                revision: revision, senderID: state.senderID, key: activeConversationKey)
+                revision: revision, senderID: state.senderID,
+                messageType: state.messageType, key: activeConversationKey)
             if adoptRoster {
                 ConversationMeetupStore.noteRevision(
                     revision, sender: state.senderID, key: activeConversationKey)

@@ -321,10 +321,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         let revisionKey = conversationKey ?? Self.conversationKey(for: conversation)
         if let revision = state.revision {
             // Older-than-floor bubbles reject; AT the floor only the sender
-            // who set it is accepted (re-taps keep working, concurrent
-            // same-revision mints by another device don't — W2 tie-break).
+            // who set it (or any .invite — concurrent joins must union) is
+            // accepted — concurrent same-revision place mints by another
+            // device don't (W2 tie-break; messageType threads the exception).
             guard ConversationMeetupStore.shouldAcceptInbound(
-                revision: revision, senderID: state.senderID, key: revisionKey) else {
+                revision: revision, senderID: state.senderID,
+                messageType: state.messageType, key: revisionKey) else {
                 logger.debug("Ignoring stale bubble rev=\(revision, privacy: .public)")
                 return false
             }

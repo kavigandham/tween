@@ -130,9 +130,25 @@ struct TweenMapSnapshotView: View {
         return "\(Int(size.width))x\(Int(size.height))#" + parts.joined(separator: "|")
     }
 
+    /// Hard ceiling on a single snapshotter attempt. Under the extension's
+    /// ~120 MB limit (and on a GeoServices cold start) `snapshotter.start()`
+    /// can stall indefinitely — awaiting forever left `image == nil`, i.e.
+    /// the bare-icon placeholder "until you close and reopen the extension".
+    /// Racing it against a deadline turns a stall into a throw that routes
+    /// into the fallback + retry path.
+    private static let snapshotTimeout: UInt64 = 6_000_000_000
+
     @MainActor
     private func render(size: CGSize) async {
-        guard size.width > 1, size.height > 1, !coordinates.isEmpty else { return }
+        guard size.width > 1, size.height > 1 else { return }
+        // No coordinates yet (e.g. a leave bubble with an empty roster, or
+        // self location not shared): draw the neutral grid instead of
+        // returning with `image == nil`, which stuck on the bare map icon
+        // forever. A later marker set re-keys `.task(id:)` and re-renders.
+        guard !coordinates.isEmpty else {
+            if image == nil { image = Self.fallbackImage(markers: markers, size: size) }
+            return
+        }
 
         let options = MKMapSnapshotter.Options()
         if let focusCoordinate {
@@ -156,7 +172,17 @@ struct TweenMapSnapshotView: View {
         options.scale = UIScreen.main.scale
 
         let snapshotter = MKMapSnapshotter(options: options)
-        guard let snapshot = try? await snapshotter.start() else {
+        // Deadline: a sibling task cancels the snapshotter if it stalls past
+        // the timeout, turning an unending await into a thrown error that
+        // routes into the fallback + retry below (both tasks are on the main
+        // actor, so `snapshotter` isn't captured across an actor boundary).
+        let deadline = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.snapshotTimeout)
+            snapshotter.cancel()
+        }
+        let snapshot = try? await snapshotter.start()
+        deadline.cancel()
+        guard let snapshot else {
             // A cancelled task is NOT a failure — the next `.task(id:)` run
             // re-renders naturally. Don't cache anything for it.
             guard !Task.isCancelled else { return }

@@ -405,22 +405,38 @@ enum ConversationMeetupStore {
     /// W2 tie-break: whether an inbound payload should be adopted.
     ///
     ///   nil revision      → accept (legacy trust-the-tap, unchanged)
-    ///   above the floor   → accept · below → reject
-    ///   AT the floor      → accept only for the sender who set it (re-taps
-    ///                       of the same bubble keep working) or when the
-    ///                       floor predates sender tracking. A DIFFERENT
-    ///                       sender at the same revision is a concurrent
-    ///                       mint — accepting it made the outcome
-    ///                       tap-order-dependent and could resurrect a
-    ///                       leaver group-wide.
-    static func shouldAcceptInbound(revision: Int?, senderID: String?, key: String) -> Bool {
+    ///   above the floor   → accept · below → reject (blocks stale bubbles
+    ///                       AND leaver resurrection — a tombstone can only
+    ///                       be acquired via a bubble minted after the leave,
+    ///                       which sits above any pre-leave revision)
+    ///   AT the floor      → accept for the sender who set it (re-taps of the
+    ///                       same bubble keep working), for a floor that
+    ///                       predates sender tracking, OR for an `.invite`.
+    ///
+    /// The `.invite` exception fixes the concurrent-join bug: when two people
+    /// tap "I'm in" before either sees the other, both mint revision 1 from
+    /// an empty floor, so each device would otherwise REJECT the other's
+    /// invite as a same-revision cross-sender mint — the rosters never union,
+    /// ranking never starts, and later agreement counting diverges. An invite
+    /// only ADDS its sender to the roster (RosterMerge is additive) and
+    /// carries no place, so admitting it at the tie is safe. The exception is
+    /// deliberately scoped to `revision == floor` only: a `revision < floor`
+    /// invite from a departed sender must still be rejected, because
+    /// RosterMerge treats an invite as a rejoin and would lift that sender's
+    /// tombstone — so the below-floor reject is what actually blocks
+    /// resurrection here, and must stay strict. `.propose`/`.counter`/
+    /// `.agree`/`.leave` keep the strict tie-break so a concurrent place edit
+    /// can't be laundered by tap order.
+    static func shouldAcceptInbound(revision: Int?, senderID: String?,
+                                    messageType: TweenState.MessageType = .propose,
+                                    key: String) -> Bool {
         guard let revision else { return true }
         let sync = loadSync(key: key)
         let floor = sync.lastRevision ?? 0
         if revision > floor { return true }
         if revision < floor { return false }
         guard let floorSender = sync.lastRevisionSender else { return true }
-        return senderID == floorSender
+        return senderID == floorSender || messageType == .invite
     }
 
     private static func storageKey(for key: String) -> String {

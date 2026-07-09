@@ -746,7 +746,7 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "A", key: key),
                       "Re-tap of the bubble that set the floor keeps working")
         XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "B", key: key),
-                       "Concurrent same-revision mint by another device rejects")
+                       "Concurrent same-revision PLACE mint by another device rejects")
         XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: nil, key: key),
                        "Tie with unknown sender rejects once a floor sender exists")
 
@@ -758,6 +758,36 @@ final class ParticipantCodecTests: XCTestCase {
         ConversationMeetupStore.noteRevision(5, sender: "A", key: legacyKey)
         XCTAssertEqual(ConversationMeetupStore.lastRevisionSender(key: legacyKey), "A")
         XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(revision: 5, senderID: "B", key: legacyKey))
+    }
+
+    /// The concurrent-join exception: two people tapping "I'm in" before
+    /// either sees the other both mint revision 1 from an empty floor, so an
+    /// .invite at the floor from a DIFFERENT sender must be accepted (their
+    /// rosters union). Everything else at the floor stays strict, and a
+    /// below-floor invite still rejects (leaver-resurrection guard).
+    func testConcurrentInviteAcceptedAtFloorButNotBelow() {
+        let key = "tie-break-invite"
+        ConversationMeetupStore.noteRevision(1, sender: "A", key: key)
+
+        // The other person's concurrent "I'm in" at the same revision: accept.
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 1, senderID: "B", messageType: .invite, key: key),
+            "Concurrent independent joins must union, not reject each other")
+
+        // A place mint at the same revision from another device stays strict.
+        for placeType in [TweenState.MessageType.propose, .counter, .agree, .leave] {
+            XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+                revision: 1, senderID: "B", messageType: placeType, key: key),
+                "\(placeType) at the floor from another sender must still reject")
+        }
+
+        // A stale (below-floor) invite from a departed sender must NOT be
+        // admitted — RosterMerge treats an invite as a rejoin, so the
+        // below-floor reject is the resurrection guard and must stay strict.
+        ConversationMeetupStore.noteRevision(5, sender: "A", key: key)
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 2, senderID: "B", messageType: .invite, key: key),
+            "A below-floor invite must reject so it can't resurrect a leaver")
     }
 
     func testStaleSnapshotSaveCannotDropConcurrentRevision() {
