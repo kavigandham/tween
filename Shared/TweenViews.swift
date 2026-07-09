@@ -81,6 +81,10 @@ struct TweenMapSnapshotView: View {
     var focusYOffsetRatio: CLLocationDegrees = 0
 
     @State private var image: UIImage?
+    /// Bumping this re-keys the `.task(id:)` below, forcing a fresh render —
+    /// the automatic-retry path after a transient snapshotter failure.
+    @State private var retryAttempt = 0
+    private static let maxRetries = 3
 
     private var coordinates: [CLLocationCoordinate2D] { markers.map(\.coordinate) }
 
@@ -97,8 +101,9 @@ struct TweenMapSnapshotView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            // Re-render only when the framing inputs actually change.
-            .task(id: cacheKey(for: geo.size)) {
+            // Re-render only when the framing inputs actually change —
+            // or when a failed attempt schedules a retry.
+            .task(id: "\(cacheKey(for: geo.size))#\(retryAttempt)") {
                 await render(size: geo.size)
             }
         }
@@ -152,7 +157,22 @@ struct TweenMapSnapshotView: View {
 
         let snapshotter = MKMapSnapshotter(options: options)
         guard let snapshot = try? await snapshotter.start() else {
-            image = Self.fallbackImage(markers: markers, size: size)
+            // A cancelled task is NOT a failure — the next `.task(id:)` run
+            // re-renders naturally. Don't cache anything for it.
+            guard !Task.isCancelled else { return }
+            // Transient snapshotter failures (extension cold-start racing
+            // GeoServices, momentary network loss) used to be cached forever
+            // as a tile-less fallback — "no map until you close and reopen
+            // the extension". Show the fallback for now, but keep retrying
+            // with backoff; a later success replaces it.
+            if image == nil {
+                image = Self.fallbackImage(markers: markers, size: size)
+            }
+            if retryAttempt < Self.maxRetries {
+                try? await Task.sleep(nanoseconds: UInt64(retryAttempt + 1) * 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                retryAttempt += 1   // re-keys .task(id:) → fresh render
+            }
             return
         }
         guard !Task.isCancelled else { return }

@@ -59,6 +59,28 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Apple Maps"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Open directions or keep browsing."].exists)
     }
+
+    /// Regression: the Liquid Glass chrome (`.interactive()` on button
+    /// LABELS) swallowed taps — reset-map and the map-style picker went
+    /// completely dead on device. Expanding the style picker is observable
+    /// (the per-style option buttons appear), so it proves taps land.
+    func testFloatingMapControlsRespondToTaps() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-SKIP_TUTORIAL"]
+        app.launch()
+
+        let styleButton = app.buttons["Map style"]
+        XCTAssertTrue(styleButton.waitForExistence(timeout: 10))
+        styleButton.tap()
+        XCTAssertTrue(app.buttons["Standard"].waitForExistence(timeout: 3),
+                      "Tapping the style control must expand the picker options")
+        app.buttons["Standard"].tap()
+
+        let resetButton = app.buttons["Reset map"]
+        XCTAssertTrue(resetButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(resetButton.isHittable)
+        resetButton.tap()
+    }
 }
 
 final class TweenAppUITestsLaunchTests: XCTestCase {

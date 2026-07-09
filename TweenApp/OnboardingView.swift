@@ -38,10 +38,19 @@ private struct TweenGlassControl<S: InsettableShape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
+            // Plain glass, NOT .interactive(): these sit on Button LABELS,
+            // and interactive glass installs its own touch handling that
+            // swallowed the button taps on device — reset-map and the map
+            // style picker went completely dead. The press feedback comes
+            // from the Button itself; glass only needs to look right.
             if isSelected {
-                content.glassEffect(.regular.tint(Tokens.Palette.brand).interactive(), in: shape)
+                content
+                    .contentShape(shape)
+                    .glassEffect(.regular.tint(Tokens.Palette.brand), in: shape)
             } else {
-                content.glassEffect(.regular.interactive(), in: shape)
+                content
+                    .contentShape(shape)
+                    .glassEffect(.regular, in: shape)
             }
         } else {
             content
@@ -702,11 +711,17 @@ struct OnboardingView: View {
             // Friends tab, which made the whole sheet reflow by ~52pt on each
             // tab switch — the "janky jump". The name field it clashed with is
             // a form row now, so they no longer read as twins.)
-            // At the peek detent the row is the only content — center it in
-            // the collapsed pill like Maps does, instead of pinning it under
-            // the grabber with dead space below.
+            // The row lives in a FIXED-HEIGHT header exactly one peek tall,
+            // centered within it. Constant offset from the sheet's top edge
+            // in every phase — so at the peek detent it's the centered pill
+            // (Maps-style), and mid-drag it rides the sheet edge instead of
+            // re-centering in the growing container. The previous
+            // "center only at the peek detent" approach keyed off
+            // `isMinimalDetent`, which flips when the detent SETTLES, not
+            // while dragging — the bar floated during peek↔half drags and
+            // teleported when the value caught up.
             searchBar
-                .frame(maxHeight: isMinimalDetent ? .infinity : nil)
+                .frame(height: Tokens.Layout.sheetPeekHeight)
 
             // Everything else is revealed once the sheet is lifted off its peek.
             // The sheet is purely the search surface now, like Apple Maps —
@@ -717,10 +732,8 @@ struct OnboardingView: View {
                 mapPanel
             }
         }
-        // s4 keeps the first row clear of the system drag indicator, which
-        // occupies the sheet's top ~16pt. At the peek detent the row centers
-        // itself (frame above), so the fixed padding would push it off-center.
-        .padding(.top, isMinimalDetent ? 0 : Tokens.Spacing.s4)
+        // No top padding: the fixed-height header centers the row clear of
+        // the drag indicator (~16pt) on its own, identically in every phase.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .overlay(alignment: .bottom) { toastView }
