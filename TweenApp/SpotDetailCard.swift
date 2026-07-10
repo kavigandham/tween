@@ -10,17 +10,33 @@ import UIKit
 @available(iOS 18.0, *)
 private struct MapItemDetailView: UIViewControllerRepresentable {
     let item: MKMapItem
+    /// Called when the user taps the detail view's own close control — the
+    /// sheet's single close affordance (our header hides its X when the rich
+    /// detail is shown, so there aren't two).
+    var onFinish: () -> Void = {}
 
     func makeUIViewController(context: Context) -> MKMapItemDetailViewController {
         // displaysMap false — the full-screen map is already behind the
-        // sheet; a second inline map read as clutter. No delegate: the VC
-        // only shows its own Done button when one is set, and our header
-        // already has the close control.
-        MKMapItemDetailViewController(mapItem: item, displaysMap: false)
+        // sheet; a second inline map read as clutter.
+        let vc = MKMapItemDetailViewController(mapItem: item, displaysMap: false)
+        vc.delegate = context.coordinator
+        return vc
     }
 
     func updateUIViewController(_ vc: MKMapItemDetailViewController, context: Context) {
+        context.coordinator.parent = self
         vc.mapItem = item
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, MKMapItemDetailViewControllerDelegate {
+        var parent: MapItemDetailView
+        init(_ parent: MapItemDetailView) { self.parent = parent }
+
+        func mapItemDetailViewControllerDidFinish(_ detailViewController: MKMapItemDetailViewController) {
+            parent.onFinish()
+        }
     }
 }
 
@@ -94,7 +110,7 @@ struct SpotDetailCard: View {
             if #available(iOS 18.0, *), let item = richDetailItem {
                 // Apple's own place card — photos, hours, ratings, call,
                 // website, order — scrolls internally below our header.
-                MapItemDetailView(item: item)
+                MapItemDetailView(item: item, onFinish: { dismiss() })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 fallbackDetail
@@ -108,28 +124,34 @@ struct SpotDetailCard: View {
 
     private var tweenHeader: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
-            HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
-                VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                    Text(name)
-                        .font(Tokens.Typography.title2.weight(.semibold))
-                        .lineLimit(2)
-                    if let address, !address.isEmpty {
-                        Text(address)
-                            .font(Tokens.Typography.subheadline)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                            .lineLimit(1)
+            // When Apple's rich detail fills the sheet, IT owns the identity
+            // (big title, category, rating) and the close control — repeating
+            // the name and a second X here read as a glitch (screenshot
+            // verification). Our header slims to just the meetup layer.
+            if richDetailItem == nil {
+                HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+                        Text(name)
+                            .font(Tokens.Typography.title2.weight(.semibold))
+                            .lineLimit(2)
+                        if let address, !address.isEmpty {
+                            Text(address)
+                                .font(Tokens.Typography.subheadline)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
+                    Spacer(minLength: 0)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(Tokens.Typography.title2)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
-                Spacer(minLength: 0)
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(Tokens.Typography.title2)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             if let incoming { incomingHeadline(incoming) }

@@ -737,6 +737,7 @@ struct OnboardingView: View {
             await pollPeer()
         }
         .task { requestInitialLocation() }
+        .task { await openDemoSpotSheetIfRequested() }
         .onAppear {
             _ = refreshFromAppGroup()
             // Cold-open with a live negotiation: drop the sheet to its peek so
@@ -2072,6 +2073,23 @@ struct OnboardingView: View {
     /// (`requestOnce` handles the authorization branch internally); silent on
     /// subsequent launches once granted. Skipped when we already have a fresh
     /// shared coordinate, so an active "I'm in" session isn't disturbed.
+    /// -DEMO_SPOT_SHEET: runs a real MKLocalSearch on launch and opens the
+    /// full place sheet for the first hit — screenshot/UI-test hook for the
+    /// rich native place-detail layout, which needs a REAL place identifier
+    /// (the coordinate-only demo pin can't exercise it).
+    private func openDemoSpotSheetIfRequested() async {
+        #if DEBUG
+        guard CommandLine.arguments.contains("-DEMO_SPOT_SHEET") else { return }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = "coffee"
+        request.region = MKCoordinateRegion(
+            center: savedCoordinate ?? Self.defaultCenter,
+            span: MKCoordinateSpan(latitudeDelta: 0.3, longitudeDelta: 0.3))
+        guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else { return }
+        activeSheet = .spot(SpotSelection(item: item, ranked: nil))
+        #endif
+    }
+
     private func requestInitialLocation() {
         guard !(savedCoordinate != nil && LocationCache.isActive) else { return }
         provider.requestOnce()
