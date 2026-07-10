@@ -716,6 +716,21 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.pendingStagedSend(key: "chat-A"), .leave)
     }
 
+    func testPendingStagedSendDiesWithTheMeetupGeneration() {
+        let key = "pending-staged-ttl"
+        ConversationMeetupStore.setPendingStagedSend(.leave, key: key)
+
+        ConversationMeetupStore.clear(key: key)   // TTL / hard-reset path
+        XCTAssertNil(ConversationMeetupStore.pendingStagedSend(key: key),
+                     "A marker outliving a clear could replay an ancient own leave "
+                     + "bubble after the revision floor was zeroed")
+
+        ConversationMeetupStore.setPendingStagedSend(.agree, key: key)
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        XCTAssertNil(ConversationMeetupStore.pendingStagedSend(key: key),
+                     "The full wipe must drop the marker too")
+    }
+
     func testLegacySnapshotFieldsMigrateToSyncAndDraftKeys() {
         let key = "legacy-migrate"
         let draft = OutgoingDraft(spotName: "Old Draft", latitude: 3, longitude: 4)

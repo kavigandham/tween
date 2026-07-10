@@ -302,15 +302,21 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard let pending = ConversationMeetupStore.pendingStagedSend(key: key),
               pending == state.messageType else { return }
         ConversationMeetupStore.setPendingStagedSend(nil, key: key)
-        if let revision = state.revision,
-           revision < ConversationMeetupStore.lastRevision(key: key) {
+        // Every bubble THIS mechanism stages carries a revision (staging
+        // happens after willBecomeActive set the conversation key), so a
+        // rev-less state here is some older bubble that merely matches the
+        // marker's type — without a floor to check it against, committing
+        // it could replay an ancient departure. Treat it as stale.
+        guard let revision = state.revision else {
+            logger.debug("Skipping rev-less staged \(state.messageType.rawValue, privacy: .public)")
+            return
+        }
+        if revision < ConversationMeetupStore.lastRevision(key: key) {
             logger.debug("Skipping stale staged \(state.messageType.rawValue, privacy: .public) rev=\(revision, privacy: .public)")
             return
         }
-        if let revision = state.revision {
-            ConversationMeetupStore.noteRevision(
-                revision, sender: localParticipantID(), key: key)
-        }
+        ConversationMeetupStore.noteRevision(
+            revision, sender: localParticipantID(), key: key)
         recordCanonicalSnapshot(for: state)
         switch state.messageType {
         case .leave:
@@ -1432,11 +1438,17 @@ final class MessagesViewController: MSMessagesAppViewController {
                     dismiss()
                 }
             }
-            // A staged LEAVE hasn't happened yet — the user can still delete
-            // the bubble instead of sending it. Defer the revision floor and
-            // the canonical .leave snapshot to didStartSending so local state
-            // never records a departure no peer will ever see.
-            if stagedInsert, state.messageType == .leave {
+            // A staged LEAVE or AGREE hasn't happened yet — the user can
+            // still delete the bubble instead of sending it. Defer the
+            // revision floor and the canonical snapshot to didStartSending
+            // (the marker is the backstop for the extension dying in
+            // between — see commitStagedSendIfNeeded) so local state never
+            // records a departure or agreement no peer will ever see. Keyed
+            // off the conversation parameter, not the ivar, so a nil
+            // conversationKey can't silently skip the marker.
+            if stagedInsert, state.messageType == .leave || state.messageType == .agree {
+                ConversationMeetupStore.setPendingStagedSend(
+                    state.messageType, key: Self.conversationKey(for: conversation))
                 return true
             }
             // Delivery succeeded — NOW the minted revision becomes the floor

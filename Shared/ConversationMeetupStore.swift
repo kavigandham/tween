@@ -229,6 +229,11 @@ enum ConversationMeetupStore {
         _ = loadSync(key: key)
         defaults?.removeObject(forKey: storageKey(for: key))
         defaults?.removeObject(forKey: draftKey(for: key))
+        // The staged-send marker is meetup-generation-scoped, not sync-
+        // scoped: letting it outlive a TTL clear (which zeroes nothing) or a
+        // hard reset (which zeroes the revision floor) would let an ancient
+        // own bubble tap replay a departure the user never initiated.
+        defaults?.removeObject(forKey: pendingStagedKey(for: key))
         MeetupSync.post()
     }
 
@@ -354,9 +359,10 @@ enum ConversationMeetupStore {
     /// this marker lets the next decode of the (by then sent) own bubble
     /// commit as a backstop. The user deleting the staged bubble instead
     /// leaves the marker set — harmless, because commits are additionally
-    /// gated on the revision floor and cleared by any later real commit.
-    /// Extension-private bookkeeping the host never renders, so no
-    /// MeetupSync post.
+    /// gated on the revision floor (rev-less states are rejected outright),
+    /// the marker is cleared by any later real commit, and it dies with the
+    /// meetup generation (`clear(key:)`). Extension-private bookkeeping the
+    /// host never renders, so no MeetupSync post.
     static func setPendingStagedSend(_ type: TweenState.MessageType?, key: String) {
         let storage = pendingStagedKey(for: key)
         if let type {
