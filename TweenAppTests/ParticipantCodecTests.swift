@@ -716,6 +716,22 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.pendingStagedSend(key: "chat-A"), .leave)
     }
 
+    func testClearIncludingSyncWipesLegacyInlineSyncFieldsToo() {
+        let key = "full-wipe-legacy"
+        let data = legacySnapshotData(key: key, lastRevision: 9, localUserLeft: true,
+                                      departedKeys: ["gone-Z"])
+        UserDefaults(suiteName: LocationCache.appGroup)?
+            .set(data, forKey: "conversationMeetup." + key)
+
+        ConversationMeetupStore.clearIncludingSync(key: key)
+
+        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 0,
+                       "The full wipe must not resurrect sync state rescued "
+                       + "out of the legacy blob mid-clear")
+        XCTAssertFalse(ConversationMeetupStore.localUserLeft(key: key))
+        XCTAssertTrue(ConversationMeetupStore.departedParticipants(key: key).isEmpty)
+    }
+
     func testPendingStagedSendDiesWithTheMeetupGeneration() {
         let key = "pending-staged-ttl"
         ConversationMeetupStore.setPendingStagedSend(.leave, key: key)

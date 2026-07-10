@@ -238,9 +238,13 @@ enum ConversationMeetupStore {
     }
 
     /// The full wipe, sync state included — for tests and hard resets only.
+    /// Sync key removed AFTER `clear(key:)`: its legacy-rescue `loadSync`
+    /// re-creates the sync key from a pre-split blob's inline fields, so the
+    /// old remove-first order resurrected exactly the state this method
+    /// promises to wipe (audit at b902d4d).
     static func clearIncludingSync(key: String) {
-        defaults?.removeObject(forKey: syncKey(for: key))
         clear(key: key)
+        defaults?.removeObject(forKey: syncKey(for: key))
     }
 
     static func clearTransientState(key: String) {

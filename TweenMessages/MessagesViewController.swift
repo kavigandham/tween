@@ -298,7 +298,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     ///     shouldAcceptInbound, so committing it locally would roll back
     ///     canonical roster/proposal state peers no longer hold.
     private func commitStagedSendIfNeeded(_ state: TweenState, conversation: MSConversation) {
-        let key = conversationKey ?? Self.conversationKey(for: conversation)
+        // Conversation-derived key, matching the SET site in deliverBubble —
+        // preferring the ivar here could miss a marker set moments earlier
+        // under a key derived from a changed participant set.
+        let key = Self.conversationKey(for: conversation)
         guard let pending = ConversationMeetupStore.pendingStagedSend(key: key),
               pending == state.messageType else { return }
         ConversationMeetupStore.setPendingStagedSend(nil, key: key)
@@ -1451,6 +1454,14 @@ final class MessagesViewController: MSMessagesAppViewController {
                     state.messageType, key: Self.conversationKey(for: conversation))
                 return true
             }
+            // Any real (non-staged) delivery supersedes a previously staged
+            // leave/agree the user abandoned. Without this, an orphaned
+            // marker survived e.g. a rejoin at a TIED revision (staging
+            // defers the floor bump, so the next mint reuses the number) and
+            // a later tap of the old own bubble replayed the stale intent
+            // past every guard (audit at b902d4d).
+            ConversationMeetupStore.setPendingStagedSend(
+                nil, key: Self.conversationKey(for: conversation))
             // Delivery succeeded — NOW the minted revision becomes the floor
             // for the decode guard (this device's own stale bubbles included).
             if let revision = state.revision, let conversationKey {
