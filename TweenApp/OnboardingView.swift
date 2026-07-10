@@ -470,26 +470,33 @@ struct OnboardingView: View {
                     TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot))
                 }
             }
-            if let peer = peerCoordinate {
-                Annotation(peerDisplayName, coordinate: peer) {
-                    TweenPin(role: peerNeedsRide ? .rideNeeded : .friend)
+            // The meetup layer (friends, midpoint, agreement) renders only
+            // while YOU are in it. After "I'm out" the roster deliberately
+            // survives in the store so a rejoin can restore the group (D4),
+            // but your map must stop showing the meetup you left — rendering
+            // it read as "I'm out didn't work" (device feedback).
+            if isUserIn {
+                if let peer = peerCoordinate {
+                    Annotation(peerDisplayName, coordinate: peer) {
+                        TweenPin(role: peerNeedsRide ? .rideNeeded : .friend)
+                    }
                 }
-            }
-            // Additional remote participants (groups of 3+). Each is named so
-            // the map matches what the iMessage bubble shows.
-            ForEach(additionalParticipants) { participant in
-                Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend)
+                // Additional remote participants (groups of 3+). Each is named
+                // so the map matches what the iMessage bubble shows.
+                ForEach(additionalParticipants) { participant in
+                    Annotation(participant.name, coordinate: participant.coordinate) {
+                        TweenPin(role: participant.needsRide ? .rideNeeded : .friend)
+                    }
                 }
-            }
-            if let midpoint {
-                Annotation("Midpoint", coordinate: midpoint) {
-                    TweenPin(role: .midpoint)
+                if let midpoint {
+                    Annotation("Midpoint", coordinate: midpoint) {
+                        TweenPin(role: .midpoint)
+                    }
                 }
-            }
-            if let agreedMeetup, agreedMeetup.kind == .place {
-                Annotation(agreedMeetup.text, coordinate: agreedMeetup.coordinate, anchor: .bottom) {
-                    TweenPin(role: .fairSpot)
+                if let agreedMeetup, agreedMeetup.kind == .place {
+                    Annotation(agreedMeetup.text, coordinate: agreedMeetup.coordinate, anchor: .bottom) {
+                        TweenPin(role: .fairSpot)
+                    }
                 }
             }
             // The spot currently under negotiation (no agreement yet).

@@ -101,6 +101,9 @@ struct TweenMapSnapshotView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            // Crossfade from the loading filler to the rendered map instead
+            // of a hard pop-in.
+            .animation(Tokens.Motion.gentle, value: image != nil)
             // Re-render only when the framing inputs actually change —
             // or when a failed attempt schedules a retry.
             .task(id: "\(cacheKey(for: geo.size))#\(retryAttempt)") {
@@ -109,12 +112,19 @@ struct TweenMapSnapshotView: View {
         }
     }
 
+    /// Filler shown while the snapshot is in flight — an explicit "loading"
+    /// state instead of a bare icon that read as a broken blank map (device
+    /// feedback). The image swaps in only once it has actually rendered;
+    /// failures land on the fallback grid via `render`'s retry path.
     private var placeholder: some View {
         ZStack {
             Rectangle().fill(Tokens.Palette.surfaceSecondary)
-            Image(systemName: "map")
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.textTertiary)
+            VStack(spacing: Tokens.Spacing.s2) {
+                ProgressView()
+                Text("Loading map…")
+                    .font(Tokens.Typography.footnote)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
         }
         .accessibilityHidden(true)
     }
