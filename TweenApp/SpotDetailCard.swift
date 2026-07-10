@@ -10,9 +10,16 @@ import UIKit
 @available(iOS 18.0, *)
 private struct MapItemDetailView: UIViewControllerRepresentable {
     let item: MKMapItem
+    /// The concrete size the sheet currently grants this view. Passed as a
+    /// PROPERTY (not just a frame) so detent changes trigger
+    /// `updateUIViewController` — on device, a medium→large drag resized the
+    /// SwiftUI frame but the hosted controller's view kept its old layout,
+    /// leaving the content stuck at half height with a dead band below
+    /// (device feedback, twice). Forcing the frame + a layout pass here is
+    /// what actually makes the UIKit child track the sheet.
+    var size: CGSize = .zero
     /// Called when the user taps the detail view's own close control — the
-    /// sheet's single close affordance (our header hides its X when the rich
-    /// detail is shown, so there aren't two).
+    /// sheet's single close affordance.
     var onFinish: () -> Void = {}
 
     func makeUIViewController(context: Context) -> MKMapItemDetailViewController {
@@ -20,12 +27,22 @@ private struct MapItemDetailView: UIViewControllerRepresentable {
         // sheet; a second inline map read as clutter.
         let vc = MKMapItemDetailViewController(mapItem: item, displaysMap: false)
         vc.delegate = context.coordinator
+        // NOTE: do not set autoresizingMask here — it fights the SwiftUI
+        // representable container's sizing and froze the content at a fixed
+        // height regardless of the sheet size (screenshot-verified).
         return vc
     }
 
     func updateUIViewController(_ vc: MKMapItemDetailViewController, context: Context) {
         context.coordinator.parent = self
         vc.mapItem = item
+        // The `size` property changing (detent drag) is what triggers this
+        // update — ask the hosted controller to relayout at its new bounds.
+        // Never set the frame directly: SwiftUI owns it, and forcing it
+        // desynced the whole layout (blank content, misplaced close button).
+        if size != .zero {
+            vc.view.setNeedsLayout()
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -88,6 +105,12 @@ struct SpotDetailCard: View {
     /// Bumped on send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
+    /// Rebuild key + bookkeeping for the embedded place detail: the hosted
+    /// controller lays out for the size it first sees, so each settled
+    /// detent change forces one recreation at the final size.
+    @State private var detailRebuild = 0
+    @State private var lastBuiltDetent: PresentationDetent?
+
     /// Sheet size. Starts at half; swipe up for everything. The DEBUG launch
     /// arg opens at .large so screenshots can verify the full-screen layout
     /// (the detail must fill to the bottom edge — device feedback caught it
@@ -128,8 +151,27 @@ struct SpotDetailCard: View {
                 // bar in the middle"). ignoresSafeArea lets the content run
                 // to the physical bottom edge like Apple Maps' card.
                 GeometryReader { geo in
-                    MapItemDetailView(item: item, onFinish: { dismiss() })
+                    MapItemDetailView(item: item, size: geo.size, onFinish: { dismiss() })
                         .frame(width: geo.size.width, height: geo.size.height)
+                }
+                // The hosted controller pins its scroll layout to the size it
+                // FIRST sees and ignores later container growth — a medium→
+                // large swipe left content stuck at half height with a dead
+                // band (device feedback twice; reproduced in sim via
+                // -DEMO_SPOT_SHEET_GROW; autoresizing, setNeedsLayout, and an
+                // immediate .id(detent) rebuild all verified insufficient —
+                // the immediate rebuild re-pins to a MID-ANIMATION size).
+                // Fix: rebuild ONCE after the detent spring settles, so the
+                // new controller lays out at the final size. MapKit caches
+                // the place data, so the rebuild is imperceptible.
+                .id(detailRebuild)
+                .task(id: detent) {
+                    if lastBuiltDetent == nil { lastBuiltDetent = detent; return }
+                    guard detent != lastBuiltDetent else { return }
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    guard !Task.isCancelled else { return }
+                    lastBuiltDetent = detent
+                    detailRebuild += 1
                 }
                 .ignoresSafeArea(edges: .bottom)
             } else {
@@ -138,6 +180,17 @@ struct SpotDetailCard: View {
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+        #if DEBUG
+        // -DEMO_SPOT_SHEET_GROW: auto-switch medium → large after the sheet
+        // settles, exercising the exact resize path a user's drag takes (a
+        // launch directly at .large never resizes, which is how the stuck-at-
+        // half-height bug slipped past the earlier screenshot check).
+        .task {
+            guard CommandLine.arguments.contains("-DEMO_SPOT_SHEET_GROW") else { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            detent = .large
+        }
+        #endif
     }
 
     // MARK: - Tween header (pinned: identity + meetup actions)
@@ -180,8 +233,88 @@ struct SpotDetailCard: View {
                 ETAChip(etaFromA: ranked.etaFromA, etaFromB: ranked.etaFromB)
             }
 
-            primaryActions
+            if richDetailItem != nil {
+                // Apple-Maps-style tile row, pinned so nobody scrolls to find
+                // Call/Website (device feedback): drive time, Call, Website,
+                // and Send to chat where Maps puts Order. Incoming proposals
+                // keep Agree/Change as the pinned pair with the tiles below.
+                if incoming != nil {
+                    primaryActions
+                    actionTiles(includeSendToChat: false)
+                } else {
+                    actionTiles(includeSendToChat: true)
+                }
+            } else {
+                primaryActions
+            }
         }
+    }
+
+    /// The Apple-Maps action row: equal-width tiles, icon over label. Call
+    /// and Website appear only when the place actually has them.
+    private func actionTiles(includeSendToChat: Bool) -> some View {
+        let phoneURL = mapItem?.phoneNumber
+            .flatMap { URL(string: "tel:\($0.filter { !$0.isWhitespace })") }
+        let webURL = mapItem?.url
+        return HStack(spacing: Tokens.Spacing.s2) {
+            actionTile(icon: "car.fill", label: driveLabel) {
+                if let mapItem { openDirectionsInline(mapItem) } else if let url = appleMapsURL { openURL(url) }
+            }
+            .accessibilityHint("Opens driving directions to \(name)")
+            if let phoneURL {
+                actionTile(icon: "phone.fill", label: "Call") { openURL(phoneURL) }
+                    .accessibilityHint("Calls \(name)")
+            }
+            if let webURL {
+                actionTile(icon: "safari.fill", label: "Website") { openURL(webURL) }
+                    .accessibilityHint("Opens the website for \(name)")
+            }
+            if includeSendToChat {
+                actionTile(icon: "paperplane.fill", label: "Send to chat", primary: true) {
+                    sendTick += 1
+                    onSendToChat()
+                    dismiss()
+                }
+                .sensoryFeedback(.impact, trigger: sendTick)
+                .accessibilityHint("Drops \(name) into your conversation")
+            }
+        }
+    }
+
+    /// Drive-time label for the Directions tile — "12 min" when this spot was
+    /// fairness-ranked (my leg), otherwise just "Directions".
+    private var driveLabel: String {
+        guard let ranked else { return "Directions" }
+        return "\(max(Int((ranked.etaFromA / 60).rounded()), 1)) min"
+    }
+
+    private func actionTile(icon: String, label: String, primary: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: Tokens.Spacing.s1) {
+                Image(systemName: icon)
+                    .font(Tokens.Typography.headline)
+                Text(label)
+                    .font(Tokens.Typography.caption2Bold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Tokens.Spacing.s3)
+            .background(
+                primary ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.neutralAction),
+                in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            .foregroundStyle(primary ? Tokens.Palette.onBrand : Tokens.Palette.brand)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Opens driving directions to the actual map item (keeps the place
+    /// identity, unlike a bare coordinate deep link).
+    private func openDirectionsInline(_ item: MKMapItem) {
+        item.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
     }
 
     /// Shown above the actions when this card represents an incoming
