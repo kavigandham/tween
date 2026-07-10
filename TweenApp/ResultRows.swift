@@ -109,22 +109,28 @@ struct ABDistanceLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: Tokens.Spacing.s1) {
-            if hasBoth {
-                Text("A \(aValue)")
-                Text("·").foregroundStyle(Tokens.Palette.textSecondary)
-                Text("B \(bValue)")
-            } else {
-                // Solo: no peer yet — one clean "0.8 mi" instead of "A 0.8 · B --".
-                Text(aValue == "nearby" ? "nearby" : "\(aValue) away")
+        // Nothing to show yet — no self location (aValue "--") and no peer.
+        // Rendering "-- away" read as broken; just omit the capsule.
+        if !hasBoth && aValue == "--" {
+            EmptyView()
+        } else {
+            HStack(spacing: Tokens.Spacing.s1) {
+                if hasBoth {
+                    Text("A \(aValue)")
+                    Text("·").foregroundStyle(Tokens.Palette.textSecondary)
+                    Text("B \(bValue)")
+                } else {
+                    // Solo: no peer yet — one clean "0.8 mi away" instead of "A 0.8 · B --".
+                    Text(aValue == "nearby" ? "nearby" : "\(aValue) away")
+                }
             }
+            .font(Tokens.Typography.captionBold.monospacedDigit())
+            .padding(.horizontal, Tokens.Spacing.s2)
+            .padding(.vertical, Tokens.Spacing.s1)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(hasBoth ? "You \(aValue), your friend \(bValue)" : "\(aValue) away")
         }
-        .font(Tokens.Typography.captionBold.monospacedDigit())
-        .padding(.horizontal, Tokens.Spacing.s2)
-        .padding(.vertical, Tokens.Spacing.s1)
-        .background(.ultraThinMaterial, in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(hasBoth ? "You \(aValue), your friend \(bValue)" : "\(aValue) away")
     }
 
     private var aValue: String {
