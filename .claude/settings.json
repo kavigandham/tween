@@ -6,10 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$CMD\" in *\"git push\"*) if [ -z \"$TWEEN_AUDIT_CHILD\" ]; then BIN=$(command -v claude || ls -td \"$HOME/Library/Application Support/Claude/claude-code/\"*/claude.app/Contents/MacOS/claude 2>/dev/null | head -1); if [ -n \"$BIN\" ]; then cd \"$CLAUDE_PROJECT_DIR\" && TWEEN_AUDIT_CHILD=1 \"$BIN\" -p \"$(cat prompts/repo_audit.md)\" > report_audit.md 2>/tmp/tween-audit.log; fi; fi ;; esac",
-            "async": true,
-            "timeout": 2400,
-            "statusMessage": "Post-push audit running in background"
+            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$CMD\" in *\"git push\"*) printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"AUTOMATED POST-PUSH AUDIT POLICY: a git push just completed. Unless an audit agent from this policy is already running this session for the same changes, launch ONE background general-purpose agent now with the full prompt from prompts/repo_audit.md (read-only audit, markdown report as its final message). When it completes, write its report to report_audit.md and give the user a short summary of the top findings.\"}}' ;; esac"
           }
         ]
       }
