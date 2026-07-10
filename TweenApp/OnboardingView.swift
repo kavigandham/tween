@@ -640,6 +640,7 @@ struct OnboardingView: View {
                             address: selection.address,
                             coordinate: selection.coordinate,
                             ranked: selection.ranked,
+                            mapItem: selection.item,
                             incoming: selection.incoming.map {
                                 SpotDetailCard.IncomingProposal(
                                     senderName: $0.senderName,
@@ -1872,11 +1873,17 @@ struct OnboardingView: View {
 
     /// The tapped search result, rendered as the bottom sheet's content — the
     /// sheet's own glass IS the card surface (Apple-Maps style), so there's no
-    /// black box hovering over an empty pill (device feedback).
+    /// black box hovering over an empty pill (device feedback). Tapping the
+    /// card (outside its buttons) opens the full place sheet — photos, hours,
+    /// ratings, call, website — like tapping a result card in Apple Maps.
     private func spotCardSheet(item: MKMapItem) -> some View {
-        spotCardInner(item: item, ranked: rankedMatch(for: item), isAgreedMeetup: false)
+        let selection = SpotSelection(item: item, ranked: rankedMatch(for: item))
+        return spotCardInner(item: item, ranked: selection.ranked, isAgreedMeetup: false)
             .padding(.horizontal)
             .padding(.top, Tokens.Spacing.s3)
+            .contentShape(Rectangle())
+            .onTapGesture { activeSheet = .spot(selection) }
+            .accessibilityHint("Tap for hours, photos, and contact info")
     }
 
     /// The floating card for the agreed-meetup / incoming-proposal states: the
