@@ -161,6 +161,13 @@ struct OnboardingView: View {
     /// user-initiated refresh paths leave this `false` so the "agreed just
     /// landed" nudge still fires when a URL open or scene resume drives it.
     @State private var suppressPollDetentWrites: Bool = false
+    /// Consume-once latches for the selection onChange. The one-tap rewiring
+    /// made `selectedResult` a control signal ("selection ⟹ present sheet"),
+    /// so PROGRAMMATIC writes must opt out explicitly — and they can't reuse
+    /// `suppressPollDetentWrites`, because onChange runs in the NEXT view
+    /// update, after that flag's defer already reset it (audit at bb6740d).
+    @State private var suppressNextSelectionPresentation = false
+    @State private var suppressNextDeselectDetentRestore = false
 
     /// Handle for the pending `expandThenFocusSearch` post-animation focus so a
     /// second call (rapid re-entry) can cancel the first — otherwise queued
@@ -543,12 +550,20 @@ struct OnboardingView: View {
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
-                // ONE tap → the full place sheet, like Apple Maps. The old
-                // intermediate compact card forced a second tap for the real
-                // information — "a waste" (device feedback; apple-design
-                // skill: show the common path first).
-                focusMap(on: item)
-                activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+                if suppressNextSelectionPresentation {
+                    // Programmatic waiting-pin selection (showOwnProposalOnMap):
+                    // the caller staged its own camera/detent/toast, and
+                    // presenting here re-opened the sheet the user JUST sent
+                    // from — a double-propose invitation with the waiting
+                    // toast buried beneath it (audit at bb6740d).
+                    suppressNextSelectionPresentation = false
+                } else {
+                    // ONE tap → the full place sheet, like Apple Maps. The old
+                    // intermediate compact card forced a second tap for the
+                    // real information — "a waste" (device feedback).
+                    focusMap(on: item)
+                    activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+                }
             } else {
                 // A programmatic deselect (agreement landed, negotiation
                 // moved on, poll cleared a dead session) must also close the
@@ -560,8 +575,13 @@ struct OnboardingView: View {
                 if case .spot = activeSheet { activeSheet = nil }
                 // Restore the search peek — but never from a background
                 // refresh, which must not yank the sheet out from under the
-                // user's drag (docs/ui-research.md §1).
-                if !suppressPollDetentWrites {
+                // user's drag (docs/ui-research.md §1). Uses the consume-once
+                // latch: the old `!suppressPollDetentWrites` check was dead
+                // code because that flag's defer resets before onChange runs
+                // in the next view-update pass (audit at bb6740d).
+                if suppressNextDeselectDetentRestore {
+                    suppressNextDeselectDetentRestore = false
+                } else {
                     withAnimation(Tokens.Motion.snappy) {
                         selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
                     }
@@ -2977,6 +2997,12 @@ struct OnboardingView: View {
         let cachedAgreedMeetup = scopedSnapshot?.agreedState ?? LocationCache.loadAgreedMeetup()
         if agreedMeetup != cachedAgreedMeetup {
             agreedMeetup = cachedAgreedMeetup
+            // Poll-driven deselect: latch the detent restore off (read the
+            // defer-scoped flag NOW, while it's still true — the onChange
+            // that consumes the latch runs after the defer resets it).
+            if suppressPollDetentWrites, selectedResult != nil {
+                suppressNextDeselectDetentRestore = true
+            }
             selectedResult = nil
             didChange = true
             if cachedAgreedMeetup != nil {
@@ -3238,6 +3264,13 @@ struct OnboardingView: View {
                 }
                 agreedMeetup = state
                 selectedResult = nil
+                // URL-presented proposal sheets carry no selection, so the
+                // deselect above can't close them — dismiss explicitly or
+                // the user keeps reading an Agree/Change card for a
+                // negotiation that just finished (audit at bb6740d).
+                if case .spot(let sel) = activeSheet, sel.incoming != nil {
+                    activeSheet = nil
+                }
             }
             // A friend's reply that they agree to a previously-proposed spot.
             // No interactive UI needed — just frame the map on it and toast.
@@ -3262,6 +3295,11 @@ struct OnboardingView: View {
                 ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
             }
             agreedMeetup = nil
+            // A proposal card from someone who just left is dead — dismiss
+            // it rather than leaving it orphaned over the departure toast.
+            if case .spot(let sel) = activeSheet, sel.incoming != nil {
+                activeSheet = nil
+            }
             reframe()
             let who = state.senderName ?? "Your friend"
             showToast("\(who) is out.")
@@ -3273,6 +3311,10 @@ struct OnboardingView: View {
         let placemark = MKPlacemark(coordinate: state.coordinate)
         let item = MKMapItem(placemark: placemark)
         item.name = state.text
+        // Waiting-pin selection, NOT a browse tap: latch the one-tap
+        // presentation off or the sheet the user just sent from re-presents
+        // over the waiting toast (audit at bb6740d).
+        if selectedResult != item { suppressNextSelectionPresentation = true }
         selectedResult = item
         activeSheet = nil
         withAnimation(Tokens.Motion.gentle) {
