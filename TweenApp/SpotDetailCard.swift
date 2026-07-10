@@ -88,6 +88,17 @@ struct SpotDetailCard: View {
     /// Bumped on send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
+    /// Sheet size. Starts at half; swipe up for everything. The DEBUG launch
+    /// arg opens at .large so screenshots can verify the full-screen layout
+    /// (the detail must fill to the bottom edge — device feedback caught it
+    /// stuck at half height with a dead band below).
+    @State private var detent: PresentationDetent = {
+        #if DEBUG
+        if CommandLine.arguments.contains("-DEMO_SPOT_SHEET_LARGE") { return .large }
+        #endif
+        return .medium
+    }()
+
     /// The map item to hand Apple's native detail view — only items with a
     /// real place identifier populate it (search results do; pins
     /// synthesized from bare coordinates don't).
@@ -125,7 +136,7 @@ struct SpotDetailCard: View {
                 fallbackDetail
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
     }
 

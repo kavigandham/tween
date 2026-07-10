@@ -438,9 +438,11 @@ struct OnboardingView: View {
         var demoSelection: MKMapItem?
         var initialDetent = Self.isHostTabHarness ? hostHarnessDetent : defaultDetent
         #if DEBUG
-        // -DEMO_SPOT_CARD: renders the in-sheet spot card without a live
-        // search round-trip. DEBUG-only so the deprecated addressDictionary
-        // init and this scaffolding never ship in release.
+        // -DEMO_SPOT_CARD: preselects a synthesized spot (no place
+        // identifier → fallback sheet layout) without a live search
+        // round-trip; openDemoSpotSheetIfRequested presents its sheet on
+        // launch since the initial value never fires onChange. DEBUG-only so
+        // the deprecated addressDictionary init never ships in release.
         if CommandLine.arguments.contains("-DEMO_SPOT_CARD") {
             let coord = CLLocationCoordinate2D(latitude: 38.786, longitude: -77.271)
             let placemark = MKPlacemark(coordinate: coord, addressDictionary: [
@@ -548,9 +550,21 @@ struct OnboardingView: View {
                 focusMap(on: item)
                 activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
             } else {
-                // Selection cleared → the sheet returns to the search peek.
-                withAnimation(Tokens.Motion.snappy) {
-                    selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                // A programmatic deselect (agreement landed, negotiation
+                // moved on, poll cleared a dead session) must also close the
+                // place sheet it opened — one-directional sync left the sheet
+                // orphaned over a finished negotiation while the "Meeting at
+                // X" toast rendered invisibly beneath it (audit at 8affc61).
+                // No-op for user-initiated closes: onDismiss already nilled
+                // the sheet before clearing the selection.
+                if case .spot = activeSheet { activeSheet = nil }
+                // Restore the search peek — but never from a background
+                // refresh, which must not yank the sheet out from under the
+                // user's drag (docs/ui-research.md §1).
+                if !suppressPollDetentWrites {
+                    withAnimation(Tokens.Motion.snappy) {
+                        selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                    }
                 }
             }
         }
@@ -2050,6 +2064,12 @@ struct OnboardingView: View {
     /// (the coordinate-only demo pin can't exercise it).
     private func openDemoSpotSheetIfRequested() async {
         #if DEBUG
+        // -DEMO_SPOT_CARD seeded a selection at init, which never fires
+        // onChange — present its sheet here (fallback layout, no identifier).
+        if CommandLine.arguments.contains("-DEMO_SPOT_CARD"), let item = selectedResult {
+            activeSheet = .spot(SpotSelection(item: item, ranked: nil))
+            return
+        }
         guard CommandLine.arguments.contains("-DEMO_SPOT_SHEET") else { return }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = "coffee"
