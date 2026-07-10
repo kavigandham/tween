@@ -448,7 +448,7 @@ struct OnboardingView: View {
             let demo = MKMapItem(placemark: placemark)
             demo.name = "Hangry Joe's Hot Chicken"
             demoSelection = demo
-            initialDetent = Self.spotCardDetent
+            initialDetent = .height(Tokens.Layout.sheetPeekHeight)
         }
         #endif
         _selectedResult = State(initialValue: demoSelection)
@@ -541,9 +541,14 @@ struct OnboardingView: View {
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
+                // ONE tap → the full place sheet, like Apple Maps. The old
+                // intermediate compact card forced a second tap for the real
+                // information — "a waste" (device feedback; apple-design
+                // skill: show the common path first).
                 focusMap(on: item)
+                activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
             } else {
-                // Card closed → the sheet returns to the search peek.
+                // Selection cleared → the sheet returns to the search peek.
                 withAnimation(Tokens.Motion.snappy) {
                     selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
                 }
@@ -562,13 +567,8 @@ struct OnboardingView: View {
         }
         .sheet(isPresented: .constant(true)) {
             sheetContent
-                // A tapped spot locks the sheet to a card-height detent so the
-                // sheet IS the card (no floating box); otherwise the usual
-                // peek / medium / full search detents.
                 .presentationDetents(
-                    isSpotCardActive
-                        ? [Self.spotCardDetent]
-                        : [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
+                    [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent
                 )
                 // iOS 26 gets the system's Liquid Glass floating panel — the
@@ -587,7 +587,13 @@ struct OnboardingView: View {
                 .fullScreenCover(isPresented: $showTutorial) {
                     OnboardingTutorialView(onDone: dismissTutorial)
                 }
-                .sheet(item: $activeSheet) { sheet in
+                .sheet(item: $activeSheet, onDismiss: {
+                    // Closing the place sheet deselects its pin, so the map
+                    // returns to browse state and the search peek restores
+                    // (via the selectedResult onChange). Harmless for the
+                    // other sheet types — they never set a selection.
+                    if selectedResult != nil { selectedResult = nil }
+                }) { sheet in
                     switch sheet {
                     case .friends:
                         NavigationStack {
@@ -769,43 +775,24 @@ struct OnboardingView: View {
     /// True when the sheet is collapsed to its search-bar-only peek.
     private var isMinimalDetent: Bool { selectedSheetDetent == .height(Tokens.Layout.sheetPeekHeight) }
 
-    /// True while a tapped spot's card owns the sheet — the search surface is
-    /// replaced by the card and the sheet locks to `spotCardDetent`.
-    private var isSpotCardActive: Bool { selectedResult != nil }
-
-    /// Sheet height when a spot card owns it — just tall enough for the card
-    /// (title, address, distance, two buttons) plus the safe area, as a
-    /// fraction so it scales with the screen. Kept snug so there's no big
-    /// stretch of empty glass under the buttons.
-    private static let spotCardDetent: PresentationDetent = .fraction(0.22)
-
     @ViewBuilder
     private var sheetContent: some View {
-        Group {
-            if let item = selectedResult {
-                // A tapped spot owns the sheet, Apple-Maps style: the sheet's
-                // own glass IS the card surface, so no black box hovers over
-                // an empty pill (device feedback). The sheet sits at the
-                // card-height detent (see spotCardDetent); closing the card
-                // returns it to the search peek.
-                spotCardSheet(item: item)
-            } else {
-                VStack(spacing: Tokens.Spacing.s3) {
-                    // The persistent search row lives in a FIXED-HEIGHT header
-                    // exactly one peek tall, centered within it — a constant
-                    // offset from the sheet's top edge in every phase so it
-                    // rides the edge on drags instead of teleporting when the
-                    // detent settles.
-                    searchBar
-                        .frame(height: Tokens.Layout.sheetPeekHeight)
+        VStack(spacing: Tokens.Spacing.s3) {
+            // The persistent search row lives in a FIXED-HEIGHT header
+            // exactly one peek tall, centered within it — a constant
+            // offset from the sheet's top edge in every phase so it
+            // rides the edge on drags instead of teleporting when the
+            // detent settles. (A tapped result no longer swaps this
+            // surface for an intermediate card: selection goes straight
+            // to the full place sheet — one tap, like Apple Maps.)
+            searchBar
+                .frame(height: Tokens.Layout.sheetPeekHeight)
 
-                    // Everything else is revealed once the sheet lifts off peek.
-                    if !isMinimalDetent {
-                        if !monitor.isOnline { offlineBanner }
-                        replyBanner
-                        mapPanel
-                    }
-                }
+            // Everything else is revealed once the sheet lifts off peek.
+            if !isMinimalDetent {
+                if !monitor.isOnline { offlineBanner }
+                replyBanner
+                mapPanel
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1694,10 +1681,10 @@ struct OnboardingView: View {
     /// map) deselects.
     @ViewBuilder
     private var compactCard: some View {
-        // A tapped search result now lives IN the bottom sheet (spotCardSheet)
-        // on the sheet's glass — not floating here as a black box over an
-        // empty pill. Only the agreed-meetup / incoming-proposal states still
-        // float over the map, and only when no result is selected.
+        // A tapped search result opens the full place sheet directly (one
+        // tap — no intermediate card; device feedback). Only the
+        // agreed-meetup / incoming-proposal states float over the map, and
+        // only while no result is selected.
         // Owner decision (audit W8): a set meetup and a newer suggestion
         // render TOGETHER — a new proposal does not cancel the agreement.
         VStack(spacing: Tokens.Spacing.s2) {
@@ -1815,9 +1802,8 @@ struct OnboardingView: View {
     }
 
     /// The inner card — title, address, A/B (or solo) distance, and the action
-    /// buttons. Rendered directly on the bottom sheet's glass for a tapped
-    /// search result (`spotCardSheet`), and wrapped in a floating glass card
-    /// for the agreed-meetup / proposal states (`compactCardContent`).
+    /// buttons — wrapped in a floating glass card for the agreed-meetup /
+    /// proposal states (`compactCardContent`).
     private func spotCardInner(item: MKMapItem, ranked: RankedSpot?, isAgreedMeetup: Bool) -> some View {
         let selection = SpotSelection(item: item, ranked: ranked)
         return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
@@ -1870,21 +1856,6 @@ struct OnboardingView: View {
                 .buttonStyle(isAgreedMeetup ? .tweenPrimary() : .tweenPrimary(.subtle))
             }
         }
-    }
-
-    /// The tapped search result, rendered as the bottom sheet's content — the
-    /// sheet's own glass IS the card surface (Apple-Maps style), so there's no
-    /// black box hovering over an empty pill (device feedback). Tapping the
-    /// card (outside its buttons) opens the full place sheet — photos, hours,
-    /// ratings, call, website — like tapping a result card in Apple Maps.
-    private func spotCardSheet(item: MKMapItem) -> some View {
-        let selection = SpotSelection(item: item, ranked: rankedMatch(for: item))
-        return spotCardInner(item: item, ranked: selection.ranked, isAgreedMeetup: false)
-            .padding(.horizontal)
-            .padding(.top, Tokens.Spacing.s3)
-            .contentShape(Rectangle())
-            .onTapGesture { activeSheet = .spot(selection) }
-            .accessibilityHint("Tap for hours, photos, and contact info")
     }
 
     /// The floating card for the agreed-meetup / incoming-proposal states: the
@@ -2313,7 +2284,7 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.gentle) {
             position = Self.placeCameraPosition(for: item.placemark.coordinate, bottomBias: 0.18)
         }
-        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = Self.spotCardDetent }
+        withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
     }
 
     /// Frames the camera to fit every visible result pin (Map mode).

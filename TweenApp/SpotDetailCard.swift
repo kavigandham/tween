@@ -110,8 +110,17 @@ struct SpotDetailCard: View {
             if #available(iOS 18.0, *), let item = richDetailItem {
                 // Apple's own place card — photos, hours, ratings, call,
                 // website, order — scrolls internally below our header.
-                MapItemDetailView(item: item, onFinish: { dismiss() })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // GeometryReader hands the hosted UIKit controller a CONCRETE
+                // size on every detent change: with a bare maxHeight frame it
+                // kept its medium-detent height at .large, leaving a dead
+                // band and mid-screen scrolling (device feedback — "invisible
+                // bar in the middle"). ignoresSafeArea lets the content run
+                // to the physical bottom edge like Apple Maps' card.
+                GeometryReader { geo in
+                    MapItemDetailView(item: item, onFinish: { dismiss() })
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+                .ignoresSafeArea(edges: .bottom)
             } else {
                 fallbackDetail
             }
