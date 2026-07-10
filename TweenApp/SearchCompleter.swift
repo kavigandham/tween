@@ -41,9 +41,17 @@ struct NativeSearchBar: UIViewRepresentable {
     func updateUIView(_ bar: UISearchBar, context: Context) {
         context.coordinator.parent = self
         if bar.text != text { bar.text = text }
-        if isEditing, !bar.isFirstResponder, bar.window != nil {
+        // Focus follows the EDGES of the SwiftUI intent, not its level.
+        // Re-asserting first responder on every SwiftUI update meant an
+        // interactive keyboard dismissal mid-drag summoned the keyboard
+        // right back while `isEditing` was still true — the field fought
+        // the sheet drag for the gesture (device feedback: clunky drags
+        // whenever the field had text).
+        let wasEditing = context.coordinator.appliedEditing
+        context.coordinator.appliedEditing = isEditing
+        if isEditing, !wasEditing, !bar.isFirstResponder, bar.window != nil {
             bar.becomeFirstResponder()
-        } else if !isEditing, bar.isFirstResponder {
+        } else if !isEditing, wasEditing, bar.isFirstResponder {
             bar.resignFirstResponder()
         }
     }
@@ -52,6 +60,9 @@ struct NativeSearchBar: UIViewRepresentable {
 
     final class Coordinator: NSObject, UISearchBarDelegate {
         var parent: NativeSearchBar
+        /// The `isEditing` value the last `updateUIView` acted on — focus
+        /// moves only when SwiftUI's intent CHANGES (see updateUIView).
+        var appliedEditing = false
         init(_ parent: NativeSearchBar) { self.parent = parent }
 
         func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {

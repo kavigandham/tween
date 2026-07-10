@@ -206,8 +206,7 @@ struct ContactSearchView: View {
                     UIApplication.shared.open(url)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Tokens.Palette.brand)
+            .buttonStyle(.tweenPrimary())
         }
     }
 

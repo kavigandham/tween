@@ -274,8 +274,24 @@ final class MessagesViewController: MSMessagesAppViewController {
         // "tap send to deliver" hint has served its purpose.
         if sendStatusMessage == Self.stagedDeliveryStatus {
             sendStatusMessage = nil
-            presentUI(for: presentationStyle)
         }
+        // A staged leave commits only NOW: this is the moment the user
+        // actually sent it. deliverBubble deferred the revision floor and
+        // canonical snapshot for staged leaves; decoding the sent message
+        // (rather than relying on an ivar) keeps the commit correct even if
+        // the extension was torn down and relaunched in between. Idempotent
+        // if the leave was already committed via the direct-send path.
+        if let url = message.url, let state = TweenState(url: url),
+           state.messageType == .leave,
+           state.senderID == localParticipantID() {
+            if let revision = state.revision, let conversationKey {
+                ConversationMeetupStore.noteRevision(
+                    revision, sender: localParticipantID(), key: conversationKey)
+            }
+            recordCanonicalSnapshot(for: state)
+            commitDeliveredLeave(remaining: state.participants)
+        }
+        presentUI(for: presentationStyle)
     }
 
     override func willResignActive(with conversation: MSConversation) {
@@ -904,31 +920,14 @@ final class MessagesViewController: MSMessagesAppViewController {
             )
             logger.debug("Encoding I'm out reply participants=\(remainingParticipants.count, privacy: .public)")
             let didSend = await sendBubbleNow(for: state)
-            if didSend {
-                // Leave took effect only once the bubble was delivered (or
-                // staged): on a failed send the user truthfully stays "in".
-                // Keep the REMAINING roster, not [] — the meetup is still live
-                // for everyone else (group-session semantics), and wiping it
-                // here made the next rejoin broadcast a roster of just [me],
-                // erasing the group on every device that tapped it. "Am I in"
-                // is answered by membership, not roster emptiness.
-                currentParticipants = remainingParticipants
-                LocationCache.saveParticipantSnapshot(remainingParticipants, localContext: localParticipantContext())
-                LocationCache.deactivateSelf()
-                LocationCache.clearAgreedMeetup()
-                // Tombstone: peers who never tap this leave bubble will keep
-                // sending rosters that include this user — decode filters
-                // those entries until an explicit rejoin.
-                if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.setLocalUserLeft(true, key: conversationKey)
-                }
-                rankedSpots = []
-                // Drop the decoded meetup too — CompactView's thumbnail and
-                // ExpandedView's peer pins render from `received.participants`,
-                // so leaving it set kept everyone on the leaver's map. The next
-                // activation stays clean via the snapshot-restore gate (the
-                // .leave canonical snapshot wiped the store).
-                received = nil
+            // A direct-send rejection stages the bubble in the input field —
+            // the user hasn't actually left until they tap send on it (they
+            // can still delete it). Committing the leave here anyway made
+            // THIS device believe it left while no peer ever learned, the
+            // classic "lingering person on everyone's map" split-brain. The
+            // staged commit now waits for didStartSending.
+            if didSend, sendStatusMessage != Self.stagedDeliveryStatus {
+                commitDeliveredLeave(remaining: remainingParticipants)
             }
             isSending = false
             if didSend {
@@ -940,6 +939,45 @@ final class MessagesViewController: MSMessagesAppViewController {
             }
             presentUI(for: presentationStyle)
         }
+    }
+
+    /// The local-state half of a leave. Runs only once the leave bubble was
+    /// actually delivered (direct send) or actually sent by the user (staged
+    /// bubble → `didStartSending`). Clears EVERYTHING meetup-scoped: after
+    /// "I'm out" no roster residue, ranked spots, drafts, or stale map state
+    /// may survive on this device (device feedback).
+    private func commitDeliveredLeave(remaining: [Participant]) {
+        // Keep the REMAINING roster, not [] — the meetup is still live for
+        // everyone else (group-session semantics), and wiping it here made
+        // the next rejoin broadcast a roster of just [me], erasing the group
+        // on every device that tapped it. "Am I in" is answered by
+        // membership, not roster emptiness.
+        currentParticipants = remaining
+        LocationCache.saveParticipantSnapshot(remaining, localContext: localParticipantContext())
+        LocationCache.deactivateSelf()
+        LocationCache.clearAgreedMeetup()
+        // Tombstone: peers who never tap this leave bubble will keep
+        // sending rosters that include this user — decode filters
+        // those entries until an explicit rejoin.
+        if let conversationKey {
+            ConversationMeetupStore.setLocalUserLeft(true, key: conversationKey)
+        }
+        // An in-flight ranking would repopulate the spot list right after
+        // this reset; a surviving draft (in-memory or the App-Group
+        // hand-off blob) re-offered a pending message after leaving.
+        rankingTask?.cancel()
+        isRanking = false
+        rankedSpots = []
+        draft = nil
+        OutgoingDraftStore.clear()
+        mapDegraded = false
+        recentlySentSpotName = nil
+        // Drop the decoded meetup too — CompactView's thumbnail and
+        // ExpandedView's peer pins render from `received.participants`,
+        // so leaving it set kept everyone on the leaver's map. The next
+        // activation stays clean via the snapshot-restore gate (the
+        // .leave canonical snapshot wiped the store).
+        received = nil
     }
 
     /// Proposes a specific ranked spot to the group. The participants list is
@@ -985,8 +1023,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// and appends this user's identity to the agreement list; the receiver decides if
     /// that's enough for full consensus via `state.isFullyAgreed`.
     private func sendAgreedPlace(_ proposed: TweenState) {
+        // Re-entrancy guard: without it the Agree button stayed enabled for
+        // the whole location-fix + send window, and a second tap past the
+        // point of no return emitted a second .agree bubble (audit).
+        guard !isSending else { return }
         sendTask?.cancel()
         sendTask = Task { @MainActor in
+            isSending = true
+            sendStatusMessage = "Sending your agreement..."
+            presentUI(for: presentationStyle)
             // Same fresh-fix-first policy as handleImIn: never agree with a
             // stale coord that might land you in a worst-case route the
             // ranker would have rejected.
@@ -1095,6 +1140,14 @@ final class MessagesViewController: MSMessagesAppViewController {
                     ConversationMeetupStore.saveProposed(state, key: conversationKey)
                 }
                 self.received = self.effectiveReceived(decoded: state)
+            }
+            isSending = false
+            if didSend {
+                // Preserve the insert-fallback's "tap send to deliver" hint —
+                // only clear the status when it's still our in-progress copy.
+                if sendStatusMessage == "Sending your agreement..." { sendStatusMessage = nil }
+            } else {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             self.presentUI(for: self.presentationStyle)
         }
@@ -1296,6 +1349,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         guard !Task.isCancelled else { return false }
         do {
+            var stagedInsert = false
             switch mode {
             case .send:
                 do {
@@ -1312,6 +1366,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
                     try await conversation.insert(message)
                     sendStatusMessage = Self.stagedDeliveryStatus
+                    stagedInsert = true
                 }
             case .insert(let dismissAfterInsert):
                 try await conversation.insert(message)
@@ -1319,6 +1374,13 @@ final class MessagesViewController: MSMessagesAppViewController {
                 if dismissAfterInsert {
                     dismiss()
                 }
+            }
+            // A staged LEAVE hasn't happened yet — the user can still delete
+            // the bubble instead of sending it. Defer the revision floor and
+            // the canonical .leave snapshot to didStartSending so local state
+            // never records a departure no peer will ever see.
+            if stagedInsert, state.messageType == .leave {
+                return true
             }
             // Delivery succeeded — NOW the minted revision becomes the floor
             // for the decode guard (this device's own stale bubbles included).

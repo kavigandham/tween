@@ -291,8 +291,11 @@ struct ResultCard: View {
     }
 }
 
-/// Compact action pills for result cards. The global Tween primary style is
+/// Compact action buttons for result cards. The global Tween primary style is
 /// intentionally broad for full-width CTAs; search rows need denser controls.
+/// Same filled rounded-rect language as `TweenPrimaryButtonStyle` (the Apple
+/// place-card "Get Directions" look), scaled down — a capsule here diverged
+/// from every other button after the house restyle.
 struct ResultActionButtonStyle: ButtonStyle {
     enum Variant {
         case prominent
@@ -307,7 +310,8 @@ struct ResultActionButtonStyle: ButtonStyle {
             .lineLimit(1)
             .padding(.horizontal, Tokens.Spacing.s3)
             .padding(.vertical, Tokens.Spacing.s2)
-            .background(background, in: Capsule())
+            .background(background,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
             .foregroundStyle(foreground)
             .tweenPressFeedback(isPressed: configuration.isPressed)
     }

@@ -204,17 +204,22 @@ extension View {
     }
 
     /// Scales the view down slightly while pressed for tactile feedback.
+    /// Uses the QUICK curve: press feedback must land on touch-down, and the
+    /// 0.4 s snappy curve made buttons feel like they responded on release.
     func tweenPressFeedback(isPressed: Bool) -> some View {
         self.scaleEffect(isPressed ? 0.96 : 1)
-            .animation(Tokens.Motion.snappy, value: isPressed)
+            .animation(Tokens.Motion.quick, value: isPressed)
     }
 }
 
 // MARK: - Button styles
 
-/// The house button style. `.prominent` is a filled brand capsule for primary
-/// CTAs; `.subtle` is a brand-tinted capsule for secondary actions. Both press
-/// down with `tweenPressFeedback`.
+/// The house button style. `.prominent` is a filled brand rounded-rect for
+/// primary CTAs; `.subtle` is a brand-tinted one for secondary actions. Both
+/// press down with `tweenPressFeedback`. Shape matches the filled
+/// rounded-rectangle buttons Apple's own place card renders ("Get
+/// Directions" / "Open in Apple Maps") — the look every Tween button now
+/// shares (device feedback).
 struct TweenPrimaryButtonStyle: ButtonStyle {
     enum Variant {
         case prominent
@@ -232,7 +237,8 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, Tokens.Spacing.s3)
             .padding(.horizontal, Tokens.Spacing.s5)
             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
-            .background(background, in: Capsule())
+            .background(background,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
             .tweenPressFeedback(isPressed: configuration.isPressed)
     }
 

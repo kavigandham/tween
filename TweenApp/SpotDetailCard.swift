@@ -10,38 +10,33 @@ import UIKit
 @available(iOS 18.0, *)
 private struct MapItemDetailView: UIViewControllerRepresentable {
     let item: MKMapItem
-    /// The concrete size the sheet currently grants this view. Passed as a
-    /// PROPERTY (not just a frame) so detent changes trigger
-    /// `updateUIViewController` — on device, a medium→large drag resized the
-    /// SwiftUI frame but the hosted controller's view kept its old layout,
-    /// leaving the content stuck at half height with a dead band below
-    /// (device feedback, twice). Forcing the frame + a layout pass here is
-    /// what actually makes the UIKit child track the sheet.
-    var size: CGSize = .zero
+    /// Bumped once per SETTLED detent change. The container controller swaps
+    /// in a fresh detail controller behind a snapshot cross-fade — the detail
+    /// VC pins its scroll layout to the size it first sees, so a rebuild at
+    /// the settled size is unavoidable; what's avoidable is SHOWING it. The
+    /// old `.id()`-driven SwiftUI teardown rendered as a visible flash on
+    /// every medium↔large drag (device feedback: "visible refresh and jump").
+    var rebuildToken: Int = 0
     /// Called when the user taps the detail view's own close control — the
     /// sheet's single close affordance.
     var onFinish: () -> Void = {}
 
-    func makeUIViewController(context: Context) -> MKMapItemDetailViewController {
-        // displaysMap false — the full-screen map is already behind the
-        // sheet; a second inline map read as clutter.
-        let vc = MKMapItemDetailViewController(mapItem: item, displaysMap: false)
-        vc.delegate = context.coordinator
-        // NOTE: do not set autoresizingMask here — it fights the SwiftUI
-        // representable container's sizing and froze the content at a fixed
-        // height regardless of the sheet size (screenshot-verified).
-        return vc
+    func makeUIViewController(context: Context) -> MapItemDetailHostController {
+        let host = MapItemDetailHostController()
+        host.detailDelegate = context.coordinator
+        host.embedDetail(for: item)
+        context.coordinator.lastToken = rebuildToken
+        return host
     }
 
-    func updateUIViewController(_ vc: MKMapItemDetailViewController, context: Context) {
+    func updateUIViewController(_ host: MapItemDetailHostController, context: Context) {
         context.coordinator.parent = self
-        vc.mapItem = item
-        // The `size` property changing (detent drag) is what triggers this
-        // update — ask the hosted controller to relayout at its new bounds.
-        // Never set the frame directly: SwiftUI owns it, and forcing it
-        // desynced the whole layout (blank content, misplaced close button).
-        if size != .zero {
-            vc.view.setNeedsLayout()
+        host.detailDelegate = context.coordinator
+        if context.coordinator.lastToken != rebuildToken {
+            context.coordinator.lastToken = rebuildToken
+            host.rebuildDetail(for: item)
+        } else {
+            host.updateItem(item)
         }
     }
 
@@ -49,10 +44,73 @@ private struct MapItemDetailView: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, MKMapItemDetailViewControllerDelegate {
         var parent: MapItemDetailView
+        var lastToken = 0
         init(_ parent: MapItemDetailView) { self.parent = parent }
 
         func mapItemDetailViewControllerDidFinish(_ detailViewController: MKMapItemDetailViewController) {
             parent.onFinish()
+        }
+    }
+}
+
+/// Plain UIKit container between SwiftUI and `MKMapItemDetailViewController`.
+/// SwiftUI sizes THIS controller's view; the detail child is pinned to it
+/// with constraints (the same pattern the extension's `embed()` uses — an
+/// autoresizing mask directly under a representable froze layout entirely,
+/// screenshot-verified). Rebuilds happen inside the container so the swap
+/// can hide behind a snapshot of the outgoing view instead of a blank frame.
+@available(iOS 18.0, *)
+final class MapItemDetailHostController: UIViewController {
+    weak var detailDelegate: MKMapItemDetailViewControllerDelegate? {
+        didSet { detail?.delegate = detailDelegate }
+    }
+    private var detail: MKMapItemDetailViewController?
+
+    func updateItem(_ item: MKMapItem) {
+        guard let detail, detail.mapItem !== item else { return }
+        detail.mapItem = item
+    }
+
+    func embedDetail(for item: MKMapItem) {
+        // displaysMap false — the full-screen map is already behind the
+        // sheet; a second inline map read as clutter.
+        let vc = MKMapItemDetailViewController(mapItem: item, displaysMap: false)
+        vc.delegate = detailDelegate
+        addChild(vc)
+        vc.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(vc.view)
+        NSLayoutConstraint.activate([
+            vc.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            vc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            vc.view.topAnchor.constraint(equalTo: view.topAnchor),
+            vc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        vc.didMove(toParent: self)
+        detail = vc
+    }
+
+    /// Recreates the detail controller at the container's CURRENT size,
+    /// covered by a snapshot of the outgoing view that fades out once the
+    /// replacement has laid out — the rebuild itself is never visible.
+    func rebuildDetail(for item: MKMapItem) {
+        guard let old = detail else {
+            embedDetail(for: item)
+            return
+        }
+        let snapshot = old.view.snapshotView(afterScreenUpdates: false)
+        old.willMove(toParent: nil)
+        old.view.removeFromSuperview()
+        old.removeFromParent()
+        embedDetail(for: item)
+        guard let snapshot else { return }
+        snapshot.frame = view.bounds
+        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(snapshot)
+        view.layoutIfNeeded()
+        UIView.animate(withDuration: 0.25, delay: 0.05, options: [.curveEaseOut]) {
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
         }
     }
 }
@@ -105,9 +163,10 @@ struct SpotDetailCard: View {
     /// Bumped on send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
-    /// Rebuild key + bookkeeping for the embedded place detail: the hosted
+    /// Rebuild token + bookkeeping for the embedded place detail: the hosted
     /// controller lays out for the size it first sees, so each settled
-    /// detent change forces one recreation at the final size.
+    /// detent change asks the UIKit container for one recreation at the
+    /// final size, hidden behind a snapshot cross-fade.
     @State private var detailRebuild = 0
     @State private var lastBuiltDetent: PresentationDetent?
 
@@ -144,36 +203,31 @@ struct SpotDetailCard: View {
             if #available(iOS 18.0, *), let item = richDetailItem {
                 // Apple's own place card — photos, hours, ratings, call,
                 // website, order — scrolls internally below our header.
-                // GeometryReader hands the hosted UIKit controller a CONCRETE
-                // size on every detent change: with a bare maxHeight frame it
-                // kept its medium-detent height at .large, leaving a dead
-                // band and mid-screen scrolling (device feedback — "invisible
-                // bar in the middle"). ignoresSafeArea lets the content run
-                // to the physical bottom edge like Apple Maps' card.
-                GeometryReader { geo in
-                    MapItemDetailView(item: item, size: geo.size, onFinish: { dismiss() })
-                        .frame(width: geo.size.width, height: geo.size.height)
-                }
                 // The hosted controller pins its scroll layout to the size it
                 // FIRST sees and ignores later container growth — a medium→
                 // large swipe left content stuck at half height with a dead
                 // band (device feedback twice; reproduced in sim via
                 // -DEMO_SPOT_SHEET_GROW; autoresizing, setNeedsLayout, and an
-                // immediate .id(detent) rebuild all verified insufficient —
-                // the immediate rebuild re-pins to a MID-ANIMATION size).
-                // Fix: rebuild ONCE after the detent spring settles, so the
-                // new controller lays out at the final size. MapKit caches
-                // the place data, so the rebuild is imperceptible.
-                .id(detailRebuild)
-                .task(id: detent) {
-                    if lastBuiltDetent == nil { lastBuiltDetent = detent; return }
-                    guard detent != lastBuiltDetent else { return }
-                    try? await Task.sleep(nanoseconds: 450_000_000)
-                    guard !Task.isCancelled else { return }
-                    lastBuiltDetent = detent
-                    detailRebuild += 1
-                }
-                .ignoresSafeArea(edges: .bottom)
+                // immediate rebuild all verified insufficient — the immediate
+                // rebuild re-pins to a MID-ANIMATION size). Fix: rebuild ONCE
+                // after the detent spring settles so the new controller lays
+                // out at the final size — inside the UIKit container, hidden
+                // behind a snapshot cross-fade, because the old SwiftUI-side
+                // `.id()` teardown flashed visibly on every detent change
+                // (device feedback: "visible refresh and jump").
+                // ignoresSafeArea lets the content run to the physical bottom
+                // edge like Apple Maps' card.
+                MapItemDetailView(item: item, rebuildToken: detailRebuild, onFinish: { dismiss() })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task(id: detent) {
+                        if lastBuiltDetent == nil { lastBuiltDetent = detent; return }
+                        guard detent != lastBuiltDetent else { return }
+                        try? await Task.sleep(nanoseconds: 450_000_000)
+                        guard !Task.isCancelled else { return }
+                        lastBuiltDetent = detent
+                        detailRebuild += 1
+                    }
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 fallbackDetail
             }

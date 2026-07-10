@@ -611,6 +611,13 @@ struct OnboardingView: View {
                 // the near-opaque material that read correctly there.
                 .modifier(TweenSheetSurface())
                 .presentationBackgroundInteraction(.enabled)
+                // A vertical swipe RESIZES the sheet in preference to
+                // scrolling its content (scrolling still works at the top
+                // detent) — without this, the results/suggestions ScrollView
+                // and the detent gesture fought over every drag whenever the
+                // search field had text, which is exactly the "clunky and
+                // boxy, not smooth like when it's empty" device feedback.
+                .presentationContentInteraction(.resizes)
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
                 // Secondary sheets are presented from *within* the bottom sheet's
@@ -831,6 +838,15 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
+        // Dragging the results down slides the keyboard out with the finger
+        // instead of leaving it planted over a resizing sheet.
+        .scrollDismissesKeyboard(.interactively)
+        .onChange(of: selectedSheetDetent) { _, detent in
+            // Collapsing to the peek pill ends the editing session — holding
+            // first responder under a collapsed sheet kept the keyboard (and
+            // its re-focus) fighting the drag whenever the field had text.
+            if detent == .height(Tokens.Layout.sheetPeekHeight) { searchFocused = false }
+        }
         .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)
@@ -848,14 +864,25 @@ struct OnboardingView: View {
     /// presence (+ result cards once a search is committed).
     @ViewBuilder
     private var mapPanel: some View {
-        switch searchState {
-        case .suggesting:
-            suggestionsList
-        case .idle, .results:
-            categoryChips
-            Divider()
-            resultsScroll
+        // Cross-fade between the two phases: the old hard identity swap
+        // (suggestion list ⟷ chips + result cards) replaced the whole
+        // subtree with no transition, which read as a boxy jump whenever a
+        // drag or keystroke crossed a state boundary (device feedback).
+        Group {
+            switch searchState {
+            case .suggesting:
+                suggestionsList
+                    .transition(.opacity)
+            case .idle, .results:
+                VStack(spacing: Tokens.Spacing.s3) {
+                    categoryChips
+                    Divider()
+                    resultsScroll
+                }
+                .transition(.opacity)
+            }
         }
+        .animation(Tokens.Motion.snappy, value: searchState)
     }
 
     /// Compact completer-driven suggestion rows shown while the user types.
@@ -1160,17 +1187,13 @@ struct OnboardingView: View {
             Button { activeSheet = .contacts } label: {
                 Label("Add Friend", systemImage: "person.badge.plus")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .tint(Tokens.Palette.brand)
+            .buttonStyle(.tweenPrimary())
             .accessibilityHint("Picks someone from your contacts")
 
             Button { activeSheet = .invite } label: {
                 Label("Invite", systemImage: "square.and.arrow.up")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .tint(Tokens.Palette.brand)
+            .buttonStyle(.tweenPrimary(.subtle))
             .accessibilityHint("Shares an invite link to Tween")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1522,9 +1545,7 @@ struct OnboardingView: View {
                 Label("Leave", systemImage: "xmark.circle")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(Tokens.Palette.destructive)
+            .buttonStyle(.tweenPrimary(.destructive))
             .accessibilityHint("Stops sharing your location")
         } else {
             Button(action: imIn) {
@@ -2183,6 +2204,14 @@ struct OnboardingView: View {
         LocationCache.clearAgreedMeetup()
         agreedMeetup = nil
         selectedResult = nil
+        // Explicit, not just via the refresh below — the recompute path
+        // depends on lastActiveConversationKey being set, and a stale
+        // proposal card surviving a leave is exactly the "leftover state
+        // after I'm out" the device feedback flagged.
+        pendingProposal = nil
+        // A staged "Send to chat" hand-off is a pending message; leaving must
+        // not let the extension re-adopt it within its 15-min handoff window.
+        OutgoingDraftStore.clear()
         _ = refreshFromAppGroup()
     }
 
@@ -3037,7 +3066,12 @@ struct OnboardingView: View {
 
         lastReplyAt = PingLog.lastIncomingReplyAt
         lastGenericInviteAt = PingLog.lastGenericInviteAt
-        if didChange {
+        // Camera writes obey the same self-jump gate as detent writes: a
+        // background poll/notification tick detecting a change (e.g. a peer
+        // coordinate update) must not yank the map out from under a user
+        // who has panned or zoomed. User-initiated refresh paths (.onAppear,
+        // scene resume, handleIncomingURL) still reframe as intended.
+        if didChange, !suppressPollDetentWrites {
             reframe()
         }
         return didChange

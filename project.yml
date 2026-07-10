@@ -102,6 +102,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppTests
+        GENERATE_INFOPLIST_FILE: YES
 
   TweenAppUITests:
     type: bundle.ui-testing
@@ -113,3 +114,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppUITests
+        GENERATE_INFOPLIST_FILE: YES
