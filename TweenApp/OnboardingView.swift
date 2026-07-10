@@ -795,6 +795,12 @@ struct OnboardingView: View {
             if pendingProposal != nil || agreedMeetup != nil {
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }
+            // Same first-tick race for the CAMERA: the suppressed poll tick
+            // can consume the initial App Group load, leaving the refresh
+            // above with didChange == false and restored peer pins framed
+            // off-screen. An explicit cold-open reframe is user-initiated by
+            // definition (post-push audit).
+            reframe()
         }
         .onReceive(appGroupDidChangePublisher) { _ in
             // Catches in-process writes (e.g. host app's own "I'm in" button).

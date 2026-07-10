@@ -275,23 +275,51 @@ final class MessagesViewController: MSMessagesAppViewController {
         if sendStatusMessage == Self.stagedDeliveryStatus {
             sendStatusMessage = nil
         }
-        // A staged leave commits only NOW: this is the moment the user
-        // actually sent it. deliverBubble deferred the revision floor and
-        // canonical snapshot for staged leaves; decoding the sent message
-        // (rather than relying on an ivar) keeps the commit correct even if
-        // the extension was torn down and relaunched in between. Idempotent
-        // if the leave was already committed via the direct-send path.
-        if let url = message.url, let state = TweenState(url: url),
-           state.messageType == .leave,
-           state.senderID == localParticipantID() {
-            if let revision = state.revision, let conversationKey {
-                ConversationMeetupStore.noteRevision(
-                    revision, sender: localParticipantID(), key: conversationKey)
-            }
-            recordCanonicalSnapshot(for: state)
-            commitDeliveredLeave(remaining: state.participants)
+        // A staged leave/agree commits only NOW: this is the moment the user
+        // actually sent it (deliverBubble deferred the revision floor and
+        // canonical snapshot for staged sends).
+        if let url = message.url, let state = TweenState(url: url) {
+            commitStagedSendIfNeeded(state, conversation: conversation)
         }
         presentUI(for: presentationStyle)
+    }
+
+    /// Commits a previously STAGED `.leave`/`.agree` now that it verifiably
+    /// went out — from `didStartSending` (user tapped send while the
+    /// extension was alive) or from the decode backstop in `decodeAndCache`
+    /// (extension was killed in between; the tapped own bubble proves
+    /// delivery). Decoding the sent message rather than relying on an ivar
+    /// keeps the commit correct across extension relaunches. Gated on:
+    ///   * the pending marker — only bubbles deliverBubble actually staged
+    ///     commit here (the direct-send path never sets it, so an already
+    ///     committed send can't re-enter);
+    ///   * the revision floor — a stale staged bubble (the floor advanced
+    ///     while it sat in the input field) is rejected by every peer via
+    ///     shouldAcceptInbound, so committing it locally would roll back
+    ///     canonical roster/proposal state peers no longer hold.
+    private func commitStagedSendIfNeeded(_ state: TweenState, conversation: MSConversation) {
+        let key = conversationKey ?? Self.conversationKey(for: conversation)
+        guard let pending = ConversationMeetupStore.pendingStagedSend(key: key),
+              pending == state.messageType else { return }
+        ConversationMeetupStore.setPendingStagedSend(nil, key: key)
+        if let revision = state.revision,
+           revision < ConversationMeetupStore.lastRevision(key: key) {
+            logger.debug("Skipping stale staged \(state.messageType.rawValue, privacy: .public) rev=\(revision, privacy: .public)")
+            return
+        }
+        if let revision = state.revision {
+            ConversationMeetupStore.noteRevision(
+                revision, sender: localParticipantID(), key: key)
+        }
+        recordCanonicalSnapshot(for: state)
+        switch state.messageType {
+        case .leave:
+            commitDeliveredLeave(remaining: state.participants)
+        case .agree:
+            commitDeliveredAgree(state)
+        default:
+            break
+        }
     }
 
     override func willResignActive(with conversation: MSConversation) {
@@ -327,7 +355,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     @discardableResult
     private func decodeAndCache(_ message: MSMessage?, in conversation: MSConversation) -> Bool {
         guard let message, let url = message.url, let state = TweenState(url: url) else { return false }
-        guard message.senderParticipantIdentifier != conversation.localParticipantIdentifier else { return false }
+        if message.senderParticipantIdentifier == conversation.localParticipantIdentifier {
+            // Own bubble: never decoded as inbound state — but if it's a
+            // staged .leave/.agree the user sent AFTER this extension was
+            // torn down (didStartSending never fired), this tap is the only
+            // proof it went out. Commit it now, or the leaver stays "in" on
+            // their own device forever (post-push audit backstop).
+            commitStagedSendIfNeeded(state, conversation: conversation)
+            return false
+        }
         // Revision guard (T1 old-bubble resurrection): every bubble is a
         // canonical roster snapshot, so without ordering, tapping an OLDER
         // bubble re-adopted its stale roster verbatim — a leaver popped back
@@ -876,7 +912,9 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
                 // only clear the status when it's still our in-progress copy.
                 if sendStatusMessage == "Sharing your location..." { sendStatusMessage = nil }
-            } else {
+            } else if !Task.isCancelled {
+                // A backgrounding-cancelled task must not stamp a failure
+                // banner for a send the user never saw fail (post-push audit).
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             presentUI(for: presentationStyle)
@@ -934,7 +972,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
                 // only clear the status when it's still our in-progress copy.
                 if sendStatusMessage == "Leaving this meetup..." { sendStatusMessage = nil }
-            } else {
+            } else if !Task.isCancelled {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             presentUI(for: presentationStyle)
@@ -958,9 +996,11 @@ final class MessagesViewController: MSMessagesAppViewController {
         LocationCache.clearAgreedMeetup()
         // Tombstone: peers who never tap this leave bubble will keep
         // sending rosters that include this user — decode filters
-        // those entries until an explicit rejoin.
+        // those entries until an explicit rejoin. Any staged-send marker
+        // from an earlier abandoned bubble is moot once a real leave lands.
         if let conversationKey {
             ConversationMeetupStore.setLocalUserLeft(true, key: conversationKey)
+            ConversationMeetupStore.setPendingStagedSend(nil, key: conversationKey)
         }
         // An in-flight ranking would repopulate the spot list right after
         // this reset; a surviving draft (in-memory or the App-Group
@@ -1036,13 +1076,12 @@ final class MessagesViewController: MSMessagesAppViewController {
             // stale coord that might land you in a worst-case route the
             // ranker would have rejected.
             let senderCoordinate: CLLocationCoordinate2D?
-            var activateSelfOnDelivery = false
             if let fresh = await acquireLocation() {
                 // Cache the fix but keep the prior active flag — activation
                 // (which the host app reads as "you're in") is committed only
-                // once the agree bubble is actually delivered.
+                // once the agree bubble is actually delivered
+                // (commitDeliveredAgree keys it off senderCoordinate).
                 LocationCache.save(fresh, isActive: LocationCache.isActive)
-                activateSelfOnDelivery = true
                 senderCoordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached
@@ -1116,41 +1155,59 @@ final class MessagesViewController: MSMessagesAppViewController {
             // bounced back to the iMessage thread. The receiver gets the same
             // view via didReceive → presentUI.
             let didSend = await sendBubbleNow(for: state)
-            if didSend {
-                if activateSelfOnDelivery {
-                    LocationCache.setActive(true)
-                }
-                self.currentParticipants = participants
-                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
-                // Agreeing means being in — clear any leave tombstone.
-                if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
-                }
-                // Persist the agreement so re-opening the extension (after iOS
-                // dispose, or after the user collapses + re-taps) re-renders
-                // MEETUP SET instead of the propose's Agree/Change buttons.
-                // Gated on delivery: a rejected send must not render MEETUP SET
-                // (or mark this user agreed) when no bubble ever left the device.
-                if state.isFullyAgreed {
-                    LocationCache.saveAgreedMeetup(state)
-                    if let conversationKey = self.conversationKey {
-                        ConversationMeetupStore.saveAgreed(state, key: conversationKey)
-                    }
-                } else if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.saveProposed(state, key: conversationKey)
-                }
-                self.received = self.effectiveReceived(decoded: state)
+            // Direct-send rejection stages the bubble — the user hasn't
+            // actually agreed until they tap send on it (they can delete it
+            // instead). Same deferral as handleImOut: the staged commit
+            // waits for didStartSending / the decode backstop, so a deleted
+            // staged agree can't leave this device rendering a MEETUP SET
+            // no peer ever saw (post-push audit).
+            if didSend, sendStatusMessage != Self.stagedDeliveryStatus {
+                commitDeliveredAgree(state)
             }
             isSending = false
             if didSend {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
                 // only clear the status when it's still our in-progress copy.
                 if sendStatusMessage == "Sending your agreement..." { sendStatusMessage = nil }
-            } else {
+            } else if !Task.isCancelled {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             self.presentUI(for: self.presentationStyle)
         }
+    }
+
+    /// The local-state half of an agree. Runs only once the agree bubble was
+    /// actually delivered (direct send) or actually sent by the user (staged
+    /// bubble → `commitStagedSendIfNeeded`).
+    private func commitDeliveredAgree(_ state: TweenState) {
+        // A usable coordinate rode along — agreeing means being in. When no
+        // fresh or cached fix existed the bubble omitted slat/slon and this
+        // device's opt-in state stays untouched, exactly as before.
+        if state.senderCoordinate != nil {
+            LocationCache.setActive(true)
+        }
+        currentParticipants = state.participants
+        LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
+        // Agreeing means being in — clear any leave tombstone (and any
+        // stale staged-send marker from an abandoned earlier bubble).
+        if let conversationKey {
+            ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
+            ConversationMeetupStore.setPendingStagedSend(nil, key: conversationKey)
+        }
+        // Persist the agreement so re-opening the extension (after iOS
+        // dispose, or after the user collapses + re-taps) re-renders
+        // MEETUP SET instead of the propose's Agree/Change buttons.
+        // Gated on real delivery: a rejected or still-staged send must not
+        // render MEETUP SET when no bubble ever reached the chat.
+        if state.isFullyAgreed {
+            LocationCache.saveAgreedMeetup(state)
+            if let conversationKey {
+                ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+            }
+        } else if let conversationKey {
+            ConversationMeetupStore.saveProposed(state, key: conversationKey)
+        }
+        received = effectiveReceived(decoded: state)
     }
 
     /// Counter-proposes a different spot, resetting agreement to zero. The
@@ -1264,7 +1321,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                 if sendStatusMessage == sendingMessage(for: state) {
                     sendStatusMessage = sentMessage(for: state)
                 }
-            } else {
+            } else if !Task.isCancelled {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             presentUI(for: presentationStyle)

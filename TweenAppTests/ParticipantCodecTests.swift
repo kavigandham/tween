@@ -693,6 +693,29 @@ final class ParticipantCodecTests: XCTestCase {
         XCTAssertEqual(ConversationMeetupStore.departedParticipants(key: key), ["gone-B"])
     }
 
+    func testPendingStagedSendRoundTripsAndClears() {
+        let key = "pending-staged"
+        XCTAssertNil(ConversationMeetupStore.pendingStagedSend(key: key))
+
+        ConversationMeetupStore.setPendingStagedSend(.leave, key: key)
+        XCTAssertEqual(ConversationMeetupStore.pendingStagedSend(key: key), .leave)
+
+        // Overwrite with a different staged type (the input field holds one
+        // bubble at a time, so last-staged wins).
+        ConversationMeetupStore.setPendingStagedSend(.agree, key: key)
+        XCTAssertEqual(ConversationMeetupStore.pendingStagedSend(key: key), .agree)
+
+        ConversationMeetupStore.setPendingStagedSend(nil, key: key)
+        XCTAssertNil(ConversationMeetupStore.pendingStagedSend(key: key))
+    }
+
+    func testPendingStagedSendIsConversationScoped() {
+        ConversationMeetupStore.setPendingStagedSend(.leave, key: "chat-A")
+        XCTAssertNil(ConversationMeetupStore.pendingStagedSend(key: "chat-B"),
+                     "A staged leave in one chat must not leak into another")
+        XCTAssertEqual(ConversationMeetupStore.pendingStagedSend(key: "chat-A"), .leave)
+    }
+
     func testLegacySnapshotFieldsMigrateToSyncAndDraftKeys() {
         let key = "legacy-migrate"
         let draft = OutgoingDraft(spotName: "Old Draft", latitude: 3, longitude: 4)

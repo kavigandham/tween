@@ -48,11 +48,18 @@ struct NativeSearchBar: UIViewRepresentable {
         // the sheet drag for the gesture (device feedback: clunky drags
         // whenever the field had text).
         let wasEditing = context.coordinator.appliedEditing
-        context.coordinator.appliedEditing = isEditing
-        if isEditing, !wasEditing, !bar.isFirstResponder, bar.window != nil {
-            bar.becomeFirstResponder()
-        } else if !isEditing, wasEditing, bar.isFirstResponder {
-            bar.resignFirstResponder()
+        if isEditing, !wasEditing {
+            // Latch only when the edge was actually APPLIED: consuming it
+            // while the bar is off-window (first update runs before window
+            // attach) would silently eat the focus request and the keyboard
+            // would never appear until focus toggled again.
+            if bar.window != nil {
+                context.coordinator.appliedEditing = true
+                if !bar.isFirstResponder { bar.becomeFirstResponder() }
+            }
+        } else if !isEditing, wasEditing {
+            context.coordinator.appliedEditing = false
+            if bar.isFirstResponder { bar.resignFirstResponder() }
         }
     }
 

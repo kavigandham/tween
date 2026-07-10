@@ -346,6 +346,35 @@ enum ConversationMeetupStore {
         saveSync(sync, key: key)
     }
 
+    // MARK: - Pending staged sends (extension bookkeeping)
+
+    /// Marks a `.leave`/`.agree` bubble that was STAGED in the input field
+    /// but not yet sent by the user. `deliverBubble` defers those commits to
+    /// `didStartSending`; if the extension dies before the user taps send,
+    /// this marker lets the next decode of the (by then sent) own bubble
+    /// commit as a backstop. The user deleting the staged bubble instead
+    /// leaves the marker set — harmless, because commits are additionally
+    /// gated on the revision floor and cleared by any later real commit.
+    /// Extension-private bookkeeping the host never renders, so no
+    /// MeetupSync post.
+    static func setPendingStagedSend(_ type: TweenState.MessageType?, key: String) {
+        let storage = pendingStagedKey(for: key)
+        if let type {
+            defaults?.set(type.rawValue, forKey: storage)
+        } else {
+            defaults?.removeObject(forKey: storage)
+        }
+    }
+
+    static func pendingStagedSend(key: String) -> TweenState.MessageType? {
+        defaults?.string(forKey: pendingStagedKey(for: key))
+            .flatMap(TweenState.MessageType.init(rawValue:))
+    }
+
+    private static func pendingStagedKey(for key: String) -> String {
+        "conversationMeetup.pendingStaged.\(key)"
+    }
+
     // MARK: - Departure tombstones (other participants)
 
     static func departedParticipants(key: String) -> Set<String> {
