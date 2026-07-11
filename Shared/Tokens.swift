@@ -180,6 +180,10 @@ enum Tokens {
         static let floating = Shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 4)
         static let sheet = Shadow(color: .black.opacity(0.12), radius: 20, x: 0, y: 8)
         static let pin = Shadow(color: .black.opacity(0.28), radius: 2, x: 0, y: 1)
+        /// Cheap card elevation for items that move during interactive
+        /// gestures (result cards in a resizing sheet): a tight blur costs a
+        /// fraction of `floating`'s 12px pass per card per frame.
+        static let card = Shadow(color: .black.opacity(0.16), radius: 5, x: 0, y: 3)
     }
 }
 

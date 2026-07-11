@@ -1196,7 +1196,9 @@ struct ExpandedView: View {
             // when their device is the local "self").
             ForEach(otherParticipants) { participant in
                 Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend, animated: false)
+                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend,
+                             initials: TweenPin.initials(for: participant.name),
+                             animated: false)
                 }
             }
 

@@ -487,14 +487,16 @@ struct OnboardingView: View {
             if isUserIn {
                 if let peer = peerCoordinate {
                     Annotation(peerDisplayName, coordinate: peer) {
-                        TweenPin(role: peerNeedsRide ? .rideNeeded : .friend)
+                        TweenPin(role: peerNeedsRide ? .rideNeeded : .friend,
+                                 initials: TweenPin.initials(for: peerDisplayName))
                     }
                 }
                 // Additional remote participants (groups of 3+). Each is named
                 // so the map matches what the iMessage bubble shows.
                 ForEach(additionalParticipants) { participant in
                     Annotation(participant.name, coordinate: participant.coordinate) {
-                        TweenPin(role: participant.needsRide ? .rideNeeded : .friend)
+                        TweenPin(role: participant.needsRide ? .rideNeeded : .friend,
+                                 initials: TweenPin.initials(for: participant.name))
                     }
                 }
                 if let midpoint {
@@ -1531,7 +1533,12 @@ struct OnboardingView: View {
 
     private var resultsScroll: some View {
         ScrollView {
-            VStack(spacing: Tokens.Spacing.s3) {
+            // Lazy: result cards carry shadows and action rows — rendering
+            // every card during an interactive sheet resize dropped frames
+            // exactly when the search bar had text (device feedback: "you
+            // can feel the stops"; the empty state has light content and
+            // stayed smooth).
+            LazyVStack(spacing: Tokens.Spacing.s3) {
                 if searchState == .idle {
                     presenceControls
                     discoverySections
@@ -1542,6 +1549,12 @@ struct OnboardingView: View {
             .padding(.horizontal)
             .padding(.bottom)
         }
+        // Below the top detent the visible slice can't meaningfully scroll —
+        // but a live scroll view still negotiates scroll-vs-resize on every
+        // drag frame, which reads as mid-gesture stops. Disable it until the
+        // sheet is at full height; drags then always resize, exactly like
+        // the empty state.
+        .scrollDisabled(selectedSheetDetent != .fraction(0.90))
     }
 
     @ViewBuilder
@@ -2215,6 +2228,11 @@ struct OnboardingView: View {
         // proposal card surviving a leave is exactly the "leftover state
         // after I'm out" the device feedback flagged.
         pendingProposal = nil
+        // Fairness rankings were computed against the meetup you just left —
+        // an open results list must drop its "You X min | Sam Y min" chips
+        // immediately, not keep scoring spots against the departed friend
+        // (device feedback: leaving must fully reset).
+        rankedSpots = []
         // A staged "Send to chat" hand-off is a pending message; leaving must
         // not let the extension re-adopt it within its 15-min handoff window.
         OutgoingDraftStore.clear()
@@ -2959,17 +2977,30 @@ struct OnboardingView: View {
         let remotes = roster.filter { !$0.matches(localContext) }
         let localParticipant = roster.first { $0.matches(localContext) }
 
+        // Peers exist for THIS device only while the local user is part of
+        // the meetup. The roster deliberately keeps the remaining group in
+        // the STORE after "I'm out" (a rejoin must restore everyone — D4),
+        // but projecting those coordinates into live state kept the leaver's
+        // search results ranking against the departed friend and showing
+        // "distance between you" chips (device feedback: leaving must fully
+        // reset, not just hide the pin).
+        let localIsMember = roster.contains { $0.matches(localContext) } || LocationCache.isOptedIn
         let newPeer: CLLocationCoordinate2D?
         let newPeerName: String
         let newPeerNeedsRide: Bool
         let newExtras: [Participant]
-        if let firstRemote = remotes.first {
+        if let firstRemote = remotes.first, localIsMember {
             newPeer = firstRemote.coordinate
             newPeerName = firstRemote.name
             newPeerNeedsRide = firstRemote.needsRide
             newExtras = Array(remotes.dropFirst())
-        } else {
+        } else if localIsMember {
             newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
+            newPeerName = "Friend"
+            newPeerNeedsRide = false
+            newExtras = []
+        } else {
+            newPeer = nil
             newPeerName = "Friend"
             newPeerNeedsRide = false
             newExtras = []

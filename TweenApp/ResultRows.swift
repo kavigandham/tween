@@ -277,7 +277,11 @@ struct ResultCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Tokens.Palette.surface)
         .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
-        .tweenElevation(.floating)
+        // Flatten before shadowing so the blur pass runs once per card, not
+        // once per subview — cards resize live with the sheet drag and the
+        // heavy floating shadow showed up as dropped frames (device feedback).
+        .compositingGroup()
+        .tweenElevation(.card)
     }
 
     /// Straight-line miles from the user to the spot; nil when we don't yet know
