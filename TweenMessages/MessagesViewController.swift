@@ -1000,7 +1000,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         // on every device that tapped it. "Am I in" is answered by
         // membership, not roster emptiness.
         currentParticipants = remaining
-        LocationCache.saveParticipantSnapshot(remaining, localContext: localParticipantContext())
+        // The scoped snapshot (recordCanonicalSnapshot .leave) keeps the
+        // rejoin roster; the un-TTL'd GLOBAL mirrors must not — a roster
+        // parked there outlived the snapshot's 24 h window and resurrected
+        // the departed peer in the host app (audit at 18c182a).
+        LocationCache.clearParticipants()
+        LocationCache.setPeerActive(false)
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
         // Tombstone: peers who never tap this leave bubble will keep

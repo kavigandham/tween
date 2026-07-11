@@ -2221,23 +2221,21 @@ struct OnboardingView: View {
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         noteOutgoingRevision(revision)
-        LocationCache.saveParticipantSnapshot(remaining, localContext: localContext)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
+            // The rejoin roster (D4) lives in the SCOPED snapshot only.
             ConversationMeetupStore.saveParticipants(remaining, key: key)
             ConversationMeetupStore.clearProposalState(key: key)
             // Tombstone: stale peer rosters must not re-add this user as "in".
             ConversationMeetupStore.setLocalUserLeft(true, key: key)
-        } else {
-            // No conversation identity to tombstone (the extension was never
-            // opened on this device — roster arrived purely via tween://
-            // URLs). The projection gate defaults OPEN on a nil key, so
-            // neutralize the legacy global mirrors directly or the departed
-            // roster keeps feeding the reply banner and future rankings
-            // (audit at 2b894b0). No D4 rejoin cost: without a scoped store
-            // there is no rejoin roster to preserve.
-            LocationCache.clearParticipants()
-            LocationCache.setPeerActive(false)
         }
+        // The GLOBAL mirrors never keep a departed conversation's roster:
+        // they have no TTL, so a roster parked there outlived the scoped
+        // snapshot's 24 h window and resurrected the departed peer in
+        // ranking/banners once the provenance gate lost its snapshot (audit
+        // at 18c182a). Rejoin reads the scoped snapshot (saveLocalParticipant),
+        // so clearing here costs nothing.
+        LocationCache.clearParticipants()
+        LocationCache.setPeerActive(false)
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
         agreedMeetup = nil
@@ -2310,7 +2308,14 @@ struct OnboardingView: View {
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
-        let participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) } + [
+        // Scoped snapshot first: it is the D4 rejoin roster — after a leave
+        // the global mirrors are deliberately EMPTY (they have no TTL and
+        // resurrected departed peers), so building the rejoin list from
+        // them would broadcast a roster of just [me].
+        let baseRoster = ConversationMeetupStore.lastActiveConversationKey
+            .flatMap { ConversationMeetupStore.load(key: $0)?.participants }
+            ?? LocationCache.loadParticipants()
+        let participants = baseRoster.filter { !$0.matches(localContext) } + [
             Participant(id: TweenIdentity.stableID, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
         ]
         LocationCache.saveParticipantSnapshot(participants, localContext: localContext)
@@ -3315,7 +3320,7 @@ struct OnboardingView: View {
                 }
             }
             var incoming = state.participants
-            if let activeConversationKey, ConversationMeetupStore.localUserLeft(key: activeConversationKey) {
+            if departedHere {
                 incoming.removeAll { $0.matches(localContext) }
             }
             let departed = activeConversationKey
@@ -3326,7 +3331,12 @@ struct OnboardingView: View {
                 messageType: state.messageType,
                 senderKeys: senderKeys,
                 departed: departed)
-            LocationCache.saveParticipantSnapshot(merged, localContext: localContext)
+            // Post-leave, the merged roster stays SCOPED-only: writing it to
+            // the un-TTL'd global mirrors would restock exactly the blob the
+            // hour-24 resurrection fires from (audit at 18c182a).
+            if !departedHere {
+                LocationCache.saveParticipantSnapshot(merged, localContext: localContext)
+            }
             if let activeConversationKey {
                 ConversationMeetupStore.saveParticipants(merged, key: activeConversationKey)
             }
@@ -3413,10 +3423,16 @@ struct OnboardingView: View {
             reframe()
 
         case .leave:
+            // Gated on the revision guard: a STALE leave URL (its sender may
+            // have since rejoined) must not tear down a newer agreement or
+            // roster the floor exists to protect. The MERGED roster saved
+            // above (departure-filtered by RosterMerge) is authoritative —
+            // the payload's verbatim roster never overwrites it (audit at
+            // 18c182a).
+            guard adoptRoster else { break }
             LocationCache.clearAgreedMeetup()
             if let activeConversationKey {
                 ConversationMeetupStore.clearProposalState(key: activeConversationKey)
-                ConversationMeetupStore.saveParticipants(state.participants, key: activeConversationKey)
             }
             agreedMeetup = nil
             // A proposal card from someone who just left is dead — dismiss
