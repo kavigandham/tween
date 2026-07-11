@@ -101,7 +101,17 @@ struct TweenPin: View {
         pin
             .transition(.scale.combined(with: .opacity))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(role.accessibilityName)
+            .accessibilityLabel(accessibilityLabelText)
+    }
+
+    /// The car badge is sighted-only, so the ride state must ride the label —
+    /// dropping it when the badge replaced the `.rideNeeded` role made ride
+    /// status invisible to VoiceOver (audit at 2b894b0). `.rideNeeded`'s own
+    /// name already announces it, so avoid the duplicate suffix there.
+    private var accessibilityLabelText: String {
+        needsRide && role != .rideNeeded
+            ? role.accessibilityName + ", needs a ride"
+            : role.accessibilityName
     }
 
     @ViewBuilder

@@ -2227,6 +2227,16 @@ struct OnboardingView: View {
             ConversationMeetupStore.clearProposalState(key: key)
             // Tombstone: stale peer rosters must not re-add this user as "in".
             ConversationMeetupStore.setLocalUserLeft(true, key: key)
+        } else {
+            // No conversation identity to tombstone (the extension was never
+            // opened on this device — roster arrived purely via tween://
+            // URLs). The projection gate defaults OPEN on a nil key, so
+            // neutralize the legacy global mirrors directly or the departed
+            // roster keeps feeding the reply banner and future rankings
+            // (audit at 2b894b0). No D4 rejoin cost: without a scoped store
+            // there is no rejoin roster to preserve.
+            LocationCache.clearParticipants()
+            LocationCache.setPeerActive(false)
         }
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
@@ -2998,8 +3008,15 @@ struct OnboardingView: View {
         // framed pins) before this user taps I'm in, and conversation A's
         // opt-in can't resurrect conversation B's departed roster
         // (post-push audit at 42fdc68).
-        let localLeft = ConversationMeetupStore.lastActiveConversationKey
-            .map { ConversationMeetupStore.localUserLeft(key: $0) } ?? false
+        // Provenance-matched: the tombstone only judges a roster that came
+        // from ITS conversation's snapshot. When the scoped snapshot is
+        // absent (TTL-expired, or a drawer-peek re-pointed the key at a
+        // thread this user left long ago) the roster above fell back to the
+        // GLOBAL participants blob — possibly a different, live meetup that
+        // key's tombstone has no authority over (audit at 2b894b0).
+        let localLeft = scopedSnapshot != nil
+            && (ConversationMeetupStore.lastActiveConversationKey
+                .map { ConversationMeetupStore.localUserLeft(key: $0) } ?? false)
         let newPeer: CLLocationCoordinate2D?
         let newPeerName: String
         let newPeerNeedsRide: Bool
@@ -3024,8 +3041,16 @@ struct OnboardingView: View {
         // deactivated flags — it must reset an open results list exactly
         // like the app-side leave (commitLeaveLocally) does, or the stale
         // "You X min | Sam Y min" chips survive until the next search.
-        if localLeft, !rankedSpots.isEmpty {
-            rankedSpots = []
+        if localLeft {
+            if !rankedSpots.isEmpty {
+                rankedSpots = []
+            }
+            // An open place sheet captured its ranked ETAs at present time —
+            // scored against the meetup just left. Solo-opened sheets carry
+            // ranked == nil (post-leave searches can't rank), so they stay.
+            if case .spot(let selection) = activeSheet, selection.ranked != nil {
+                activeSheet = nil
+            }
         }
 
         var didChange = false
@@ -3243,9 +3268,15 @@ struct OnboardingView: View {
         let myName = UserProfile.displayName ?? UserName.fallback
         let activeConversationKey = ConversationMeetupStore.lastActiveConversationKey
         let openedOwnProposal = state.kind == .place && state.senderName == myName
+        // "I left this conversation's meetup" — the same tombstone the
+        // projection gate reads. Direct peer writes below must respect it
+        // too, or a departed user tapping a fresh bubble gets the peer pin
+        // for one beat before the next refresh nils it (audit at 2b894b0).
+        let departedHere = activeConversationKey
+            .map { ConversationMeetupStore.localUserLeft(key: $0) } ?? false
 
         // Save the sender's coord as peer so the map can frame both pings.
-        if !openedOwnProposal, let peer = state.participantCoordinate {
+        if !openedOwnProposal, !departedHere, let peer = state.participantCoordinate {
             LocationCache.savePeer(peer, isActive: true)
             peerCoordinate = peer
             logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
@@ -3299,7 +3330,7 @@ struct OnboardingView: View {
             if let activeConversationKey {
                 ConversationMeetupStore.saveParticipants(merged, key: activeConversationKey)
             }
-            if let firstRemote = merged.first(where: { !$0.matches(localContext) }) {
+            if !departedHere, let firstRemote = merged.first(where: { !$0.matches(localContext) }) {
                 peerCoordinate = firstRemote.coordinate
             } else {
                 peerCoordinate = nil
