@@ -909,12 +909,13 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // recordCanonicalSnapshot.
                 LocationCache.setActive(true)
                 self.currentParticipants = participants
-                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
-                // Joining clears the leave tombstone — incoming rosters may
-                // include this user again.
+                // Tombstone FIRST: LocationCache's global-mirror writes are
+                // dammed while it's set (audit at 69a3886) — joining clears
+                // it, then the roster write goes through.
                 if let conversationKey = self.conversationKey {
                     ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
                 }
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
             }
             isSending = false
             if didSend {
@@ -1201,13 +1202,15 @@ final class MessagesViewController: MSMessagesAppViewController {
             LocationCache.setActive(true)
         }
         currentParticipants = state.participants
-        LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
-        // Agreeing means being in — clear any leave tombstone (and any
-        // stale staged-send marker from an abandoned earlier bubble).
+        // Agreeing means being in — clear the leave tombstone (and any
+        // stale staged-send marker) BEFORE the roster write: LocationCache's
+        // global-mirror writes are dammed while the tombstone is set
+        // (audit at 69a3886).
         if let conversationKey {
             ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
             ConversationMeetupStore.setPendingStagedSend(nil, key: conversationKey)
         }
+        LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
         // Persist the agreement so re-opening the extension (after iOS
         // dispose, or after the user collapses + re-taps) re-renders
         // MEETUP SET instead of the propose's Agree/Change buttons.

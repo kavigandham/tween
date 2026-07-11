@@ -87,9 +87,26 @@ enum LocationCache {
     // MARK: - Peer
 
     static func savePeer(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
+        guard !activeMeetupDeparted else {
+            setPeerActive(false)
+            return
+        }
         write(coordinate, at: date, key: peerKey, isActive: isActive)
         defaults?.set(isActive, forKey: peerActiveKey)   // legacy mirror
         MeetupSync.post()
+    }
+
+    /// True when the local user has LEFT the active conversation's meetup.
+    /// The global mirrors (participants blob + single-peer projection) are
+    /// projections of a LIVE membership — a departed conversation's roster
+    /// must never be parked here: this store has no TTL, so it outlives the
+    /// scoped snapshot's 24 h window and resurrected departed peers in the
+    /// host UI. One dam for every writer — per-call-site gates kept leaking
+    /// (the host's decode path got one, the extension's did not; audit at
+    /// 69a3886). Rejoin paths clear the tombstone BEFORE writing the roster.
+    private static var activeMeetupDeparted: Bool {
+        guard let key = ConversationMeetupStore.lastActiveConversationKey else { return false }
+        return ConversationMeetupStore.localUserLeft(key: key)
     }
 
     static func loadPeer() -> CachedCoord? {
@@ -142,6 +159,12 @@ enum LocationCache {
     // can keep using `loadPeer`/`savePeer` until they're updated.
 
     static func saveParticipants(_ participants: [Participant]) {
+        guard !activeMeetupDeparted else {
+            // Self-heal: scrub residue instead of merely refusing, so any
+            // post-leave write path leaves the mirrors clean.
+            clearParticipants()
+            return
+        }
         guard let data = try? JSONEncoder().encode(participants) else { return }
         defaults?.set(data, forKey: participantsKey)
         MeetupSync.post()

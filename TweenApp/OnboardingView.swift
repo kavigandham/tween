@@ -2158,10 +2158,11 @@ struct OnboardingView: View {
     private func leave() {
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
+        let roster = scopedFirstRoster()
         let fallbackCoordinate = LocationCache.loadSelf()?.coordinate
-            ?? LocationCache.loadParticipants().first(where: { $0.matches(localContext) })?.coordinate
+            ?? roster.first(where: { $0.matches(localContext) })?.coordinate
             ?? Self.defaultCenter
-        let remainingParticipants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
+        let remainingParticipants = roster.filter { !$0.matches(localContext) }
         // Nothing commits here. Leaving takes effect only once the leave
         // bubble is actually sent (commitLeaveLocally, via onSent) — the same
         // didSend gating the extension uses. Committing up front left this
@@ -2305,25 +2306,35 @@ struct OnboardingView: View {
         return message
     }
 
+    /// The conversation-scoped roster when FRESH, else the legacy global
+    /// blob. The scoped snapshot is authoritative — it alone survives a
+    /// leave, carrying the D4 rejoin roster (the global mirrors are dammed
+    /// while the tombstone is set) — but a snapshot past its TTL is history,
+    /// not a live meetup, and must not be rebroadcast as current (audit at
+    /// 69a3886). One helper so every outgoing-roster read agrees.
+    private func scopedFirstRoster() -> [Participant] {
+        if let key = ConversationMeetupStore.lastActiveConversationKey,
+           let snapshot = ConversationMeetupStore.load(key: key),
+           Date().timeIntervalSince(snapshot.updatedAt) <= ConversationMeetupStore.snapshotTTL {
+            return snapshot.participants
+        }
+        return LocationCache.loadParticipants()
+    }
+
     private func saveLocalParticipant(_ coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
-        // Scoped snapshot first: it is the D4 rejoin roster — after a leave
-        // the global mirrors are deliberately EMPTY (they have no TTL and
-        // resurrected departed peers), so building the rejoin list from
-        // them would broadcast a roster of just [me].
-        let baseRoster = ConversationMeetupStore.lastActiveConversationKey
-            .flatMap { ConversationMeetupStore.load(key: $0)?.participants }
-            ?? LocationCache.loadParticipants()
-        let participants = baseRoster.filter { !$0.matches(localContext) } + [
+        let participants = scopedFirstRoster().filter { !$0.matches(localContext) } + [
             Participant(id: TweenIdentity.stableID, name: myName, coordinate: coordinate, needsRide: localNeedsRide)
         ]
-        LocationCache.saveParticipantSnapshot(participants, localContext: localContext)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             ConversationMeetupStore.saveParticipants(participants, key: key)
-            // Opting in clears any leave tombstone for this conversation.
+            // Opting in clears the leave tombstone — BEFORE the global
+            // write below, which LocationCache dams while it's set
+            // (audit at 69a3886).
             ConversationMeetupStore.setLocalUserLeft(false, key: key)
         }
+        LocationCache.saveParticipantSnapshot(participants, localContext: localContext)
         currentParticipants = participants
     }
 
@@ -2353,7 +2364,7 @@ struct OnboardingView: View {
 
     private func presentRideStatusMessage(needsRide: Bool, coordinate: CLLocationCoordinate2D) {
         let myName = UserProfile.displayName ?? UserName.fallback
-        let participants = LocationCache.loadParticipants()
+        let participants = scopedFirstRoster()
         let revision = nextOutgoingRevisionForActiveConversation()
         let state = TweenState(
             text: needsRide ? "I need a ride" : "I can meet there",
@@ -2584,7 +2595,7 @@ struct OnboardingView: View {
     private func proposalParticipantsForCurrentContext() -> [Participant] {
         let myName = UserProfile.displayName ?? UserName.fallback
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
-        var participants = LocationCache.loadParticipants().filter { !$0.matches(localContext) }
+        var participants = scopedFirstRoster().filter { !$0.matches(localContext) }
         if let savedCoordinate {
             participants.append(Participant(id: TweenIdentity.stableID, name: myName, coordinate: savedCoordinate, needsRide: localNeedsRide))
         }
@@ -3325,8 +3336,12 @@ struct OnboardingView: View {
             }
             let departed = activeConversationKey
                 .map { ConversationMeetupStore.departedParticipants(key: $0) } ?? []
+            // Scoped-first merge base (parity with the extension's decode):
+            // post-leave the global blob is deliberately empty, and merging
+            // against [] would collapse the D4 rejoin roster to one sender's
+            // partial view (audit at 69a3886).
             let merged = RosterMerge.merge(
-                local: LocationCache.loadParticipants(),
+                local: scopedFirstRoster(),
                 incoming: incoming,
                 messageType: state.messageType,
                 senderKeys: senderKeys,
@@ -3348,8 +3363,10 @@ struct OnboardingView: View {
         }
         // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
         // proposals, and agrees from a peer. Plain `tween://search` deep links
-        // (handled above) and self-opened URLs shouldn't inflate the banner.
-        if !openedOwnProposal && (state.kind == .participant || state.messageType == .agree || state.messageType == .leave) {
+        // (handled above), self-opened URLs, and STALE payloads the revision
+        // guard rejected (audit at 69a3886) shouldn't inflate the banner.
+        if !openedOwnProposal && adoptRoster
+            && (state.kind == .participant || state.messageType == .agree || state.messageType == .leave) {
             PingLog.lastIncomingReplyAt = Date()
             lastReplyAt = PingLog.lastIncomingReplyAt
         }
