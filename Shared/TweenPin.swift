@@ -77,14 +77,20 @@ struct TweenPin: View {
     /// Person initials shown inside avatar pins (friend / ride roles). Nil
     /// falls back to a person glyph so legacy call sites keep rendering.
     var initials: String? = nil
+    /// Adds the small car badge as an ORTHOGONAL overlay on whichever family
+    /// the role renders — the You dot stays a You dot when you need a ride,
+    /// instead of turning into an anonymous friend avatar (post-push audit
+    /// at 42fdc68). The legacy `.rideNeeded` role keeps working: it renders
+    /// the avatar family with the badge forced on.
+    var needsRide: Bool = false
     /// When false, animated effects are suppressed. The extension's live
     /// `Map` passes `false` so a continuously animating glyph doesn't keep
     /// `MKMapView`'s render loop hot (memory/GPU pressure under the ~120 MB
     /// ceiling).
     var animated: Bool = true
 
-    /// "Hassan Ahmed" → "HA"; single names give one letter. Shared here so
-    /// the host map, extension map, and bubble renderer agree on avatars.
+    /// "Hassan Ahmed" → "HA"; single names give one letter. Shared so the
+    /// host map and extension map agree on avatars.
     static func initials(for name: String) -> String {
         let letters = name.split(separator: " ").prefix(2)
             .compactMap { $0.first.map(String.init) }
@@ -113,19 +119,25 @@ struct TweenPin: View {
     // MARK: - You: the classic location dot
 
     private var selfDot: some View {
-        ZStack {
-            if role == .selfActive {
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                if role == .selfActive {
+                    Circle()
+                        .fill(Tokens.Palette.pinSelf.opacity(0.18))
+                        .frame(width: 46, height: 46)
+                }
                 Circle()
-                    .fill(Tokens.Palette.pinSelf.opacity(0.18))
-                    .frame(width: 46, height: 46)
+                    .fill(.white)
+                    .frame(width: 26, height: 26)
+                    .tweenElevation(.pin)
+                Circle()
+                    .fill(Tokens.Palette.pinSelf)
+                    .frame(width: 19, height: 19)
             }
-            Circle()
-                .fill(.white)
-                .frame(width: 26, height: 26)
-                .tweenElevation(.pin)
-            Circle()
-                .fill(Tokens.Palette.pinSelf)
-                .frame(width: 19, height: 19)
+            if needsRide {
+                rideBadge
+                    .offset(x: 5, y: 5)
+            }
         }
     }
 
@@ -150,17 +162,21 @@ struct TweenPin: View {
             .overlay(Circle().strokeBorder(.white, lineWidth: 2.5))
             .tweenElevation(.pin)
 
-            if role == .rideNeeded {
-                ZStack {
-                    Circle().fill(.white)
-                    Image(systemName: "car.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Tokens.Palette.pinRideNeeded)
-                }
-                .frame(width: 17, height: 17)
-                .offset(x: 3, y: 3)
+            if needsRide || role == .rideNeeded {
+                rideBadge
+                    .offset(x: 3, y: 3)
             }
         }
+    }
+
+    private var rideBadge: some View {
+        ZStack {
+            Circle().fill(.white)
+            Image(systemName: "car.fill")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Tokens.Palette.pinRideNeeded)
+        }
+        .frame(width: 17, height: 17)
     }
 
     // MARK: - Spots: compact glyph circles

@@ -476,7 +476,9 @@ struct OnboardingView: View {
         Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
                 Annotation("You", coordinate: coord) {
-                    TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot))
+                    // Self stays in the location-dot family even when a ride
+                    // is needed — the badge overlays it (post-push audit).
+                    TweenPin(role: isUserIn ? .selfActive : .selfDot, needsRide: localNeedsRide)
                 }
             }
             // The meetup layer (friends, midpoint, agreement) renders only
@@ -487,16 +489,22 @@ struct OnboardingView: View {
             if isUserIn {
                 if let peer = peerCoordinate {
                     Annotation(peerDisplayName, coordinate: peer) {
-                        TweenPin(role: peerNeedsRide ? .rideNeeded : .friend,
-                                 initials: TweenPin.initials(for: peerDisplayName))
+                        // The legacy single-peer fallback names its entry
+                        // "Friend" — a placeholder, not a name; show the
+                        // person glyph rather than a bare "F" avatar.
+                        TweenPin(role: .friend,
+                                 initials: peerDisplayName == "Friend"
+                                    ? nil : TweenPin.initials(for: peerDisplayName),
+                                 needsRide: peerNeedsRide)
                     }
                 }
                 // Additional remote participants (groups of 3+). Each is named
                 // so the map matches what the iMessage bubble shows.
                 ForEach(additionalParticipants) { participant in
                     Annotation(participant.name, coordinate: participant.coordinate) {
-                        TweenPin(role: participant.needsRide ? .rideNeeded : .friend,
-                                 initials: TweenPin.initials(for: participant.name))
+                        TweenPin(role: .friend,
+                                 initials: TweenPin.initials(for: participant.name),
+                                 needsRide: participant.needsRide)
                     }
                 }
                 if let midpoint {
@@ -1549,12 +1557,13 @@ struct OnboardingView: View {
             .padding(.horizontal)
             .padding(.bottom)
         }
-        // Below the top detent the visible slice can't meaningfully scroll —
-        // but a live scroll view still negotiates scroll-vs-resize on every
-        // drag frame, which reads as mid-gesture stops. Disable it until the
-        // sheet is at full height; drags then always resize, exactly like
-        // the empty state.
-        .scrollDisabled(selectedSheetDetent != .fraction(0.90))
+        // Below the top detent a live scroll view negotiates scroll-vs-
+        // resize on every drag frame, which reads as mid-gesture stops.
+        // Scoped to the RESULTS state (the heavy content that stuttered) —
+        // the idle discovery stack must stay scrollable at the half detent
+        // or its lower rows become unreachable on smaller devices
+        // (post-push audit at 42fdc68).
+        .scrollDisabled(searchState == .results && selectedSheetDetent != .fraction(0.90))
     }
 
     @ViewBuilder
@@ -2977,24 +2986,30 @@ struct OnboardingView: View {
         let remotes = roster.filter { !$0.matches(localContext) }
         let localParticipant = roster.first { $0.matches(localContext) }
 
-        // Peers exist for THIS device only while the local user is part of
-        // the meetup. The roster deliberately keeps the remaining group in
-        // the STORE after "I'm out" (a rejoin must restore everyone — D4),
-        // but projecting those coordinates into live state kept the leaver's
-        // search results ranking against the departed friend and showing
-        // "distance between you" chips (device feedback: leaving must fully
-        // reset, not just hide the pin).
-        let localIsMember = roster.contains { $0.matches(localContext) } || LocationCache.isOptedIn
+        // Peers stop existing for THIS device once the local user LEFT the
+        // conversation's meetup. The roster deliberately keeps the remaining
+        // group in the STORE after "I'm out" (a rejoin must restore everyone
+        // — D4), but projecting those coordinates into live state kept the
+        // leaver's search results ranking against the departed friend and
+        // showing "distance between you" chips (device feedback: leaving
+        // must fully reset, not just hide the pin). Keyed on the
+        // per-conversation leave TOMBSTONE — not membership/opt-in — so a
+        // pinged friend who joined FIRST still previews (reply banner,
+        // framed pins) before this user taps I'm in, and conversation A's
+        // opt-in can't resurrect conversation B's departed roster
+        // (post-push audit at 42fdc68).
+        let localLeft = ConversationMeetupStore.lastActiveConversationKey
+            .map { ConversationMeetupStore.localUserLeft(key: $0) } ?? false
         let newPeer: CLLocationCoordinate2D?
         let newPeerName: String
         let newPeerNeedsRide: Bool
         let newExtras: [Participant]
-        if let firstRemote = remotes.first, localIsMember {
+        if let firstRemote = remotes.first, !localLeft {
             newPeer = firstRemote.coordinate
             newPeerName = firstRemote.name
             newPeerNeedsRide = firstRemote.needsRide
             newExtras = Array(remotes.dropFirst())
-        } else if localIsMember {
+        } else if !localLeft {
             newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
             newPeerName = "Friend"
             newPeerNeedsRide = false
@@ -3004,6 +3019,13 @@ struct OnboardingView: View {
             newPeerName = "Friend"
             newPeerNeedsRide = false
             newExtras = []
+        }
+        // An extension-side leave reaches this device as the tombstone +
+        // deactivated flags — it must reset an open results list exactly
+        // like the app-side leave (commitLeaveLocally) does, or the stale
+        // "You X min | Sam Y min" chips survive until the next search.
+        if localLeft, !rankedSpots.isEmpty {
+            rankedSpots = []
         }
 
         var didChange = false

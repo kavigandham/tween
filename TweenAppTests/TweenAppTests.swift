@@ -183,6 +183,20 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(TweenPin.Role.friend.accessibilityName, "Your friend's location")
         XCTAssertEqual(TweenPin.Role.fairSpot.accessibilityName, "Best fair meetup spot")
         XCTAssertEqual(TweenPin.Role.closestToUser.accessibilityName, "Place closest to you")
+        XCTAssertEqual(TweenPin.Role.rideNeeded.accessibilityName, "Participant needs a ride")
+        XCTAssertEqual(TweenPin.Role.selfActive.accessibilityName, "Your shared location")
+        XCTAssertEqual(TweenPin.Role.result.accessibilityName, "Search result")
+        XCTAssertEqual(TweenPin.Role.midpoint.accessibilityName, "Geographic midpoint")
+    }
+
+    func testPinAvatarInitials() {
+        XCTAssertEqual(TweenPin.initials(for: "Hassan Ahmed"), "HA")
+        XCTAssertEqual(TweenPin.initials(for: "Sam"), "S")
+        XCTAssertEqual(TweenPin.initials(for: "Kavi G Extra Names"), "KG")
+        XCTAssertEqual(TweenPin.initials(for: "sam ahmed"), "SA")
+        XCTAssertEqual(TweenPin.initials(for: ""), "",
+                       "Empty names fall back to the person glyph, not a crash")
+        XCTAssertEqual(TweenPin.initials(for: "   "), "")
     }
 
     func testMapLinksUsePlaceNameAndCoordinate() throws {

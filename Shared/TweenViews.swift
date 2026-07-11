@@ -1187,7 +1187,8 @@ struct ExpandedView: View {
                 let myId = localParticipantID ?? myName
                 let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
                 Annotation("You", coordinate: selfCoord) {
-                    TweenPin(role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot), animated: false)
+                    TweenPin(role: isUserIn ? .selfActive : .selfDot,
+                             needsRide: localNeedsRide, animated: false)
                 }
             }
 
@@ -1196,8 +1197,9 @@ struct ExpandedView: View {
             // when their device is the local "self").
             ForEach(otherParticipants) { participant in
                 Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: participant.needsRide ? .rideNeeded : .friend,
+                    TweenPin(role: .friend,
                              initials: TweenPin.initials(for: participant.name),
+                             needsRide: participant.needsRide,
                              animated: false)
                 }
             }
