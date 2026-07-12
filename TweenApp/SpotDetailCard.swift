@@ -285,11 +285,12 @@ struct SpotDetailCard: View {
 
             if let ranked {
                 // Every person's own drive time (device feedback), plus a
-                // plain-language fairness line — no "X min spread" jargon.
+                // plain-language line on how even this one spot is. Single spot,
+                // so no best-of-list comparison — the caption stays neutral.
                 SpotETAStrip(spot: ranked)
                 Text(SpotETADisplay.fairnessCaption(for: ranked))
                     .font(Tokens.Typography.caption)
-                    .foregroundStyle(SpotETADisplay.fairnessColor(for: ranked))
+                    .foregroundStyle(Tokens.Palette.textSecondary)
             }
 
             if richDetailItem != nil {

@@ -75,9 +75,17 @@ final class SpotETADisplayTests: XCTestCase {
         XCTAssertFalse(uneven.contains("spread"), uneven)
     }
 
-    func testFairnessWordTiers() {
-        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 480), ("B", 540)])), "Even")
-        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 300), ("B", 900)])), "Fair")
-        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 120), ("B", 1500)])), "Uneven")
+    func testQualityWordRelativeToBest() {
+        // Colour/word reflect how much WORSE a spot is than the best option, not
+        // evenness (device feedback: a far-but-even spot must not read "Fair").
+        let best: TimeInterval = 600
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 600), ("B", 500)]), bestWorstETA: best), "Fair")   // at best
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 1000), ("B", 800)]), bestWorstETA: best), "Longer") // +400s
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 1600), ("B", 800)]), bestWorstETA: best), "Far")    // +1000s
+        // A far-but-even spot (both drive ~55 min) is NOT "Fair" when a closer
+        // option exists — the core bug this fixes.
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 3300), ("B", 3300)]), bestWorstETA: best), "Far")
+        // A single spot (nil reference) compares to itself → "Fair".
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 3300), ("B", 3300)])), "Fair")
     }
 }

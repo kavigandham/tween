@@ -219,6 +219,9 @@ struct ResultCard: View {
     /// True for the single fairest spot in a ranked search — badged so the
     /// "best spot" reads at a glance, like the extension's starred card.
     var isBest: Bool = false
+    /// Shortest worst-case drive across the ranked results — the reference the
+    /// per-spot quality colour compares against.
+    var bestWorstETA: TimeInterval? = nil
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
@@ -265,10 +268,11 @@ struct ResultCard: View {
             }
 
             if let rankedSpot {
-                // Every participant's time (audit F1), not just A/B.
-                SpotETAStrip(spot: rankedSpot)
+                // Every participant's time (audit F1), not just A/B. Colours are
+                // quality-relative to the best result (`bestWorstETA`).
+                SpotETAStrip(spot: rankedSpot, bestWorstETA: bestWorstETA)
                 if rankedSpot.etas.count > 2 {
-                    SpotDriveBalance(spot: rankedSpot)
+                    SpotDriveBalance(spot: rankedSpot, bestWorstETA: bestWorstETA)
                 }
             }
 

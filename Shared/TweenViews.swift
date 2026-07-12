@@ -1138,10 +1138,14 @@ struct ExpandedView: View {
         }
     }
 
+    /// Shortest worst-case drive across the ranked spots — the reference the
+    /// per-spot quality colour compares against.
+    private var spotBestWorstETA: TimeInterval? { rankedSpots.map(\.worstETA).min() }
+
     @ViewBuilder
     private func spotCardPeople(_ spot: RankedSpot) -> some View {
         let extra = spot.etas.count - 4
-        let tint = SpotETADisplay.fairnessColor(for: spot)
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: spotBestWorstETA)
         VStack(alignment: .leading, spacing: 5) {
             ForEach(spot.etas.prefix(4)) { eta in
                 spotCardPersonRow(eta, tint: tint)
@@ -1184,31 +1188,38 @@ struct ExpandedView: View {
     }
 
     private func spotCardSpread(_ spot: RankedSpot) -> some View {
-        HStack(spacing: Tokens.Spacing.s1) {
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: spotBestWorstETA)
+        return HStack(spacing: Tokens.Spacing.s1) {
             Circle()
-                .fill(SpotETADisplay.fairnessColor(for: spot))
+                .fill(tint)
                 .frame(width: 7, height: 7)
-            Text(SpotETADisplay.fairnessWord(for: spot))
+            Text(SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA))
                 .font(Tokens.Typography.caption2Bold)
-                .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
+                .foregroundStyle(tint)
         }
     }
 
     /// The card rail's empty slot — ranking shimmer, waiting, or "no spots".
+    /// Compact horizontal layout so it doesn't waste a tall block of space
+    /// repeating the status (device feedback).
     private var panelEmptyState: some View {
-        VStack(spacing: Tokens.Spacing.s2) {
+        HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: emptySpotListIcon)
-                .font(Tokens.Typography.title2)
+                .font(.system(size: 22))
                 .foregroundStyle(Tokens.Palette.brand)
-            Text(emptySpotListTitle)
-                .font(Tokens.Typography.subheadline.weight(.semibold))
-                .foregroundStyle(Tokens.Palette.textPrimary)
-            Text(emptySpotListSubtitle)
-                .font(Tokens.Typography.caption)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(Tokens.Palette.textSecondary)
+                .frame(width: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(emptySpotListTitle)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text(emptySpotListSubtitle)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 120)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Spacing.s3)
         .background(Tokens.Palette.surface.opacity(0.6),
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
@@ -1240,7 +1251,10 @@ struct ExpandedView: View {
             if isRanking { return "Finding fair spots" }
             if hasEnoughPeopleForSpots { return "Ready to pick a spot" }
             if isWaitingForCoordinates { return "Getting locations" }
-            return isUserIn ? "Waiting for someone else" : "Find a fair spot"
+            // "You're in" (your status) — the "waiting for someone else"
+            // explanation lives once in the empty-state card, not repeated as
+            // the headline too (device feedback).
+            return isUserIn ? "You're in" : "Find a fair spot"
         }
         if received.kind == .place {
             return received.text
@@ -1843,14 +1857,10 @@ struct ExpandedView: View {
                     }
                 }
             } else if isUserIn {
-                Label(isWaitingForCoordinates ? "Getting locations..." : "Waiting for someone else",
-                      systemImage: isWaitingForCoordinates ? "location.circle" : "person.2")
-                    .lineLimit(1)
-                    .font(Tokens.Typography.subheadline.weight(.semibold))
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                    .background(Tokens.Palette.surfaceSecondary, in: Capsule())
-                    .accessibilityHint(isWaitingForCoordinates ? "Tween is waiting for shared locations" : "Fair spots appear once at least two people are in")
+                // The waiting / getting-locations status is already the panel's
+                // empty-state card — a duplicate CTA label just repeated
+                // "Waiting for someone else" a fourth time (device feedback).
+                EmptyView()
             } else if !isUserIn {
                 Button(action: onImIn) {
                     if isSending {

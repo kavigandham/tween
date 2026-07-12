@@ -32,7 +32,7 @@ enum SpotETADisplay {
     /// One-line summary for tight trailing slots (result-list rows) and map-pin
     /// labels. Names + times for ≤2, a "N people · X spread" summary at 3+ so
     /// the pill stays compact.
-    static func compactLabel(for spot: RankedSpot) -> String {
+    static func compactLabel(for spot: RankedSpot, bestWorstETA: TimeInterval? = nil) -> String {
         let etas = spot.etas
         if etas.isEmpty {
             return "A \(formatETA(spot.etaFromA)) · B \(formatETA(spot.etaFromB))"
@@ -40,7 +40,7 @@ enum SpotETADisplay {
         if etas.count <= 2 {
             return etas.map { "\($0.name) \(formatETA($0.eta))" }.joined(separator: " · ")
         }
-        return "\(etas.count) people · \(fairnessWord(for: spot))"
+        return "\(etas.count) people · \(qualityWord(for: spot, bestWorstETA: bestWorstETA))"
     }
 
     /// Plain-language fairness for the place sheet — no "X min spread" jargon
@@ -54,20 +54,32 @@ enum SpotETADisplay {
         }
     }
 
-    /// One-word fairness tag for a compact chip.
-    static func fairnessWord(for spot: RankedSpot) -> String {
-        switch spot.fairnessSpread {
-        case ..<300: return "Even"
-        case ..<900: return "Fair"
-        default:     return "Uneven"
-        }
+    /// How much WORSE this spot is than the best option — its worst-case drive
+    /// minus the shortest worst-case drive in the results. 0 for the best spot.
+    /// A single spot (nil reference) compares to itself → 0 → "as good as it gets".
+    private static func qualityDelta(_ spot: RankedSpot, _ bestWorstETA: TimeInterval?) -> TimeInterval {
+        spot.worstETA - (bestWorstETA ?? spot.worstETA)
     }
 
-    static func fairnessColor(for spot: RankedSpot) -> Color {
-        switch spot.fairnessSpread {
+    /// Colour a spot by QUALITY relative to the BEST option, NOT by evenness
+    /// (device feedback: a far-but-even 55-min spot must not read green while a
+    /// 14-min best reads yellow). Best + options within ~5 min are green, a bit
+    /// longer is yellow, much longer is orange. `bestWorstETA` = the shortest
+    /// worst-case drive among the current ranked spots (`rankedSpots.map(\.worstETA).min()`).
+    static func qualityColor(for spot: RankedSpot, bestWorstETA: TimeInterval? = nil) -> Color {
+        switch qualityDelta(spot, bestWorstETA) {
         case ..<300: return Tokens.Palette.fairnessGood
         case ..<900: return Tokens.Palette.fairnessOkay
         default:     return Tokens.Palette.fairnessPoor
+        }
+    }
+
+    /// One-word quality tag for a compact chip (relative to the best option).
+    static func qualityWord(for spot: RankedSpot, bestWorstETA: TimeInterval? = nil) -> String {
+        switch qualityDelta(spot, bestWorstETA) {
+        case ..<300: return "Fair"
+        case ..<900: return "Longer"
+        default:     return "Far"
         }
     }
 
@@ -118,13 +130,16 @@ enum SpotETADisplay {
 /// card + place sheet and the extension's spot rows so both render identically.
 struct SpotETAStrip: View {
     let spot: RankedSpot
+    /// Shortest worst-case drive among the current results (for the quality
+    /// colour). Nil for a single spot with nothing to compare against.
+    var bestWorstETA: TimeInterval? = nil
 
     var body: some View {
-        // Tint every time pill by the spot's fairness (green even / yellow fair /
-        // orange uneven), so you can tell at a glance which spot is best — the
-        // color-coded time bubbles from the old A/B chip, restored per-person
-        // (device feedback). All pills in one spot share the spot's fairness.
-        let tint = SpotETADisplay.fairnessColor(for: spot)
+        // Tint every time pill by QUALITY relative to the best option — green
+        // when this spot is as good as it gets, yellow/orange as it gets longer
+        // (device feedback: a far-but-even spot must not read green). Restores
+        // the scannable color-coded time bubble, per-person.
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: bestWorstETA)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Tokens.Spacing.s1) {
                 let chips = SpotETADisplay.chipItems(for: spot)
@@ -136,11 +151,11 @@ struct SpotETAStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Drive times")
-        .accessibilityValue(SpotETADisplay.compactLabel(for: spot))
+        .accessibilityValue(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
     }
 }
 
-/// One name/label + time capsule. `tint` fairness-colors the time + its bubble.
+/// One name/label + time capsule. `tint` colours the time + its bubble.
 struct SpotETAChip: View {
     let label: String
     let value: String
@@ -166,19 +181,21 @@ struct SpotETAChip: View {
 /// Shows both names/times for a pair, a "N people · spread" summary at 3+.
 struct SpotETASummaryPill: View {
     let spot: RankedSpot
+    var bestWorstETA: TimeInterval? = nil
 
     var body: some View {
-        Text(SpotETADisplay.compactLabel(for: spot))
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: bestWorstETA)
+        Text(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
             .font(Tokens.Typography.captionBold.monospacedDigit())
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .padding(.horizontal, Tokens.Spacing.s3)
             .padding(.vertical, Tokens.Spacing.s2)
-            .background(SpotETADisplay.fairnessColor(for: spot).opacity(0.18), in: Capsule())
-            .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
+            .background(tint.opacity(0.18), in: Capsule())
+            .foregroundStyle(tint)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Drive times")
-            .accessibilityValue(SpotETADisplay.compactLabel(for: spot))
+            .accessibilityValue(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
     }
 }
 
@@ -187,17 +204,19 @@ struct SpotETASummaryPill: View {
 /// strip alone doesn't convey how lopsided the trip is.
 struct SpotDriveBalance: View {
     let spot: RankedSpot
+    var bestWorstETA: TimeInterval? = nil
 
     var body: some View {
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: bestWorstETA)
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Who drives how long")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                 Spacer(minLength: 0)
-                Text(SpotETADisplay.fairnessWord(for: spot))
+                Text(SpotETADisplay.qualityWord(for: spot, bestWorstETA: bestWorstETA))
                     .font(Tokens.Typography.caption2Bold)
-                    .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
+                    .foregroundStyle(tint)
             }
 
             GeometryReader { proxy in
@@ -210,7 +229,7 @@ struct SpotDriveBalance: View {
                         .offset(y: 11)
 
                     Capsule()
-                        .fill(SpotETADisplay.fairnessColor(for: spot).opacity(0.22))
+                        .fill(tint.opacity(0.22))
                         .frame(width: SpotETADisplay.spreadWidth(for: spot, trackWidth: trackWidth), height: 8)
                         .offset(x: SpotETADisplay.spreadStart(for: spot, trackWidth: trackWidth), y: 11)
 

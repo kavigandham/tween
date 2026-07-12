@@ -1832,6 +1832,7 @@ struct OnboardingView: View {
                     rankedSpot: rankedMatch(for: item),
                     userCoord: savedCoordinate,
                     isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
+                    bestWorstETA: rankedSpots.map(\.worstETA).min(),
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
@@ -3075,6 +3076,14 @@ struct OnboardingView: View {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.region = region
+        // Constrain the search to the meetup area (not just a hint), so a query
+        // with no LOCAL name match generalises to the IDEA within the region —
+        // like Apple/Google Maps, "unlimited sushi" → nearby sushi restaurants,
+        // instead of a business literally named "Sushi Unlimited" on the far side
+        // of the world (device feedback). Older iOS keeps the region as a hint.
+        if #available(iOS 18.0, *) {
+            request.regionPriority = .required
+        }
         return (try? await MKLocalSearch(request: request).start().mapItems) ?? []
     }
 
