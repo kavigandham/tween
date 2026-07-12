@@ -167,6 +167,16 @@ final class MessagesViewController: MSMessagesAppViewController {
             recentlySentSpotName = nil
             isRanking = false
             rankingTask?.cancel()
+            // An in-flight send belongs to the chat it started in — abandon it so
+            // its post-await status/roster commit can't bleed into (or block) this
+            // one, and clear the stuck `isSending` that would disable this chat's
+            // CTAs. The canonical snapshot it may still write is keyed to its OWN
+            // conversation (deliverBubble captures the key), so state stays correct.
+            sendTask?.cancel()
+            isSending = false
+            // A memory-degraded static map is per-conversation — don't carry the
+            // fallback into the next chat's fresh render.
+            mapDegraded = false
             // Sessions are per-conversation; never reuse one across chats.
             lastKnownSession = nil
         }
@@ -320,7 +330,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         ConversationMeetupStore.noteRevision(
             revision, sender: localParticipantID(), key: key)
-        recordCanonicalSnapshot(for: state)
+        recordCanonicalSnapshot(for: state, key: key)
         switch state.messageType {
         case .leave:
             commitDeliveredLeave(remaining: state.participants)
@@ -1330,6 +1340,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// commits there so a failed send never leaves this device claiming
     /// something peers didn't receive. Nil default keeps legacy callers as-is.
     private func sendBubble(state: TweenState, onDelivered: (() -> Void)? = nil) {
+        // Re-entrancy guard (same as sendAgreedPlace): a second tap during the
+        // render + `conversation.send` window would cancel the first task AFTER
+        // it already delivered, then send a duplicate bubble. Covers the propose
+        // / counter / draft sends that funnel through here.
+        guard !isSending else { return }
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
@@ -1406,15 +1421,18 @@ final class MessagesViewController: MSMessagesAppViewController {
     @discardableResult
     private func deliverBubble(for state: TweenState, mode: BubbleDeliveryMode) async -> Bool {
         guard let conversation = activeConversation else { return false }
+        // Key every canonical write below to the conversation this bubble is
+        // being sent in, captured NOW — NOT the `conversationKey` ivar, which a
+        // mid-send conversation switch (willBecomeActive repoints it) would land
+        // this send's roster/revision/tombstones under the wrong chat.
+        let deliveryKey = Self.conversationKey(for: conversation)
         // Departure gossip: every outgoing payload carries the tombstones this
         // device holds, so ANY later bubble tap propagates removals — without
         // it, a leave only ever reached whoever tapped the leave bubble itself.
         var outgoing = state
-        if let conversationKey {
-            outgoing.departed = RosterMerge.gossipKeys(
-                departed: ConversationMeetupStore.departedParticipants(key: conversationKey),
-                roster: state.participants)
-        }
+        outgoing.departed = RosterMerge.gossipKeys(
+            departed: ConversationMeetupStore.departedParticipants(key: deliveryKey),
+            roster: state.participants)
         guard let url = outgoing.encodedURL() else { return false }
 
         let localName = UserProfile.displayName
@@ -1472,7 +1490,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             // conversationKey can't silently skip the marker.
             if stagedInsert, state.messageType == .leave || state.messageType == .agree {
                 ConversationMeetupStore.setPendingStagedSend(
-                    state.messageType, key: Self.conversationKey(for: conversation))
+                    state.messageType, key: deliveryKey)
                 return true
             }
             // Any real (non-staged) delivery supersedes a previously staged
@@ -1482,14 +1500,14 @@ final class MessagesViewController: MSMessagesAppViewController {
             // a later tap of the old own bubble replayed the stale intent
             // past every guard (audit at b902d4d).
             ConversationMeetupStore.setPendingStagedSend(
-                nil, key: Self.conversationKey(for: conversation))
+                nil, key: deliveryKey)
             // Delivery succeeded — NOW the minted revision becomes the floor
             // for the decode guard (this device's own stale bubbles included).
-            if let revision = state.revision, let conversationKey {
+            if let revision = state.revision {
                 ConversationMeetupStore.noteRevision(
-                    revision, sender: localParticipantID(), key: conversationKey)
+                    revision, sender: localParticipantID(), key: deliveryKey)
             }
-            recordCanonicalSnapshot(for: state)
+            recordCanonicalSnapshot(for: state, key: deliveryKey)
             recordPendingInviteIfNeeded(for: state)
             return true
         } catch {
@@ -1499,8 +1517,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
     }
 
-    private func recordCanonicalSnapshot(for state: TweenState) {
-        guard let conversationKey else { return }
+    private func recordCanonicalSnapshot(for state: TweenState, key conversationKey: String) {
         switch state.messageType {
         case .invite:
             ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)

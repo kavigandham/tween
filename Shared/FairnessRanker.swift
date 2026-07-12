@@ -191,13 +191,13 @@ enum FairnessRanker {
         request.destination = item
         request.transportType = .automobile
 
-        do {
-            let response = try await MKDirections(request: request).calculate()
-            if let route = response.routes.first {
-                return (route.expectedTravelTime, true)
-            }
-        } catch {
-            // Fall through to the distance estimate.
+        // Timeout-guarded like the extension's MKLocalSearch: a single stalled
+        // MKDirections leg would otherwise keep the whole `rank()` task group
+        // pending forever, leaving the spinner up (post-push audit). On timeout,
+        // error, or no route we fall through to the straight-line estimate.
+        if let response = await calculateRoute(request, timeoutNanoseconds: routeTimeoutNanoseconds),
+           let route = response.routes.first {
+            return (route.expectedTravelTime, true)
         }
 
         let from = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
@@ -205,5 +205,25 @@ enum FairnessRanker {
         let to = CLLocation(latitude: dest.latitude, longitude: dest.longitude)
         let meters = from.distance(from: to)
         return (meters / fallbackSpeed, false)
+    }
+
+    /// Ceiling on a single route calculation before we fall back to the
+    /// straight-line estimate — keeps one hung leg from stalling the ranking.
+    private static let routeTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
+
+    private static func calculateRoute(_ request: MKDirections.Request,
+                                       timeoutNanoseconds: UInt64) async -> MKDirections.Response? {
+        await withTaskGroup(of: MKDirections.Response?.self) { group in
+            group.addTask {
+                try? await MKDirections(request: request).calculate()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return nil
+            }
+            let response = await group.next() ?? nil
+            group.cancelAll()
+            return response
+        }
     }
 }

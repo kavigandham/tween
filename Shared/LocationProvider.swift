@@ -113,9 +113,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
             // .requesting: the user just answered the permission alert.
             // .denied: the user re-granted in Settings mid-session — without
             // this arm the provider stayed wedged at .denied until relaunch.
-            if status == .requesting || status == .denied {
-                status = .requesting
-                requestFix()
+            // Read + write `status` on the main actor like every other terminal
+            // transition (via settle) — this delegate can be called off-main, and
+            // a bare `status =` here was an off-main write to @Observable state.
+            Task { @MainActor in
+                if self.status == .requesting || self.status == .denied {
+                    self.status = .requesting
+                    self.requestFix()
+                }
             }
         case .denied, .restricted:
             settle(.denied)

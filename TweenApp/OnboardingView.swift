@@ -841,7 +841,15 @@ struct OnboardingView: View {
         .onChange(of: scenePhase) { _, phase in
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
-            if phase != .active { searchTask?.cancel() }
+            if phase != .active {
+                searchTask?.cancel()
+                // A backgrounding cancel returns at runSearch's Task.isCancelled
+                // guard, before `isSearchLoading = false` — reset it here or the
+                // spinner hangs until the next keystroke (audit). A search
+                // SUPERSEDED by a new one isn't reset here: its replacement task
+                // owns the flag, so there's no premature clear.
+                isSearchLoading = false
+            }
             // When the user comes back to the host app (typically after
             // tapping "I'm in" in the iMessage extension), refresh from the
             // App Group BEFORE the next paint. Without this the user briefly
@@ -1094,7 +1102,10 @@ struct OnboardingView: View {
 
     /// Floating control to re-show the first-run walkthrough.
     private var infoButton: some View {
-        Button { showTutorial = true } label: {
+        // Dismiss any open place sheet first: `.fullScreenCover` and
+        // `.sheet(item:)` share this hierarchy, and SwiftUI presents only one —
+        // so tapping Help while a sheet is up would otherwise silently no-op.
+        Button { activeSheet = nil; showTutorial = true } label: {
             Image(systemName: "info.circle.fill")
                 .font(Tokens.Typography.title2)
                 .foregroundStyle(Tokens.Palette.brand)
@@ -4084,7 +4095,9 @@ private struct AddPointSheet: View {
 
     private func pick(_ completion: MKLocalSearchCompletion) {
         adding = true
-        Task {
+        // @MainActor: onAdd mutates OnboardingView @State and dismiss() drives
+        // presentation — both must run on the main actor, not off the bare Task.
+        Task { @MainActor in
             let query = completion.subtitle.isEmpty
                 ? completion.title : "\(completion.title), \(completion.subtitle)"
             let items = await resolvePlace(query, region)
