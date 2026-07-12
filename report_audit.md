@@ -46,12 +46,14 @@ No ≥70%-confidence crash/corruption path. Extension state machine + URL codec 
 - Covered (no gap): revision tie-break, departure gossip + cap, `freshSelfCoordinate` window incl. manual exemption, `Participant.matches` edges, `isFullyAgreed` via IDs, URL round-trip + ≤5000 cap.
 
 ## FIX-FIRST PRIORITY LIST
-1. Cancel `sendTask` + reset `isSending` on conversation switch (cross-chat contamination + stuck CTAs).
-2. Decide the interactive map: delete the dead `Map`/`cameraBounds`/`spotPin`, or restore a real `usesStaticMapForCurrentState` condition.
-3. `AddPointSheet.pick` post-await mutations → `@MainActor`.
-4. Reset `isSearchLoading` on search cancellation.
-5. `!isSending` re-entrancy guard on `sendChosenSpot`/`sendCounter`/`sendDraft`.
-6. Per-leg timeout on `FairnessRanker` route calls.
-7. Tests: `effectiveReceived` sticky-rule, TTL expiry, `MeetupSync`, `qualityColor`.
-8. Delete dead code (list above).
-9. Harden `isFullyAgreed` duplicate-name legacy path.
+1. ~~Cancel `sendTask` + reset `isSending` on conversation switch~~ — **FIXED `460da42`** (+ `deliverBubble` now keys canonical writes to the delivery conversation, + `mapDegraded` reset).
+2. Decide the interactive map: delete the dead `Map`/`cameraBounds`/`spotPin`, or restore a real `usesStaticMapForCurrentState` condition. — OPEN (cleanup, non-blocking; snapshotter-only is safe).
+3. ~~`AddPointSheet.pick` post-await mutations → `@MainActor`~~ — **FIXED `460da42`**.
+4. ~~Reset `isSearchLoading` on search cancellation~~ — **FIXED `460da42`** (at the scenePhase cancel source).
+5. ~~`!isSending` re-entrancy guard on the propose/counter/draft sends~~ — **FIXED `460da42`** (added to shared `sendBubble`).
+6. ~~Per-leg timeout on `FairnessRanker` route calls~~ — **FIXED `460da42`** (10 s task-group, falls back to straight-line).
+   Also **FIXED `460da42`:** `LocationProvider` off-main `status` write; Help-button no-op while a sheet is open.
+   Batch adversarially verified clean (~90%); 161 tests pass; solo A→B + search simulator-verified.
+7. Tests: `effectiveReceived` sticky-rule, TTL expiry, `MeetupSync`, `qualityColor`. — OPEN.
+8. Delete dead code (list above). — OPEN (cleanup).
+9. Harden `isFullyAgreed` duplicate-name legacy path. — OPEN (legacy/rev-less bubbles only).
