@@ -433,10 +433,7 @@ struct CompactView: View {
                             .multilineTextAlignment(.leading)
                         HStack(spacing: Tokens.Spacing.s2) {
                             statusPill
-                            let rosterCount = currentParticipantCount ?? received?.participants.count ?? 0
-                            if rosterCount > 1 {
-                                rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
-                            }
+                            compactRoster
                         }
                     }
                     Spacer(minLength: 0)
@@ -491,6 +488,40 @@ struct CompactView: View {
     private var rosterCountPill: some View {
         let count = currentParticipantCount ?? (isUserIn ? 1 : 0)
         return rosterPill("\(count) in", systemImage: "person.2.fill", color: isUserIn ? Tokens.Palette.success : Tokens.Palette.textSecondary)
+    }
+
+    /// Overlapping avatar dots for who's in (redesign: the roster strip, at
+    /// compact scale) — falls back to a plain count when no roster is on the
+    /// bubble yet. Names are sanitised so an unnamed sender reads as a glyph.
+    @ViewBuilder
+    private var compactRoster: some View {
+        let participants = received?.participants ?? []
+        let rosterCount = currentParticipantCount ?? participants.count
+        if participants.count > 1 {
+            HStack(spacing: -8) {
+                ForEach(Array(participants.prefix(3).enumerated()), id: \.offset) { _, p in
+                    Text(UserName.peerDisplayName(p.name) == "Friend" ? "•" : SpotETADisplay.initials(for: p.name))
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(Tokens.Palette.onBrand)
+                        .frame(width: 24, height: 24)
+                        .background(Tokens.Palette.brand, in: Circle())
+                        .overlay(Circle().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1.5))
+                }
+                if participants.count > 3 {
+                    Text("+\(participants.count - 3)")
+                        .font(Tokens.Typography.caption2Bold)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .frame(height: 24)
+                        .background(Tokens.Palette.surface, in: Capsule())
+                        .padding(.leading, 12)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(rosterCount) people in")
+        } else if rosterCount > 1 {
+            rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
+        }
     }
 
     private func rosterPill(_ title: String, systemImage: String, color: Color) -> some View {
