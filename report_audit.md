@@ -1,84 +1,150 @@
-# AUDIT REPORT — Tween — 2026-07-10 (post-push audit of 42fdc68)
+# AUDIT + EXTENSION UI REDESIGN PLAN — Tween — 2026-07-11 (HEAD `22fda2e`)
 
-Scope: adversarial verification of the three device-feedback fixes in 42fdc68 — the membership gate on peer projection, the results-drag smoothness work (LazyVStack / scrollDisabled / lighter card shadows), and the TweenPin redesign — plus a sweep of the rest of the 5-file diff. Read-only; no fixes applied.
+Driven by device feedback from the two-phone runs. Read-only audit: every claim below was verified against source at `22fda2e` with file:line evidence. Part 3 is written as executable phase-prompts — run them as **"do Phase A/B/C of report_audit.md"**.
 
-## CRITICAL (will crash, corrupt state, or break core flow)
-
-*None found in this diff.*
-
-## MAJOR (wrong behavior, UX broken, data loss risk)
-
-### Membership gate — the legitimate "not yet a member" flow is caught in the net
-- The new gate (`localIsMember = roster.contains { $0.matches(localContext) } || LocationCache.isOptedIn`) nils `peerCoordinate` for a recipient who hasn't joined yet — but that is exactly the state a pinged friend is in when the OTHER side replies first. The reply banner explicitly requires `peerCoordinate != nil` (`OnboardingView.swift:~1070`), so "Your friend replied N min ago" no longer shows until the local user joins — the nudge existed precisely to prompt joining. The `peerDistanceText` chip (`:~2072`) and dual-ETA preview ranking also vanish for not-yet-members. — `TweenApp/OnboardingView.swift:~2987`
-  Suggested fix: gate on the per-conversation leave tombstone (`ConversationMeetupStore.localUserLeft(key:)`) rather than on membership/opt-in, so "left" hides peers but "not yet joined" keeps the inbound preview.
-- Worse, `handleIncomingURL` still sets `peerCoordinate` directly (`:~3226-3229`; roster-merge projection at `:~3281`), and `LocationCache.savePeer` fires `MeetupSync.post()` — so the very next refresh runs the gate and nils it again. For a non-member tapping a fresh invite, the framed-both camera and peer state now appear for one beat and then flicker away. — `TweenApp/OnboardingView.swift:~3226`
-  Suggested fix: same tombstone-based gate; fresh inbound URL state from a non-departed conversation must survive the refresh.
-
-### Leave via the extension leaves stale dual-ETA chips in the app
-- `rankedSpots = []` was added only to `commitLeaveLocally` — the app-side leave. When the user leaves from the iMessage extension and returns to the host app with a results list open, `refreshFromAppGroup` nils the peer projections and flips `isUserIn` but never touches `rankedSpots`, so the open results keep showing "You X min | Sam Y min" chips scored against the meetup just left — the exact device-feedback bug, surviving on the other leave path. — `TweenApp/OnboardingView.swift:~3057`
-  Suggested fix: clear `rankedSpots` inside `refreshFromAppGroup` when the gate transitions to false.
-
-### Global `isOptedIn` escape hatch can resurrect the stale peer cross-conversation
-- `LocationCache.isOptedIn` is a single global flag, while the roster is scoped per `lastActiveConversationKey`. Opted in for conversation A, then opening the extension on conversation B (where the user previously left; B's snapshot deliberately keeps the remaining friends — D4) makes the host app project B's departed friend as `peerCoordinate` again: `localIsMember` passes via the A-scoped flag against a B-scoped roster. The per-conversation truth (`ConversationMeetupStore.localUserLeft(key:)`) exists and is already consulted elsewhere in this file but not here. — `TweenApp/OnboardingView.swift:~2987`
-  Suggested fix: consolidate the gate on the tombstone.
-
-### TweenPin — SELF needing a ride renders as a friend avatar
-- Both self-pin call sites choose `.rideNeeded` for the local user, and the redesigned `.rideNeeded` renders the *people-avatar* family: a `pinFriend`-filled circle with a generic `person.fill` glyph plus a car badge. Toggling "I need a ride" now swaps your blue location dot for a pin visually identical to a friend's avatar — the redesign's own family taxonomy ("You = location dot; People = avatars") is violated, and on a group map the user can no longer find themselves. — `Shared/TweenPin.swift:~106,134-137`
-  Suggested fix: render self+ride as the selfDot with the car badge (badge as an orthogonal overlay, not a role family switch).
-
-## MINOR (suboptimal, cleanup, hardening)
-
-### `scrollDisabled` below the top detent strands content on shorter devices
-- At `.fraction(0.45)` the idle stack (I'm-in/Leave button + status + discovery rows ≈ 450+ pt) exceeds the visible slice on smaller phones, and it previously scrolled; now the bottom "Recent Spots" rows are unreachable until the user drags to 0.90. Also kills VoiceOver's three-finger scroll at non-top detents. — `TweenApp/OnboardingView.swift:~1557`
-  Suggested fix: disable scrolling only for the heavy `.results` state (the state the fix targeted).
-
-### Comment claims avatar parity with the bubble renderer that doesn't exist
-- `TweenPin.initials(for:)` says it's shared "so the host map, extension map, and bubble renderer agree on avatars", but `BubbleImageRenderer.drawMarker` still rasterizes the legacy halo-dot style and takes no initials — bubble images and live maps now speak two different pin languages. — `Shared/TweenPin.swift:~86`
-  Suggested fix: either port the avatar/dot families to `drawMarker` or correct the comment.
-
-### Legacy-peer fallback avatar shows a bare "F"
-- The `localIsMember`-but-empty-roster branch keeps `newPeerName = "Friend"`, and the map call site derives initials from it, so the legacy single-peer path draws an avatar lettered "F" as if "Friend" were a name. — `TweenApp/OnboardingView.swift:~2998,490`
-  Suggested fix: pass nil initials when the name is the "Friend" placeholder so the person-glyph fallback renders.
-
-## VERIFIED CLEAN (focused checks)
-
-- `didChange` diffing repaints correctly when the gate nils projections; poll path skipping `reframe()` is the pre-existing documented self-jump gate.
-- All downstream peer consumers (`runSearch`, `midpoint`, `peerDistanceText`, framing helpers, `searchRegion`) degrade sanely to self-only mid-session.
-- `pendingProposal` and proposal cards come from `scopedSnapshot.proposedState`, not the gated projections — they still surface for a not-yet-joined recipient.
-- TweenPin call sites compile-consistent; no dangling `pulses`/halo references; `TweenAppTests` Role accessibility assertions unchanged; `initials(for:)` edge cases (empty/emoji/multi-word) safe.
-- LazyVStack conversion has no eager-layout dependencies; `compositingGroup` preserves accessibility children and tap targets; `Shadow.card` properly wired.
-- `searchViewMode == .map` (sheet at peek) and `.suggesting` (separate ScrollView) unaffected by the scroll gate; `.fraction(0.90)` equality matches the declared detent set exactly.
-
-## ARCHITECTURE NOTES
-- The projection gate encodes membership as `roster ∨ global-flag` while the system's actual source of truth for "I left HERE" is the per-conversation `localUserLeft` tombstone — three of the four MAJOR findings are consequences of that mismatch.
-- `avatar` hardcodes `pinFriend`, demoting `Role.fill` for person roles to badge-tint duty — `fill` is now a semi-live API whose meaning differs per role family.
-
-## LEGACY DEBT INVENTORY
-- Unchanged: `etaFromA`/`etaFromB` accessors in `SpotDetailCard.swift:287, 342, 539`; the legacy single-peer projection (`loadPeer`/`isPeerActive`) is still the fallback and is still written on every `saveParticipantSnapshot` — including by `commitLeaveLocally`, which marks the *departed* friend's coord peer-active (masked by the gate).
-
-## TEST COVERAGE GAPS
-- No test exercises the projection gate (member→non-member flip, opt-in escape hatch, ping-recipient flow).
-- `TweenPin.initials(for:)` zero coverage; `rankedSpots` reset on leave untested on either path; Role accessibility test covers 4 of 8 roles.
-
-## FIX-FIRST PRIORITY LIST
-1. Rebase the projection gate on `ConversationMeetupStore.localUserLeft(key:)` — restores not-yet-joined previews and closes the cross-conversation hole — `OnboardingView.swift:~2987`.
-2. Clear `rankedSpots` in `refreshFromAppGroup` when the gate flips, covering extension-side leaves — `OnboardingView.swift:~3057`.
-3. Self+needs-ride renders as selfDot + car badge overlay — `TweenPin.swift`, both call sites.
-4. Scope `scrollDisabled` to the results state — `OnboardingView.swift:~1557`.
-5. Suppress the "F" placeholder initial; fix the drawMarker parity comment — `OnboardingView.swift:~490`, `TweenPin.swift:~86`.
+The feedback, verbatim themes:
+1. *"Groups of 2+ don't show distance per person in the app, only 2 people (but the extension does)."*
+2. *"If someone doesn't name themselves it just says You."*
+3. *"No more midpoint star please."*
+4. *"Extension is beyond clunky… cramped and ugly… mock up a new extension UI… map is compact and all, show everyone distance/time."*
+5. *"Fix the size of the icons on map — in the extension with the small map it gets so cluttered with big icons."*
 
 ---
 
-*Disposition (same session): items 1–5 all implemented in the follow-up commit — the gate now keys exclusively on the per-conversation `localUserLeft` tombstone (not-yet-joined recipients keep the reply banner/framed pins; conversation A's opt-in can't resurrect conversation B's departed roster; the handleIncomingURL set→refresh-nil flicker is gone because a non-departed conversation passes the gate); `refreshFromAppGroup` clears `rankedSpots` whenever the tombstone hides peers (extension-side leave now resets an open results list); `TweenPin` gained an orthogonal `needsRide` badge so self stays in the location-dot family (call sites updated in both targets, `.rideNeeded` role kept for compatibility); `scrollDisabled` scoped to `searchState == .results`; the "Friend" placeholder passes nil initials; the initials doc comment no longer claims bubble-renderer parity. Added tests: all 8 Role accessibility names + `TweenPin.initials` edge cases.*
+## PART 1 — AUDIT: root causes, verified
+
+### F1 — Host app caps drive times at 2 people · MAJOR
+The ranking pipeline already computes **N-person ETAs with names** (`OnboardingView.swift:2893-2904` builds the full participant list → `FairnessRanker.rank` fills `RankedSpot.etas` per participant, `FairnessRanker.swift:154-181`). The gap is 100% render-side — four host surfaces still read the legacy 2-person accessors:
+
+| Surface | Site | Today |
+|---|---|---|
+| Result list row | `ResultRows.swift:168` | `ETAChip(etaFromA:etaFromB:)` — hardcoded A/B pill |
+| Result card | `ResultRows.swift:246` | same chip |
+| Place-sheet header | `SpotDetailCard.swift:287` | same chip |
+| Directions tile | `SpotDetailCard.swift:342` | shows **only your** time (`etaFromA`) |
+
+The extension already owns the N-aware donors to reuse: `etaChipItems` (`TweenViews.swift:1604`), `driveBalanceStrip` (`:1637`), `compactETALabel` (`:1293`).
+
+### F2 — Unnamed users broadcast as "You" · MAJOR
+`UserName.fallback == "You"` (`UserName.swift:33`) is **encoded into payload rosters**, not just rendered locally: every extension send path names the local participant `Self.localParticipantName()` = `displayName ?? "You"` (`MessagesViewController.swift:498`, used at `:610, :625, :818, :1110`), and ~16 host compose paths do the same (`OnboardingView.swift:1805…3497`). Every peer device then renders that person as literally "You" in ETA chips, roster avatars ("Y"), readiness chips, and bubble captions ("You is in!").
+**Bonus bug found while tracing:** `OnboardingView.swift:1261` and `:1408` decide `isLocal` by raw string compare against `displayName ?? "You"` — so a **remote** participant named "You" is misclassified as the local user on other devices (the identity-matching hardening from July 6 used IDs; these two sites regressed to names).
+
+### F3 — Midpoint star · remove 3 render sites, keep the math
+**Remove (visible star):**
+- `OnboardingView.swift:510-513` — host map `Annotation("Midpoint", …) { TweenPin(role: .midpoint) }`
+- `TweenViews.swift:1161` — extension static-snapshot marker (centroid pin)
+- `TweenViews.swift:1210-1211` — interactive-map annotation (dead code behind the static-only switch; delete anyway)
+- Cleanup: `.midpoint` role + glyph + a11y label + diameter arm (`TweenPin.swift:22, 33, 46, 60, 68, 124`), `pinMidpoint` tokens (`Tokens.swift:61, 88`), any Role tests referencing it, and the `midpoint` computed property (`OnboardingView.swift:3182-3188`) **if** its only consumer is the annotation.
+**Keep (invisible math — search centering depends on it):** `MapGeometry.centroid/midpoint` (`TweenViews.swift:22-39`), ranking search center (`MessagesViewController.swift:763`), host search-region bias (`OnboardingView.swift:2724-2729`). Tutorial copy "Coffee near the midpoint" (`OnboardingView.swift:107`) can stay — it describes the search, not the pin.
+
+### F4 — Extension "cramped and ugly" · quantified
+`ExpandedView` (`TweenViews.swift:806-836`) stacks up to **five chrome bands** around two content zones: offline banner (~48pt) + status banner (~48pt) + `meetupStatusCard` (~120pt: eyebrow/title/subtitle/readiness chips) + a hardcoded **60/40 map/list split** (`:825-827`) + CTA footer (~88pt: `primaryCTA` + `bottomAction`). On a smaller phone that's ~300pt of chrome before content. The chrome also **repeats itself** — status card says "Ready to pick a spot", the CTA says "Pick a spot to send", the list implies the same. Per-person visibility degrades exactly where groups need it: names collapse to "Best/Typical/Long" at 4+ (`:1604-1617`) and pins collapse to "N people · X spread" at 3+ (`:1301`). 16 distinct UI states inventoried (invite hero, meetup-set hero, propose/counter/partial-agree ×2, place ×2, draft, ranking, waiting-coords, offline, leave, launcher, no-coords invite, agreed-place) — the redesign matrix in Part 2 covers all of them.
+
+### F5 — Pins too big for the small map · confirmed
+`TweenPin` role sizes: avatars 38pt (+2.5pt stroke, 17pt ride badge), spot pins 42pt, midpoint 28 (`TweenPin.swift:64-73, 156-180`); snapshot markers draw at a flat 0.7× with a 1.6× halo (`TweenViews.swift:293-306`). There is **no context-aware scale** — the extension's ~60%-height static map draws host-sized furniture, hence the clutter.
+
+### Constraints that bind any fix (do not violate)
+- Extension map stays **static-only** (`usesStaticMapForCurrentState = true`, `TweenViews.swift:1254` — deliberate T10 memory decision; the redesign must work with `MKMapSnapshotter` snapshots).
+- ~120 MB extension ceiling; compact view = keyboard height, no first responder; negotiation core (`decodeAndCache`/`effectiveReceived`/revision-tombstone sync) untouched.
+- 20 UI-test strings + HarnessView scenarios pin current copy ("Agree", "Change", "Finding fair spots...", "It's a plan", "Waiting for someone else", "Browse spots", "Open directions or keep browsing.", "Send McDonald's instead", harness section names…) — any phase that changes copy/layout updates `TweenAppUITests` + `HarnessView` **in the same commit**.
+- Keep: `formatETA`, `MapGeometry.region`, snapshot caching/retry/timeout in `TweenMapSnapshotView`, `Tokens` spacing/type/motion, `statusIsError` banner channel.
 
 ---
 
-*Disposition of the 2b894b0 audit (same session): all five fix-first items implemented in the follow-up commit — the pin's accessibility label announces ", needs a ride" whenever the badge shows (no duplicate for the legacy `.rideNeeded` role); `handleIncomingURL`'s direct `peerCoordinate`/`savePeer` writes and merged-roster projection are gated on the same tombstone the refresh gate reads (departed-user flicker closed); the projection gate is provenance-matched (`scopedSnapshot != nil`) so a drawer-peek at a long-left thread can't blank a different meetup's peers loaded from the global fallback; a nil-key leave neutralizes the legacy global mirrors (`clearParticipants` + `setPeerActive(false)`) since the gate defaults open where no tombstone can be written; and the tombstone clear also dismisses an open `.spot` sheet that carries captured ranked ETAs (solo sheets with `ranked == nil` survive).*
+## PART 2 — EXTENSION REDESIGN SPEC
+
+Design language (from the repo's `apple-design` skill): full-bleed content with translucent floating chrome instead of stacked opaque bands; one primary action per state; simplicity ≠ minimalism — show the common path, tuck the rest one level down; springs (`Tokens.Motion`) + touch-down feedback (`tweenPressFeedback`); Dynamic Type and reduce-motion/transparency respected.
+
+### The shape: one map, one panel
+
+Today: `[banner][banner][status card][map 60%][list 40%][CTA][CTA]` — five seams.
+New: **map is the canvas; everything else floats on it in exactly two layers.**
+
+```
+┌─────────────────────────────────────┐
+│ ◦ status pill (slim, material)      │   ← replaces offline+status banners AND
+│                                     │     the 120pt status card: one line,
+│                                     │     "Sam picked Blue Bottle" / "You're
+│              MAP                    │     offline" (error tint via statusIsError)
+│         (full bleed,                │
+│        static snapshot,             │   ← pins at compact scale (below);
+│         compact pins)               │     NO midpoint star
+│                                     │
+│  ┌───────────────────────────────┐  │
+│  │ ●●●○  Sam, Maya, Alex +1     │  │   ← roster strip: avatar dots + names,
+│  │───────────────────────────────│  │     replaces readiness chips
+│  │ ◂ ┌─────────┐ ┌─────────┐ ▸  │  │
+│  │   │Blue Bottl│ │Joe’s Chik│   │  │   ← horizontally scrolling SPOT CARDS
+│  │   │ ★ fair   │ │          │   │  │     (replaces the vertical 40% list —
+│  │   │ You  8m  │ │ You  6m  │   │  │     horizontal reads better in a short
+│  │   │ Sam 12m  │ │ Sam 15m  │   │  │     canvas; snap paging, selection
+│  │   │ Maya 10m │ │ Maya 11m │   │  │     re-focuses the snapshot)
+│  │   │ +1 ▾ 4m ⇄│ │ +1 ▾ 9m ⇄│   │  │   ← EVERY person listed: initial-dot +
+│  │   └─────────┘ └─────────┘    │  │     name + time, 3 visible + "+N ▾"
+│  │───────────────────────────────│  │     expands; spread "⇄ 4m" is a chip,
+│  │      [ Send Blue Bottle ]     │  │     never a REPLACEMENT for names
+│  └───────────────────────────────┘  │   ← ONE contextual CTA (state-driven);
+└─────────────────────────────────────┘     secondary action lives as a text
+                                             button inside the panel header
+```
+
+- **The panel** is one `.regularMaterial` surface (bottom-anchored, `Tokens.Radius.sheet` top corners) with three fixed zones: roster strip · card rail · CTA. It absorbs the status card, the list, `primaryCTA`, and `bottomAction`. Vertical budget ≈ 44 (roster) + ~148 (cards) + 56 (CTA) + paddings ≈ **270pt of panel over ~100% map**, vs today's ~300pt chrome + 40% list squeezing a 60% map band.
+- **Status pill** top-center over the map: one line, info vs error tint from the existing `statusIsError` channel; offline collapses into it. Disappears when there's nothing to say (most states).
+- **Spot cards** (~150×148pt): name + fair badge (replaces the star ranking affordance), then per-person rows — `initial-dot name time` for up to 3, `+N ▾` expands the card taller in place (spring), spread shown as a trailing `⇄ Xm` chip. Card tap = select (snapshot re-focuses via the existing `focusCoordinate` param); CTA becomes "Send <name>".
+- **Per-person everywhere:** `etaChipItems` reworked to never drop names (returns all N; the VIEW decides how many rows fit); map pin chips become number-only badges "8·12·15" (or "n people" at 5+) to cut clutter; `driveBalanceStrip` moves inside the expanded card state.
+- **Hero states stay heroes:** `invitePromptView` and `meetupSetView` already use the map+sheet shape — restyle to the same panel materials/typography, no structural change. Their CTAs are already singular.
+- **CompactView:** structure stays (it was just fixed to fit the keyboard-height budget); adopt the roster avatar strip in place of the count pill and the same card typography. No text input, ever.
+
+### State → panel matrix (all 16 states land in one of 4 panel configurations)
+
+| Panel config | States |
+|---|---|
+| **Hero** (full-panel variant) | invite prompt · meetup set |
+| **Browse** (roster + cards + CTA) | invite-with-coords · propose · counter · partial-agree(needs me: CTA=Agree, secondary=Change) · partial-agree(waiting: pill="Waiting for Maya", CTA=Send change) · place-not-agreed · draft (CTA=Send <draft>) |
+| **Waiting** (roster + placeholder rail + CTA) | launcher/no-bubble (CTA=I'm in) · invite-no-coords (CTA=I'm in) · ranking ("Finding fair spots…" shimmer cards) · waiting-for-coordinates · leave ("Sam left" pill) |
+| **Terminal-place** (roster + single card + map CTAs) | agreed place (Apple/Google Maps tiles) |
+| + status pill overlays | offline · send status/staged/error (any config) |
+
+### Compact pin scale (F5) — `TweenPin.Context`
+
+Add a render context (additive enum, default `.regular` = today's sizes):
+
+| Element | `.regular` (host) | `.compact` (extension map + snapshots) |
+|---|---|---|
+| Avatar circle | 38pt / 2.5pt stroke | **24pt / 1.5pt stroke** |
+| Ride badge | 17pt | 12pt |
+| Spot pin | 42pt | **28pt** |
+| Result pin | 32pt | 22pt |
+| Snapshot halo | 1.6× dot | **none** (flat dot + rim only) |
+| Pin ETA chip font | 10pt | 9pt, numbers-only badge |
+
+`drawMarker`/`staticMarkers`/bubble renderer take the context; `BubbleImageRenderer` keeps `.regular` (bubble images are large) — only the in-extension snapshot goes `.compact`.
+
+### Naming fix (F2) — never ship the fallback
+1. **Gate the first send on a name** — one-time inline prompt ("What should friends call you?") in the host (name field already exists in onboarding — make it blocking before first compose) and a matching single-field prompt in the extension before the first "I'm in" (pre-filled from `UserProfile.displayName`; note: compact view stays input-free — the prompt lives in the **expanded** flow only, and the extension can also fall back to deferring to the host app via the existing `tween://` hand-off if keyboard-in-extension is deemed risky).
+2. **Stop encoding the fallback:** payload composers send the real name or **empty** — never the literal "You".
+3. **Receiver-side sanitization** (old bubbles): render empty/literal-"You" peer names as "Friend" + generic avatar glyph (the `TweenPin.initials` path already has a person-glyph fallback).
+4. **Fix the two `isLocal` string-compares** (`OnboardingView.swift:1261, :1408`) to identity-based checks (`Participant.matches(LocalParticipantContext)` / `TweenIdentity.stableID`) — a remote "You" must never classify as local.
 
 ---
 
-*Disposition of the 18c182a audit (same session): all five fix-first items implemented in the follow-up commit — BOTH leave paths (host `commitLeaveLocally` and extension `commitDeliveredLeave`) now clear the un-TTL'd global mirrors (`clearParticipants` + `setPeerActive(false)`) on every leave, keyed or not, so no departed conversation's roster can outlive the scoped snapshot and resurrect at hour 24; the D4 rejoin roster is preserved because `saveLocalParticipant` now builds from the SCOPED snapshot first (global fallback only when no scoped store exists); `handleIncomingURL` skips the global `saveParticipantSnapshot` when `departedHere` (scoped save kept for rejoin bookkeeping) and reuses `departedHere` for the self-filter; `case .leave`'s agreed/proposal teardown is gated on `adoptRoster` and the verbatim roster overwrite is deleted (the departure-filtered merged roster saved earlier is authoritative); the nil-key write-then-clear churn is gone since the global snapshot write was removed from the leave path entirely.*
+## PART 3 — EXECUTION PHASES (prompt-ready)
 
----
+### Phase A — correctness, ships independently of the redesign
+1. **Host N-person ETAs:** replace the four legacy render sites (`ResultRows.swift:168, 246`; `SpotDetailCard.swift:287, 342`) with an `etas`-driven row component (port `etaChipItems` + `driveBalanceStrip` out of `ExpandedView` into a shared view so host and extension render times identically). Directions tile shows your time + "fair for N" subtitle. Keep the legacy accessors for old call sites until deleted; do NOT touch ranking.
+2. **Midpoint star removal:** the 3 render sites + role/token/a11y/tests cleanup per the F3 lists; verify search centering (centroid math) untouched; screenshot host + extension maps.
+3. **Name integrity:** the 4-step F2 fix (gate, stop encoding, sanitize, identity-based isLocal). Add tests: payload never contains literal fallback; receiver renders legacy "You" as "Friend"; isLocal via ID.
+4. **Compact pin context:** additive `TweenPin.Context` per the F5 table; adopt `.compact` in the extension's `staticMarkers`/`drawMarker` only.
+Each item = its own commit; build + full unit suite green per commit (Xcode 26.5); update any pinned test strings touched.
 
-*Disposition of the 69a3886 audit (same session): all five fix-first items implemented in the follow-up commit, with the architecture note adopted wholesale — the "departed rosters never touch the global mirrors" policy now lives INSIDE `LocationCache` (`saveParticipants` and `savePeer` are dammed while the active conversation's leave tombstone is set, self-healing by scrubbing residue), covering the extension's decode restock, the `rankingParticipants` backfill, and every future writer with one dam. The three rejoin commits (host `saveLocalParticipant`, extension `handleImIn` didSend, `commitDeliveredAgree`) clear the tombstone BEFORE their roster writes. All outgoing-roster reads (`leave()`, ride updates, proposals, the URL merge base, the rejoin base) consolidated on one TTL-aware `scopedFirstRoster()` helper — closing both the post-leave merge-collapse and the expired-snapshot rebroadcast. The reply-banner stamp is gated on `adoptRoster`.*
+### Phase B — the extension redesign
+Rebuild `ExpandedView` to the Part-2 shape: full-bleed `TweenMapSnapshotView` (keep caching/focusCoordinate), status pill, single material panel (roster strip / horizontal snap-paging spot cards with per-person rows and in-place expansion / one contextual CTA), hero states restyled not restructured, CompactView roster strip. Cover every row of the state matrix; update `HarnessView` scenarios + `TweenAppUITests` strings in the same commits; keep `statusIsError`, `formatETA`, `Tokens` as the only styling sources. Static-only map constraint stands (T10) — no `MKMapView`.
+
+### Phase C — polish
+Springs (`Tokens.Motion`, damping 1.0 default, ~0.8 only on gesture-momentum), touch-down feedback on every tappable, card-selection snapshot refocus animation, haptics on send/agree only, Dynamic Type pass (panel grows with text, cards wrap), `accessibilityReduceMotion`/`ReduceTransparency` variants, dark-mode contrast re-check with `onBrand`, device screenshots per TESTING.md (2-, 3-, and 5-person groups; the 5-person card expansion; unnamed-user legacy bubble).
+
+### Guardrails (all phases)
+Static snapshot only in the extension map (T10 stands) · ~120 MB ceiling (no new live map, no material stacking on material) · compact = keyboard height, zero first responder · negotiation/sync core untouched (`decodeAndCache`, `effectiveReceived`, revision/tombstone/gossip) · `xcodegen generate` after file adds · build + 6/6 UI + full unit suite green before each push · two-device pass before calling any phase done.
+
+### Fix-first order
+**A1 (host per-person times)** and **A3 (naming)** are the two user-facing correctness bugs — ship first. **A2 (star)** and **A4 (pin scale)** are quick visual wins. Then **B** lands the redesign in one review-able unit, **C** polishes.
