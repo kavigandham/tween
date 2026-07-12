@@ -120,11 +120,16 @@ struct SpotETAStrip: View {
     let spot: RankedSpot
 
     var body: some View {
+        // Tint every time pill by the spot's fairness (green even / yellow fair /
+        // orange uneven), so you can tell at a glance which spot is best — the
+        // color-coded time bubbles from the old A/B chip, restored per-person
+        // (device feedback). All pills in one spot share the spot's fairness.
+        let tint = SpotETADisplay.fairnessColor(for: spot)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Tokens.Spacing.s1) {
                 let chips = SpotETADisplay.chipItems(for: spot)
                 ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                    SpotETAChip(label: chip.0, value: chip.1)
+                    SpotETAChip(label: chip.0, value: chip.1, tint: tint)
                 }
             }
         }
@@ -135,24 +140,25 @@ struct SpotETAStrip: View {
     }
 }
 
-/// One name/label + time capsule.
+/// One name/label + time capsule. `tint` fairness-colors the time + its bubble.
 struct SpotETAChip: View {
     let label: String
     let value: String
+    var tint: Color = Tokens.Palette.textPrimary
 
     var body: some View {
         HStack(spacing: 3) {
             if !label.isEmpty {
                 Text(label).foregroundStyle(Tokens.Palette.textSecondary)
             }
-            Text(value).foregroundStyle(Tokens.Palette.textPrimary)
+            Text(value).foregroundStyle(tint).fontWeight(.bold)
         }
         .font(Tokens.Typography.captionBold)
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, Tokens.Spacing.s2)
         .frame(minHeight: 24)
-        .background(Tokens.Palette.surface, in: Capsule())
+        .background(tint.opacity(0.16), in: Capsule())
     }
 }
 

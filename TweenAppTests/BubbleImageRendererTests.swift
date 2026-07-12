@@ -46,4 +46,24 @@ final class BubbleImageRendererTests: XCTestCase {
         XCTAssertEqual(image.size.width, 320, accuracy: 0.5)
         XCTAssertEqual(image.size.height, 220, accuracy: 0.5)
     }
+
+    // The bubble footer must carry a useful line even for non-app-users — the
+    // "I'm out" image used to leave it empty (device feedback: wasted space).
+    func testFooterHeadlineIsUsefulPerState() {
+        let leave = TweenState(text: "", latitude: 0, longitude: 0,
+                               senderName: "Hassan", kind: .participant, messageType: .leave)
+        XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: leave), "Hassan is out")
+
+        let unnamedLeave = TweenState(text: "", latitude: 0, longitude: 0,
+                                      kind: .participant, messageType: .leave)
+        XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: unnamedLeave), "Friend is out")
+
+        let invite = TweenState(text: "", latitude: 0, longitude: 0,
+                                kind: .participant, messageType: .invite)
+        XCTAssertFalse(BubbleImageRenderer.footerHeadline(for: invite).isEmpty)
+
+        let propose = TweenState(text: "Blue Bottle", latitude: 0, longitude: 0,
+                                 kind: .place, messageType: .propose)
+        XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: propose), "Blue Bottle")
+    }
 }

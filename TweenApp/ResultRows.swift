@@ -229,13 +229,17 @@ struct ResultCard: View {
                     .font(Tokens.Typography.title2.weight(.semibold))
                     .lineLimit(1)
                 if isBest {
-                    Label("Fairest", systemImage: "star.fill")
+                    // Brand-colored, NOT yellow — "Best" is the recommendation,
+                    // kept visually distinct from the green/yellow/orange fairness
+                    // tiers so a yellow star doesn't clash with a green "Even" spot
+                    // (device feedback).
+                    Label("Best", systemImage: "star.fill")
                         .font(Tokens.Typography.caption2Bold)
-                        .foregroundStyle(Tokens.Palette.pinFair)
+                        .foregroundStyle(Tokens.Palette.onBrand)
                         .padding(.horizontal, Tokens.Spacing.s2)
                         .frame(minHeight: 22)
-                        .background(Tokens.Palette.pinFair.opacity(0.16), in: Capsule())
-                        .accessibilityLabel("Fairest spot")
+                        .background(Tokens.Palette.brand, in: Capsule())
+                        .accessibilityLabel("Best pick")
                 }
                 Spacer(minLength: 0)
             }

@@ -155,7 +155,7 @@ enum BubbleImageRenderer {
                 drawHalo(Tokens.Palette.UI.pinFair, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
             }
 
-            drawFooter(spotName: state.text, in: ctx)
+            drawFooter(headline: footerHeadline(for: state), in: ctx)
         }
     }
 
@@ -239,7 +239,7 @@ enum BubbleImageRenderer {
                 drawHalo(Tokens.Palette.UI.pinFair, at: CGPoint(x: size.width * 0.50, y: centerY - 4), in: ctx, emphasized: true)
             }
 
-            drawFooter(spotName: state.text, in: ctx)
+            drawFooter(headline: footerHeadline(for: state), in: ctx)
         }
     }
 
@@ -267,7 +267,24 @@ enum BubbleImageRenderer {
         ctx.strokeEllipse(in: dot)
     }
 
-    private static func drawFooter(spotName: String, in ctx: CGContext) {
+    /// The one useful line a NON-app-user reads in the bubble footer, per state
+    /// — a plain spot name / "meeting at" / "is out", never an empty right side
+    /// (device feedback: the "I'm out" image was wasted space).
+    static func footerHeadline(for state: TweenState) -> String {
+        switch state.messageType {
+        case .propose, .counter:
+            return state.text
+        case .agree:
+            return state.isFullyAgreed ? "Meeting at \(state.text)" : state.text
+        case .invite:
+            return "Where should we meet?"
+        case .leave:
+            let who = UserName.peerDisplayName(state.senderName ?? "")
+            return "\(who) is out"
+        }
+    }
+
+    private static func drawFooter(headline: String, in ctx: CGContext) {
         let rect = CGRect(x: 0, y: size.height - footerHeight, width: size.width, height: footerHeight)
         ctx.setFillColor(Tokens.Palette.UI.brand.withAlphaComponent(0.95).cgColor)
         ctx.fill(rect)
@@ -293,6 +310,6 @@ enum BubbleImageRenderer {
         let leading = 20 + brandSize.width + 16
         let nameRect = CGRect(x: leading, y: rect.midY - 16,
                               width: max(size.width - leading - 20, 0), height: 32)
-        (spotName as NSString).draw(in: nameRect, withAttributes: nameAttrs)
+        (headline as NSString).draw(in: nameRect, withAttributes: nameAttrs)
     }
 }

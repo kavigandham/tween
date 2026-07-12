@@ -162,12 +162,20 @@ struct TweenMapSnapshotView: View {
 
         let options = MKMapSnapshotter.Options()
         if let focusCoordinate {
-            let span = MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045)
-            options.region = MKCoordinateRegion(
-                center: CLLocationCoordinate2D(
-                    latitude: focusCoordinate.latitude - (span.latitudeDelta * focusYOffsetRatio),
-                    longitude: focusCoordinate.longitude),
-                span: span)
+            // Frame the focused spot IN CONTEXT with everyone — the old fixed
+            // tight span (0.045) around just the spot hid the participants and
+            // read as "so zoomed the map is useless" (device feedback). Fit all
+            // points (which includes the focus), gently bias the center toward
+            // the focus so it reads as the subject, and widen a touch so nobody
+            // falls off the edge. A floor keeps a tight cluster from over-zooming.
+            var region = MapGeometry.region(for: coordinates)
+            region.span.latitudeDelta = max(region.span.latitudeDelta, 0.02) * 1.2
+            region.span.longitudeDelta = max(region.span.longitudeDelta, 0.02) * 1.2
+            region.center = CLLocationCoordinate2D(
+                latitude: region.center.latitude * 0.65 + focusCoordinate.latitude * 0.35
+                    - region.span.latitudeDelta * focusYOffsetRatio,
+                longitude: region.center.longitude * 0.65 + focusCoordinate.longitude * 0.35)
+            options.region = region
         } else {
             options.region = MapGeometry.region(for: coordinates)
         }
@@ -1117,9 +1125,15 @@ struct ExpandedView: View {
                 .minimumScaleFactor(0.85)
             Spacer(minLength: 0)
             if isBest {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Tokens.Palette.pinFair)
+                // Brand-colored "Best" — the recommendation, kept distinct from
+                // the green/yellow/orange fairness tiers (device feedback: a
+                // yellow star clashed with a green "Even" spot).
+                Text("Best")
+                    .font(Tokens.Typography.caption2Bold)
+                    .foregroundStyle(Tokens.Palette.onBrand)
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: 18)
+                    .background(Tokens.Palette.brand, in: Capsule())
             }
         }
     }
@@ -1127,9 +1141,10 @@ struct ExpandedView: View {
     @ViewBuilder
     private func spotCardPeople(_ spot: RankedSpot) -> some View {
         let extra = spot.etas.count - 4
+        let tint = SpotETADisplay.fairnessColor(for: spot)
         VStack(alignment: .leading, spacing: 5) {
             ForEach(spot.etas.prefix(4)) { eta in
-                spotCardPersonRow(eta)
+                spotCardPersonRow(eta, tint: tint)
             }
             if extra > 0 {
                 Text("+\(extra) more")
@@ -1139,7 +1154,7 @@ struct ExpandedView: View {
         }
     }
 
-    private func spotCardPersonRow(_ eta: ParticipantETA) -> some View {
+    private func spotCardPersonRow(_ eta: ParticipantETA, tint: Color) -> some View {
         HStack(spacing: Tokens.Spacing.s1) {
             Text(SpotETADisplay.initials(for: eta.name))
                 .font(.system(size: 9, weight: .bold, design: .rounded))
@@ -1152,9 +1167,11 @@ struct ExpandedView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Spacer(minLength: Tokens.Spacing.s1)
+            // Time coloured by the spot's fairness so a fair spot's rows read
+            // green at a glance (device feedback: restore the color-coded times).
             Text(formatETA(eta.eta))
                 .font(Tokens.Typography.captionBold.monospacedDigit())
-                .foregroundStyle(Tokens.Palette.textPrimary)
+                .foregroundStyle(tint)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
