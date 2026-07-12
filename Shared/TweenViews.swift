@@ -809,38 +809,24 @@ struct ExpandedView: View {
         hasEnoughPeopleForSpots
     }
 
+    // MARK: - Layout
+    //
+    // Redesign (audit Part 2): the extension used to stack up to five opaque
+    // chrome bands (offline banner · status banner · 120pt status card · 60/40
+    // map/list split · CTA footer) around a squeezed map. The new shape is one
+    // full-bleed map canvas with everything else floating on it in two layers —
+    // a slim status pill up top and a single translucent panel (roster strip ·
+    // horizontal spot cards · one contextual CTA) at the bottom. The hero states
+    // (invite, meetup set) already use this map+panel shape and are unchanged.
+
     var body: some View {
-        VStack(spacing: 0) {
-            if !isOnline { offlineBanner }
-            if let statusMessage, !isSending { statusBanner(statusMessage) }
-            if !isInvitePrompt && !isMeetupSet { meetupStatusCard }
-
-            GeometryReader { geo in
-                if isMeetupSet, let received {
-                    meetupSetView(state: received)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                } else if isInvitePrompt, let received {
-                    invitePromptView(state: received)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                } else {
-                    // Split the space between the interactive map (~60%) and the
-                    // scrollable spot list (~40%). The map can't live inside a
-                    // vertical ScrollView — its pan gesture would fight the scroll.
-                    VStack(spacing: 0) {
-                        mapSection
-                            .frame(height: geo.size.height * 0.6)
-                        spotList
-                            .frame(height: geo.size.height * 0.4)
-                    }
-                }
-            }
-
-            if !isMeetupSet && !isInvitePrompt {
-                primaryCTA
-                    .padding(Tokens.Spacing.s4)
-                bottomAction
-                    .padding(.horizontal, Tokens.Spacing.s4)
-                    .padding(.bottom, Tokens.Spacing.s3)
+        Group {
+            if isMeetupSet, let received {
+                meetupSetView(state: received)
+            } else if isInvitePrompt, let received {
+                invitePromptView(state: received)
+            } else {
+                browseLayout
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -850,80 +836,310 @@ struct ExpandedView: View {
         .background(Color(.systemBackground))
     }
 
-    // MARK: Invitation
+    /// Map canvas + floating status pill + bottom panel. Covers the Browse,
+    /// Waiting, and Terminal-place (non-agreed) configurations of the state
+    /// matrix; the panel's contents adapt to the current negotiation state.
+    private var browseLayout: some View {
+        ZStack(alignment: .bottom) {
+            mapSection
 
-    @ViewBuilder
-    private var meetupStatusCard: some View {
-        if shouldShowStatusCard {
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
-                HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
-                    Image(systemName: statusIcon)
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(statusColor)
-                        .frame(width: 40, height: 40)
-                        .background(statusColor.opacity(0.14), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                        Text(statusEyebrow)
-                            .font(Tokens.Typography.captionBold)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                            .textCase(.uppercase)
-                        Text(statusTitle)
-                            .font(Tokens.Typography.headline)
-                            .foregroundStyle(Tokens.Palette.textPrimary)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                        Text(statusSubtitle)
-                            .font(Tokens.Typography.caption)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                            .lineLimit(2)
-                    }
-
+            if let pill = statusPill {
+                VStack(spacing: 0) {
+                    statusPillView(pill.text, isError: pill.isError)
+                        .padding(.top, Tokens.Spacing.s3)
                     Spacer(minLength: 0)
                 }
-
-                readinessRow
             }
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .padding(.vertical, Tokens.Spacing.s3)
-            .frame(maxWidth: .infinity)
-            .background(Tokens.Palette.surfaceSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .padding(.top, Tokens.Spacing.s2)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(statusEyebrow), \(statusTitle), \(statusSubtitle)")
+
+            browsePanel
         }
     }
 
-    private var shouldShowStatusCard: Bool {
-        received != nil || isUserIn || draft != nil
+    // MARK: Status pill
+
+    /// The one thing worth saying over the map right now: offline, a send in
+    /// flight / failure, or nothing (most states — the panel carries the rest).
+    private var statusPill: (text: String, isError: Bool)? {
+        if !isOnline { return ("You're offline. Reconnect to find fair spots.", true) }
+        if let statusMessage, !isSending { return (statusMessage, statusIsError) }
+        return nil
     }
 
-    private var statusIcon: String {
-        if let received {
-            switch received.messageType {
-            case .invite: return "person.2.fill"
-            case .leave: return "location.slash"
-            case .propose, .counter: return "mappin.and.ellipse"
-            case .agree where received.isFullyAgreed: return "checkmark.seal.fill"
-            case .agree: return "checkmark.circle.fill"
-            }
+    private func statusPillView(_ text: String, isError: Bool) -> some View {
+        let tint = isError ? Tokens.Palette.destructive : Tokens.Palette.textSecondary
+        return Label {
+            Text(text).lineLimit(2).multilineTextAlignment(.center)
+        } icon: {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "info.circle")
         }
-        return isUserIn ? "checkmark.circle.fill" : "location.circle"
+        .font(Tokens.Typography.captionBold)
+        .foregroundStyle(tint)
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .padding(.vertical, Tokens.Spacing.s2)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(tint.opacity(0.25), lineWidth: 0.5))
+        .padding(.horizontal, Tokens.Spacing.s4)
+        .tweenElevation(.pin)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .accessibilityLabel(text)
     }
 
-    private var statusColor: Color {
-        if let received {
-            switch received.messageType {
-            case .leave: return Tokens.Palette.destructive
-            case .agree where received.isFullyAgreed: return Tokens.Palette.success
-            case .propose, .counter, .agree: return Tokens.Palette.pinFair
-            case .invite: return Tokens.Palette.brand
+    // MARK: Bottom panel
+
+    private var browsePanel: some View {
+        VStack(spacing: Tokens.Spacing.s3) {
+            Capsule()
+                .fill(Tokens.Palette.textTertiary.opacity(0.35))
+                .frame(width: 42, height: 5)
+                .accessibilityHidden(true)
+
+            panelHeadline
+
+            rosterStrip
+
+            if rankedSpots.isEmpty {
+                panelEmptyState
+            } else {
+                spotCardRail
+            }
+
+            primaryCTA
+            bottomAction
+        }
+        .padding(Tokens.Spacing.s4)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: UnevenRoundedRectangle(
+            topLeadingRadius: Tokens.Radius.sheet,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: Tokens.Radius.sheet,
+            style: .continuous))
+        .tweenElevation(.sheet)
+    }
+
+    /// Eyebrow + title (place name, "Waiting for someone else", …) with an
+    /// optional group-progress chip — the panel's single line of context,
+    /// replacing the old 120pt status card.
+    private var panelHeadline: some View {
+        HStack(alignment: .center, spacing: Tokens.Spacing.s2) {
+            VStack(alignment: .leading, spacing: 2) {
+                if received != nil {
+                    Text(statusEyebrow)
+                        .font(Tokens.Typography.caption2Bold)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                Text(statusTitle)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            Spacer(minLength: 0)
+            if let received, let progress = groupProgress(for: received) {
+                Text(progress)
+                    .font(Tokens.Typography.caption2Bold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, Tokens.Spacing.s2)
+                    .frame(minHeight: 24)
+                    .background(Tokens.Palette.surface, in: Capsule())
             }
         }
-        return isUserIn ? Tokens.Palette.success : Tokens.Palette.brand
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
+
+    // MARK: Roster strip
+
+    /// Avatar dots + names for everyone "in" — replaces the readiness chips.
+    private var rosterStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Tokens.Spacing.s2) {
+                if isUserIn || selfCoord != nil {
+                    rosterDot(name: "You", isSelf: true)
+                }
+                ForEach(otherParticipants.prefix(8)) { participant in
+                    rosterDot(name: participant.name, isSelf: false)
+                }
+                if otherParticipants.count > 8 {
+                    Text("+\(otherParticipants.count - 8)")
+                        .font(Tokens.Typography.caption2Bold)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .frame(minHeight: 26)
+                        .background(Tokens.Palette.surface, in: Capsule())
+                }
+                let waiting = max(totalSeats - activeParticipantCount, 0)
+                if waiting > 0 {
+                    Label("Waiting \(waiting)", systemImage: "hourglass")
+                        .font(Tokens.Typography.caption2Bold)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .frame(minHeight: 26)
+                        .background(Tokens.Palette.surface, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+        .accessibilityLabel("Who's in")
+    }
+
+    private func rosterDot(name: String, isSelf: Bool) -> some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Text(isSelf ? "You" : SpotETADisplay.initials(for: name))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Tokens.Palette.onBrand)
+                .frame(width: isSelf ? nil : 26, height: 26)
+                .padding(.horizontal, isSelf ? Tokens.Spacing.s2 : 0)
+                .background(isSelf ? Tokens.Palette.pinSelf : Tokens.Palette.brand,
+                            in: isSelf ? AnyShape(Capsule()) : AnyShape(Circle()))
+            if !isSelf {
+                Text(name)
+                    .font(Tokens.Typography.caption2Bold)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.trailing, isSelf ? 0 : Tokens.Spacing.s2)
+        .padding(.vertical, 2)
+        .background(Tokens.Palette.surface, in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(isSelf ? "You, in" : "\(name), in")
+    }
+
+    // MARK: Spot cards
+
+    /// Horizontally paging spot cards — every person's time on every card,
+    /// replacing the vertical 40%-height list.
+    private var spotCardRail: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Tokens.Spacing.s3) {
+                    ForEach(rankedSpots) { spot in
+                        spotCard(spot).id(spot.id)
+                    }
+                }
+                .padding(.horizontal, 1)
+                .padding(.vertical, 2)
+            }
+            .onChange(of: selectedSpotID) { _, newValue in
+                guard let newValue else { return }
+                withAnimation(Tokens.Motion.snappy) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+            .sensoryFeedback(.selection, trigger: selectedSpotID)
+        }
+    }
+
+    private func spotCard(_ spot: RankedSpot) -> some View {
+        let isSelected = selectedSpotID == spot.id
+        let name = spot.item?.name ?? "Spot"
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            spotCardHeader(spot, name: name)
+            spotCardPeople(spot)
+            Spacer(minLength: 0)
+            spotCardSpread(spot)
+        }
+        .padding(Tokens.Spacing.s3)
+        .frame(width: 172, height: 156, alignment: .topLeading)
+        .background(isSelected ? Tokens.Palette.brand.opacity(0.14) : Tokens.Palette.surface,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                .strokeBorder(isSelected ? Tokens.Palette.brand : Color.clear, lineWidth: 1.5)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { select(spot, animateMap: true) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot))")
+        .accessibilityHint("Selects this spot to send")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func spotCardHeader(_ spot: RankedSpot, name: String) -> some View {
+        let isBest = rankedSpots.first?.id == spot.id
+        return HStack(spacing: Tokens.Spacing.s1) {
+            Text(name)
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if isBest {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Tokens.Palette.pinFair)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func spotCardPeople(_ spot: RankedSpot) -> some View {
+        let extra = spot.etas.count - 3
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(spot.etas.prefix(3)) { eta in
+                spotCardPersonRow(eta)
+            }
+            if extra > 0 {
+                Text("+\(extra) more")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+            }
+        }
+    }
+
+    private func spotCardPersonRow(_ eta: ParticipantETA) -> some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Text(SpotETADisplay.initials(for: eta.name))
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(Tokens.Palette.onBrand)
+                .frame(width: 18, height: 18)
+                .background(Tokens.Palette.brand, in: Circle())
+            Text(eta.name)
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .lineLimit(1)
+            Spacer(minLength: Tokens.Spacing.s1)
+            Text(formatETA(eta.eta))
+                .font(Tokens.Typography.captionBold.monospacedDigit())
+                .foregroundStyle(Tokens.Palette.textPrimary)
+        }
+    }
+
+    private func spotCardSpread(_ spot: RankedSpot) -> some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Image(systemName: "arrow.left.and.right")
+                .font(.system(size: 9, weight: .bold))
+            Text(SpotETADisplay.fairnessSummary(for: spot))
+                .font(Tokens.Typography.caption2Bold)
+        }
+        .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
+    }
+
+    /// The card rail's empty slot — ranking shimmer, waiting, or "no spots".
+    private var panelEmptyState: some View {
+        VStack(spacing: Tokens.Spacing.s2) {
+            Image(systemName: emptySpotListIcon)
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+            Text(emptySpotListTitle)
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(Tokens.Palette.textPrimary)
+            Text(emptySpotListSubtitle)
+                .font(Tokens.Typography.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surface.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Invitation
 
     private var statusEyebrow: String {
         guard let received else {
@@ -957,69 +1173,6 @@ struct ExpandedView: View {
             return sender
         }
         return received.text
-    }
-
-    private var statusSubtitle: String {
-        if draft != nil, received == nil {
-            return "Send it to the chat or browse other spots."
-        }
-        guard let received else {
-            if hasEnoughPeopleForSpots { return "Choose a fair place for everyone who is in." }
-            if isWaitingForCoordinates { return "Waiting for shared locations before ranking spots." }
-            return isUserIn ? "Fair spots appear when another person joins." : "Share your location to start."
-        }
-        switch received.messageType {
-        case .invite:
-            return hasEnoughPeopleForSpots ? "Ready to pick a fair spot." : "Share where you are to join."
-        case .leave:
-            return "They are no longer active for this meetup."
-        case .propose:
-            return "Agree, or choose a fair alternative."
-        case .counter:
-            return "Review the new suggestion."
-        case .agree where received.isFullyAgreed:
-            return "Open directions or keep browsing."
-        case .agree:
-            return "Waiting for the remaining people to agree."
-        }
-    }
-
-    private var readinessRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Tokens.Spacing.s2) {
-                if isUserIn || selfCoord != nil {
-                    readinessChip("You", systemImage: "checkmark.circle.fill", color: Tokens.Palette.success)
-                }
-
-                ForEach(otherParticipants.prefix(6)) { participant in
-                    readinessChip(participant.name, systemImage: "checkmark.circle.fill", color: Tokens.Palette.success)
-                }
-
-                if otherParticipants.count > 6 {
-                    readinessChip("+\(otherParticipants.count - 6)", systemImage: "ellipsis", color: Tokens.Palette.textSecondary)
-                }
-
-                let waitingCount = max(totalSeats - activeParticipantCount, 0)
-                if waitingCount > 0 {
-                    readinessChip("Waiting \(waitingCount)", systemImage: "hourglass", color: Tokens.Palette.textSecondary)
-                }
-
-                if activeParticipantCount == 0 {
-                    readinessChip("Waiting on you", systemImage: "location.circle", color: Tokens.Palette.brand)
-                }
-            }
-        }
-        .accessibilityLabel("Readiness")
-    }
-
-    private func readinessChip(_ title: String, systemImage: String, color: Color) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(Tokens.Typography.captionBold)
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .padding(.horizontal, Tokens.Spacing.s2)
-            .frame(minHeight: 28)
-            .background(color.opacity(0.12), in: Capsule())
     }
 
     private func groupProgress(for state: TweenState) -> String? {
@@ -1446,52 +1599,6 @@ struct ExpandedView: View {
         .buttonStyle(.plain)
     }
 
-    private var spotList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: Tokens.Spacing.s2) {
-                    if rankedSpots.isEmpty {
-                        emptySpotListState
-                    } else {
-                        ForEach(rankedSpots) { spot in
-                            spotRow(spot)
-                                .id(spot.id)
-                        }
-                    }
-                }
-                .padding(.horizontal, Tokens.Spacing.s4)
-                .padding(.vertical, Tokens.Spacing.s2)
-            }
-            // Keep the selected spot in view whether it was picked here or on the map.
-            .onChange(of: selectedSpotID) { _, newValue in
-                guard let newValue else { return }
-                withAnimation(Tokens.Motion.snappy) {
-                    proxy.scrollTo(newValue, anchor: .center)
-                }
-            }
-            .sensoryFeedback(.selection, trigger: selectedSpotID)
-        }
-    }
-
-    private var emptySpotListState: some View {
-        VStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: emptySpotListIcon)
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.brand)
-            Text(emptySpotListTitle)
-                .font(Tokens.Typography.subheadline.weight(.semibold))
-                .foregroundStyle(Tokens.Palette.textPrimary)
-            Text(emptySpotListSubtitle)
-                .font(Tokens.Typography.caption)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 120)
-        .padding(Tokens.Spacing.s4)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
-        .accessibilityElement(children: .combine)
-    }
-
     private var emptySpotListIcon: String {
         if isWaitingForCoordinates { return "location.circle" }
         if !hasEnoughPeopleForSpots { return "person.2" }
@@ -1514,70 +1621,6 @@ struct ExpandedView: View {
         return isRanking
             ? "Hang tight while Tween ranks nearby places."
             : "Try Browse spots to pick a place manually."
-    }
-
-    private func spotRow(_ spot: RankedSpot) -> some View {
-        let isSelected = selectedSpotID == spot.id
-        let isBestFair = rankedSpots.first?.id == spot.id
-        let name = spot.item?.name ?? "Unknown"
-        return HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
-            ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous)
-                    .fill(isBestFair ? Tokens.Palette.pinFair.opacity(0.22) : Tokens.Palette.brandLight)
-                Image(systemName: isBestFair ? "star.fill" : "fork.knife")
-                    .font(Tokens.Typography.callout.weight(.semibold))
-                    .foregroundStyle(isBestFair ? Tokens.Palette.pinFair : Tokens.Palette.brand)
-            }
-            .frame(width: 40, height: 40)
-
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-                HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.s2) {
-                    Text(name)
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                        .lineLimit(1)
-
-                    if isBestFair {
-                        Text("Best balance")
-                            .font(Tokens.Typography.captionBold)
-                            .foregroundStyle(Tokens.Palette.brand)
-                            .padding(.horizontal, Tokens.Spacing.s2)
-                            .frame(minHeight: 22)
-                            .background(Tokens.Palette.brandLight, in: Capsule())
-                    }
-                }
-
-                if let title = spot.item?.placemark.title, !title.isEmpty {
-                    Text(title)
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .lineLimit(1)
-                }
-
-                SpotETAStrip(spot: spot)
-
-                if spot.etas.count > 2 {
-                    SpotDriveBalance(spot: spot)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Tokens.Spacing.s3)
-        .padding(.vertical, Tokens.Spacing.s3)
-        .background(isSelected ? Tokens.Palette.brand.opacity(0.12) : Tokens.Palette.surfaceSecondary,
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                .strokeBorder(isSelected ? Tokens.Palette.brand.opacity(0.45) : Color.clear, lineWidth: 1)
-        }
-        .contentShape(Rectangle())
-        // Tapping a row animates the map to this spot and highlights its pin.
-        .onTapGesture { select(spot, animateMap: true) }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot))")
-        .accessibilityHint("Selects this spot to send")
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// Single point of truth for selection. Always updates `selectedSpotID`
@@ -1844,34 +1887,6 @@ struct ExpandedView: View {
         }
         .buttonStyle(.tweenPrimary(.subtle))
         .accessibilityHint("Opens the full Tween app to search for places")
-    }
-
-    private var offlineBanner: some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: "wifi.slash")
-            Text("You're offline. Reconnect to find fair spots.")
-            Spacer(minLength: 0)
-        }
-        .font(Tokens.Typography.caption.weight(.medium))
-        .foregroundStyle(.white)
-        .padding(Tokens.Spacing.s3)
-        .frame(maxWidth: .infinity)
-        .background(Tokens.Palette.warning)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func statusBanner(_ message: String) -> some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            Image(systemName: statusIsError ? "exclamationmark.circle.fill" : "info.circle.fill")
-            Text(message)
-            Spacer(minLength: 0)
-        }
-        .font(Tokens.Typography.caption.weight(.medium))
-        .foregroundStyle(statusIsError ? .white : Tokens.Palette.brand)
-        .padding(Tokens.Spacing.s3)
-        .frame(maxWidth: .infinity)
-        .background(statusIsError ? AnyShapeStyle(Tokens.Palette.warning) : AnyShapeStyle(Tokens.Palette.brandLight))
-        .accessibilityElement(children: .combine)
     }
 }
 
