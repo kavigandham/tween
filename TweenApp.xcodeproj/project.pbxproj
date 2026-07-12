@@ -39,6 +39,7 @@
 		61AA93DA40237D9508408F2C /* ConversationMeetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */; };
 		62F1F0447441F1F398ED7ED9 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */; };
 		669685640A0A881C3AC790F7 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
+		68A4E065B88A3147AB2F4FAE /* NameIntegrityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C440EB69DC883032023978 /* NameIntegrityTests.swift */; };
 		6C5FF34BE079E32BE1B002DE /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */; };
 		6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C546097077ED186216682C7A /* PingLogTests.swift */; };
 		71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */; };
@@ -162,6 +163,7 @@
 		C546097077ED186216682C7A /* PingLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLogTests.swift; sourceTree = "<group>"; };
 		CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TweenAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
+		D3C440EB69DC883032023978 /* NameIntegrityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameIntegrityTests.swift; sourceTree = "<group>"; };
 		DEA256CAEB5D69FB5441F7C3 /* Participant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Participant.swift; sourceTree = "<group>"; };
 		DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationMeetupStore.swift; sourceTree = "<group>"; };
 		DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenFriend.swift; sourceTree = "<group>"; };
@@ -204,6 +206,7 @@
 				8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */,
 				45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */,
 				FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */,
+				D3C440EB69DC883032023978 /* NameIntegrityTests.swift */,
 				E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */,
 				A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */,
 				C546097077ED186216682C7A /* PingLogTests.swift */,
@@ -509,6 +512,7 @@
 				6066C7E5A4F0A85FE3A7C834 /* FairnessRankerTests.swift in Sources */,
 				49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */,
 				434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */,
+				68A4E065B88A3147AB2F4FAE /* NameIntegrityTests.swift in Sources */,
 				4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */,
 				1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */,
 				6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */,

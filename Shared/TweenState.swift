@@ -236,9 +236,18 @@ struct TweenState: Equatable {
         return set
     }()
 
+    /// The literal "You" fallback must never travel on the wire — a peer would
+    /// render an unnamed sender as "You" (audit F2). Identity rides on the
+    /// stable ID (`pids` / the JSON `id`), so blanking the display name here is
+    /// safe; the receiver shows "Friend" for an empty name.
+    static func outgoingName(_ raw: String) -> String {
+        raw == UserName.fallback ? "" : raw
+    }
+
     static func encodeParticipants(_ participants: [Participant]) -> String {
         participants.map { p in
-            let name = p.name.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? p.name
+            let outgoing = outgoingName(p.name)
+            let name = outgoing.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? outgoing
             let base = "\(name):\(coordinateString(p.latitude)):\(coordinateString(p.longitude))"
             return p.needsRide ? "\(base):ride" : base
         }.joined(separator: ",")
@@ -259,7 +268,13 @@ struct TweenState: Equatable {
     }
 
     static func encodeParticipantJSON(_ participants: [Participant]) -> String? {
-        guard let data = try? JSONEncoder().encode(participants) else { return nil }
+        // Blank the "You" fallback here too (audit F2); the stable `id` is
+        // preserved so cross-device identity is unaffected.
+        let sanitized = participants.map { p in
+            Participant(id: p.id, name: outgoingName(p.name),
+                        latitude: p.latitude, longitude: p.longitude, needsRide: p.needsRide)
+        }
+        guard let data = try? JSONEncoder().encode(sanitized) else { return nil }
         return data.base64EncodedString()
     }
 

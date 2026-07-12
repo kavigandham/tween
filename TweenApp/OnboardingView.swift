@@ -1256,8 +1256,24 @@ struct OnboardingView: View {
         }
     }
 
+    /// Identity-based "is this the local user" test (audit F2 step 4). The old
+    /// `participant.name == (displayName ?? "You")` string compare misclassified
+    /// a REMOTE participant literally named "You" as the local user; matching on
+    /// the stable ID (name fallback only for id-less legacy entries) fixes it.
+    private func isLocalParticipant(_ participant: Participant) -> Bool {
+        participant.matches(LocalParticipantContext(
+            id: TweenIdentity.stableID,
+            name: UserProfile.displayName ?? UserName.fallback))
+    }
+
+    /// A participant row label: "You" for the local user, otherwise the peer's
+    /// name sanitised so an unnamed sender reads "Friend", never "You".
+    private func participantLabel(_ participant: Participant) -> String {
+        isLocalParticipant(participant) ? "You" : UserName.peerDisplayName(participant.name)
+    }
+
     private func participantStatusRow(_ participant: Participant) -> some View {
-        let isLocal = participant.name == (UserProfile.displayName ?? UserName.fallback)
+        let isLocal = isLocalParticipant(participant)
         return HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: participant.needsRide ? "figure.wave" : "checkmark.circle.fill")
                 .font(Tokens.Typography.headline)
@@ -1267,7 +1283,7 @@ struct OnboardingView: View {
                             in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(isLocal ? "You" : participant.name)
+                Text(participantLabel(participant))
                     .font(Tokens.Typography.headline)
                     .foregroundStyle(Tokens.Palette.textPrimary)
                     .lineLimit(1)
@@ -1404,7 +1420,6 @@ struct OnboardingView: View {
     }
 
     private func rideParticipantRow(_ participant: Participant) -> some View {
-        let isLocal = participant.name == (UserProfile.displayName ?? UserName.fallback)
         return HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: participant.needsRide ? "figure.wave" : "car.fill")
                 .font(Tokens.Typography.headline)
@@ -1413,7 +1428,7 @@ struct OnboardingView: View {
                 .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
                             in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(isLocal ? "You" : participant.name)
+                Text(participantLabel(participant))
                     .font(Tokens.Typography.headline)
                     .lineLimit(1)
                 Text(rideSubtitle(for: participant))
@@ -2624,7 +2639,14 @@ struct OnboardingView: View {
     /// Falls back to plain text if (a) we have no fresh self coord to put in
     /// the bubble, (b) MSMessage rendering fails, or (c) the device can't send
     /// text at all (no SIM / no iMessage).
+    /// Inviting a friend is a first-compose path, so gate on a name too (audit
+    /// F2 step 1) — the same one-time prompt `imIn`/`sendToChat` use — before we
+    /// put the user on anyone's roster.
     private func pingFriend(_ friend: TweenFriend) {
+        ensureNamed { self.performPing(friend) }
+    }
+
+    private func performPing(_ friend: TweenFriend) {
         pingTick += 1
 
         guard let handle = friend.handle, MFMessageComposeViewController.canSendText() else {
@@ -3038,9 +3060,15 @@ struct OnboardingView: View {
         let newExtras: [Participant]
         if let firstRemote = remotes.first, !localLeft {
             newPeer = firstRemote.coordinate
-            newPeerName = firstRemote.name
+            // Sanitise for display (audit F2): an unnamed sender's legacy "You"
+            // (or an empty name) reads as "Friend", never "You". Identity keeps
+            // riding on the stable id, so only the shown label changes.
+            newPeerName = UserName.peerDisplayName(firstRemote.name)
             newPeerNeedsRide = firstRemote.needsRide
-            newExtras = Array(remotes.dropFirst())
+            newExtras = remotes.dropFirst().map { p in
+                Participant(id: p.id, name: UserName.peerDisplayName(p.name),
+                            coordinate: p.coordinate, needsRide: p.needsRide)
+            }
         } else if !localLeft {
             newPeer = LocationCache.isPeerActive ? LocationCache.loadPeer()?.coordinate : nil
             newPeerName = "Friend"

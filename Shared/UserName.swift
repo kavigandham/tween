@@ -48,6 +48,16 @@ enum UserName {
         load() ?? fallback
     }
 
+    /// The fallback shown for a PEER whose payload carried no real name — either
+    /// empty (a modern unnamed sender) or a legacy literal "You" (an unnamed
+    /// sender from before the fix). Never call this for the local user: self is
+    /// always shown as "You". A trimmed real name passes through untouched.
+    static func peerDisplayName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == fallback { return "Friend" }
+        return trimmed
+    }
+
     static func save(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

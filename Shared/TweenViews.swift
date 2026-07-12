@@ -716,7 +716,13 @@ struct ExpandedView: View {
     private var otherParticipants: [Participant] {
         if let received, !received.participants.isEmpty {
             let myId = localParticipantID ?? myName
-            return received.participants.filter { !$0.matches(id: myId, name: myName) }
+            // Sanitise legacy "You"/empty peer names to "Friend" for display
+            // (audit F2). Identity keeps riding on the id, so filtering above
+            // is unaffected; only the shown label changes.
+            return received.participants
+                .filter { !$0.matches(id: myId, name: myName) }
+                .map { Participant(id: $0.id, name: UserName.peerDisplayName($0.name),
+                                   coordinate: $0.coordinate, needsRide: $0.needsRide) }
         }
         // Legacy fallback: only one peer's worth of info.
         if let legacyPeer = legacyPeerCoord {
