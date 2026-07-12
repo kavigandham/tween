@@ -284,7 +284,17 @@ struct SpotDetailCard: View {
             if let incoming { incomingHeadline(incoming) }
 
             if let ranked {
-                ETAChip(etaFromA: ranked.etaFromA, etaFromB: ranked.etaFromB)
+                // Per-person drive times (audit F1) — the sheet used to cap at
+                // two. Groups also get the drive-balance track; pairs get a
+                // one-line fairness caption instead.
+                SpotETAStrip(spot: ranked)
+                if ranked.etas.count > 2 {
+                    SpotDriveBalance(spot: ranked)
+                } else {
+                    Text(SpotETADisplay.fairnessCaption(for: ranked))
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(SpotETADisplay.fairnessColor(for: ranked))
+                }
             }
 
             if richDetailItem != nil {

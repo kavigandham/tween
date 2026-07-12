@@ -165,7 +165,10 @@ struct RankedResultRow: View {
             ResultRow(name: spot.item?.name ?? "Spot",
                       address: spot.item?.placemark.title)
             Spacer(minLength: Tokens.Spacing.s2)
-            ETAChip(etaFromA: spot.etaFromA, etaFromB: spot.etaFromB)
+            // N-person aware (audit F1): shows both names/times for a pair and
+            // a "N people · spread" summary for groups, so the results list is
+            // no longer capped at two.
+            SpotETASummaryPill(spot: spot)
         }
     }
 }
@@ -243,7 +246,11 @@ struct ResultCard: View {
             }
 
             if let rankedSpot {
-                ETAChip(etaFromA: rankedSpot.etaFromA, etaFromB: rankedSpot.etaFromB)
+                // Every participant's time (audit F1), not just A/B.
+                SpotETAStrip(spot: rankedSpot)
+                if rankedSpot.etas.count > 2 {
+                    SpotDriveBalance(spot: rankedSpot)
+                }
             }
 
             HStack(spacing: Tokens.Spacing.s2) {

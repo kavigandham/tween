@@ -1262,7 +1262,7 @@ struct ExpandedView: View {
         let isBestFair = rankedSpots.first?.id == spot.id
         let role: TweenPin.Role = isBestFair ? .fairSpot : .result
         return VStack(spacing: 2) {
-            Text(Self.compactETALabel(for: spot))
+            Text(SpotETADisplay.compactLabel(for: spot))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Tokens.Palette.textPrimary)
                 .padding(.horizontal, 6)
@@ -1283,22 +1283,8 @@ struct ExpandedView: View {
         }
         // Tapping a pin highlights its row in the list below (which scrolls to it).
         .onTapGesture { select(spot, animateMap: false) }
-        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(Self.compactETALabel(for: spot))")
+        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(SpotETADisplay.compactLabel(for: spot))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    /// "Alice 8 · Bob 12 · Carol 15" for ≤4 participants; "8 / 12 / 15 / 9 / 11"
-    /// for 5+ so the pin chip stays compact. Falls back to the legacy A·B form
-    /// when the etas array is empty (only the legacy 2-person init path).
-    static func compactETALabel(for spot: RankedSpot) -> String {
-        let etas = spot.etas
-        if etas.isEmpty {
-            return "A \(formatETA(spot.etaFromA)) · B \(formatETA(spot.etaFromB))"
-        }
-        if etas.count <= 2 {
-            return etas.map { "\($0.name) \(formatETA($0.eta))" }.joined(separator: " · ")
-        }
-        return "\(etas.count) people · \(formatETA(spot.fairnessSpread)) spread"
     }
 
     // MARK: Spot list
@@ -1567,18 +1553,10 @@ struct ExpandedView: View {
                         .lineLimit(1)
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Tokens.Spacing.s1) {
-                        let chips = etaChipItems(for: spot)
-                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                            etaChip(label: chip.0, value: chip.1)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SpotETAStrip(spot: spot)
 
                 if spot.etas.count > 2 {
-                    driveBalanceStrip(for: spot)
+                    SpotDriveBalance(spot: spot)
                 }
             }
 
@@ -1596,149 +1574,9 @@ struct ExpandedView: View {
         // Tapping a row animates the map to this spot and highlights its pin.
         .onTapGesture { select(spot, animateMap: true) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(Self.compactETALabel(for: spot))")
+        .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    private func etaChipItems(for spot: RankedSpot) -> [(String, String)] {
-        if spot.etas.isEmpty {
-            return [("A", formatETA(spot.etaFromA)), ("B", formatETA(spot.etaFromB))]
-        }
-        if spot.etas.count <= 3 {
-            return spot.etas.map { ($0.name, formatETA($0.eta)) }
-        }
-        let sorted = spot.etas.sorted { $0.eta < $1.eta }
-        let median = sorted[sorted.count / 2]
-        return [
-            ("Best", formatETA(spot.bestETA)),
-            ("Typical", formatETA(median.eta)),
-            ("Long", formatETA(spot.worstETA))
-        ]
-    }
-
-    private func etaChip(label: String, value: String) -> some View {
-        HStack(spacing: 3) {
-            if !label.isEmpty {
-                Text(label)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-            }
-            Text(value)
-                .foregroundStyle(Tokens.Palette.textPrimary)
-        }
-        .font(Tokens.Typography.captionBold)
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, Tokens.Spacing.s2)
-        .frame(minHeight: 24)
-        .background(Tokens.Palette.surface, in: Capsule())
-    }
-
-    private func driveBalanceStrip(for spot: RankedSpot) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Drive balance")
-                    .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Spacer(minLength: 0)
-                Text(Self.fairnessSummary(for: spot))
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(fairnessColor(for: spot))
-            }
-
-            GeometryReader { proxy in
-                let visible = Self.visibleETAs(for: spot)
-                let trackWidth = max(proxy.size.width - 22, 1)
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Tokens.Palette.neutralAction)
-                        .frame(height: 8)
-                        .offset(y: 11)
-
-                    Capsule()
-                        .fill(fairnessColor(for: spot).opacity(0.22))
-                        .frame(width: Self.spreadWidth(for: spot, trackWidth: trackWidth), height: 8)
-                        .offset(x: Self.spreadStart(for: spot, trackWidth: trackWidth), y: 11)
-
-                    ForEach(visible) { eta in
-                        let xOffset = Self.position(for: eta, in: spot, trackWidth: trackWidth)
-                        Text(Self.initials(for: eta.name))
-                            .font(Tokens.Typography.caption2Bold)
-                            .foregroundStyle(.white)
-                            .frame(width: 22, height: 22)
-                            .background(Tokens.Palette.brand, in: Circle())
-                            .overlay(Circle().strokeBorder(Tokens.Palette.surface, lineWidth: 2))
-                            .offset(x: xOffset)
-                            .accessibilityLabel("\(eta.name), \(formatETA(eta.eta))")
-                    }
-
-                    if spot.etas.count > visible.count {
-                        Text("+\(spot.etas.count - visible.count)")
-                            .font(Tokens.Typography.caption2Bold)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                            .frame(width: 28, height: 22)
-                            .background(Tokens.Palette.surface, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 1))
-                            .offset(x: max(trackWidth - 28, 0))
-                    }
-                }
-            }
-            .frame(height: 32)
-        }
-        .padding(Tokens.Spacing.s2)
-        .background(Tokens.Palette.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
-        .accessibilityElement(children: .contain)
-    }
-
-    private func fairnessColor(for spot: RankedSpot) -> Color {
-        switch spot.fairnessSpread {
-        case ..<300: return Tokens.Palette.fairnessGood
-        case ..<900: return Tokens.Palette.fairnessOkay
-        default: return Tokens.Palette.fairnessPoor
-        }
-    }
-
-    private static func visibleETAs(for spot: RankedSpot) -> [ParticipantETA] {
-        guard spot.etas.count > 6 else { return spot.etas }
-        let sorted = spot.etas.sorted { $0.eta < $1.eta }
-        var visible = Array(sorted.prefix(5))
-        if let longest = sorted.last, !visible.contains(where: { $0.id == longest.id }) {
-            visible.append(longest)
-        }
-        return visible
-    }
-
-    private static func fairnessSummary(for spot: RankedSpot) -> String {
-        if spot.fairnessSpread < 300 {
-            return "Very even"
-        }
-        return "\(formatETA(spot.fairnessSpread)) spread"
-    }
-
-    private static func initials(for name: String) -> String {
-        let words = name.split(separator: " ")
-        let letters = words.prefix(2).compactMap { $0.first }
-        let result = String(letters).uppercased()
-        return result.isEmpty ? "?" : result
-    }
-
-    private static func position(for eta: ParticipantETA, in spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
-        let range = max(spot.worstETA - spot.bestETA, 60)
-        let fraction = CGFloat((eta.eta - spot.bestETA) / range)
-        return min(max(fraction * trackWidth, 0), trackWidth)
-    }
-
-    private static func spreadStart(for spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
-        guard let first = spot.etas.min(by: { $0.eta < $1.eta }) else { return 0 }
-        return position(for: first, in: spot, trackWidth: trackWidth) + 11
-    }
-
-    private static func spreadWidth(for spot: RankedSpot, trackWidth: CGFloat) -> CGFloat {
-        guard let first = spot.etas.min(by: { $0.eta < $1.eta }),
-              let last = spot.etas.max(by: { $0.eta < $1.eta }) else {
-            return 0
-        }
-        return max(position(for: last, in: spot, trackWidth: trackWidth) - position(for: first, in: spot, trackWidth: trackWidth), 8)
     }
 
     /// Single point of truth for selection. Always updates `selectedSpotID`
