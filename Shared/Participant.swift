@@ -38,6 +38,18 @@ struct Participant: Codable, Equatable, Identifiable, Hashable {
         self.init(id: id, name: name, latitude: coordinate.latitude, longitude: coordinate.longitude, needsRide: needsRide)
     }
 
+    /// A locally-added point — an address you typed, or where a friend is
+    /// (their home, the store) — used for the solo A→B "what's in between"
+    /// mode and for adding someone who lacks the app. The `manual:` id
+    /// namespace marks it so it is NEVER mistaken for a real roster member and
+    /// never rides into an outgoing bubble (the send paths filter it out).
+    static func manual(label: String, coordinate: CLLocationCoordinate2D) -> Participant {
+        Participant(id: "manual:" + UUID().uuidString, name: label, coordinate: coordinate)
+    }
+
+    /// True for a locally-added point (see `manual(label:coordinate:)`).
+    var isManual: Bool { id.hasPrefix("manual:") }
+
     enum CodingKeys: String, CodingKey {
         case id
         case name

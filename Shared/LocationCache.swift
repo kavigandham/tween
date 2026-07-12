@@ -40,6 +40,11 @@ enum LocationCache {
         /// the freshness logic. Optional so pre-split blobs keep decoding;
         /// nil defers to the legacy bool key.
         var isActive: Bool? = nil
+        /// True when this coordinate was DECLARED by the user ("I'll be at…")
+        /// rather than measured by GPS. A declared location is not a fix that
+        /// goes stale, so it's exempt from the 5-minute freshness window.
+        /// Optional so pre-provenance blobs keep decoding (nil = GPS).
+        var isManual: Bool? = nil
 
         var coordinate: CLLocationCoordinate2D {
             CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -52,8 +57,9 @@ enum LocationCache {
 
     // MARK: - Self
 
-    static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(), isActive: Bool = true) {
-        write(coordinate, at: date, key: selfKey, isActive: isActive)
+    static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(),
+                     isActive: Bool = true, isManual: Bool = false) {
+        write(coordinate, at: date, key: selfKey, isActive: isActive, isManual: isManual)
         defaults?.set(isActive, forKey: selfActiveKey)   // legacy mirror
         MeetupSync.post()
     }
@@ -70,9 +76,11 @@ enum LocationCache {
     /// use this — never a raw `loadSelf()` — when a coordinate is about to
     /// travel in a payload or seed fairness ranking.
     static func freshSelfCoordinate() -> CLLocationCoordinate2D? {
-        guard let cached = loadSelf(),
-              Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
-        else { return nil }
+        guard let cached = loadSelf() else { return nil }
+        // A user-declared location ("I'll be at…") isn't a GPS fix, so it never
+        // goes stale — it's current until the user changes it or resets.
+        if cached.isManual == true { return cached.coordinate }
+        guard Date().timeIntervalSince(cached.timestamp) <= freshnessWindow else { return nil }
         return cached.coordinate
     }
 
@@ -149,6 +157,9 @@ enum LocationCache {
                   defaults?.bool(forKey: selfActiveKey) != true {
             return false   // pre-split blob: legacy bool key decides
         }
+        // A declared location ("I'll be at…") stays active without a fresh GPS
+        // fix; only measured coordinates age out of the freshness window.
+        if cached.isManual == true { return true }
         return Date().timeIntervalSince(cached.timestamp) <= freshnessWindow
     }
 
@@ -259,11 +270,12 @@ enum LocationCache {
     // MARK: - Atomic single-key codec
 
     private static func write(_ coordinate: CLLocationCoordinate2D, at date: Date,
-                              key: String, isActive: Bool) {
+                              key: String, isActive: Bool, isManual: Bool = false) {
         let coord = CachedCoord(latitude: coordinate.latitude,
                                 longitude: coordinate.longitude,
                                 timestamp: date,
-                                isActive: isActive)
+                                isActive: isActive,
+                                isManual: isManual)
         guard let data = try? JSONEncoder().encode(coord) else { return }
         defaults?.set(data, forKey: key)
     }

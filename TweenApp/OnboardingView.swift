@@ -134,6 +134,17 @@ struct OnboardingView: View {
     /// only populated in group chats (3+ people). Empty for DMs, preserving
     /// the original 2-person behaviour. Refreshed each tick of `pollPeer`.
     @State private var additionalParticipants: [Participant] = []
+    /// Locally-added points for the solo "A→B, see what's in between" mode and
+    /// for adding someone who lacks the app — a friend's home, the store, a
+    /// typed address. Every entry is a `manual:` `Participant`. This array is
+    /// NEVER read or written by `refreshFromAppGroup` (so the poll can't clobber
+    /// it) and NEVER handed to a send path (so it can't ride into a bubble).
+    @State private var manualParticipants: [Participant] = []
+    /// True when the local user declared a future location ("I'll be at…")
+    /// instead of sharing live GPS. Keeps a background fix from overwriting it
+    /// and drives the "You'll be at X" labels. `selfManualLabel` is the place.
+    @State private var selfIsManual = false
+    @State private var selfManualLabel: String? = nil
     @State private var currentParticipants: [Participant] = []
     @State private var peerDisplayName = "Friend"
     @State private var peerNeedsRide = false
@@ -315,6 +326,7 @@ struct OnboardingView: View {
         case invite
         case message(PendingMessage)
         case spot(SpotSelection)
+        case addPoint
 
         var id: String {
             switch self {
@@ -323,6 +335,7 @@ struct OnboardingView: View {
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
             case .spot(let s):       return "spot-\(s.id)"
+            case .addPoint:          return "addPoint"
             }
         }
     }
@@ -459,6 +472,17 @@ struct OnboardingView: View {
             demoSelection = demo
             initialDetent = .height(Tokens.Layout.sheetPeekHeight)
         }
+        // -DEMO_ROUTE_AB: seeds a self location + one added point so the solo
+        // A→B "what's in between" view (route chip, both pins, ranked spots)
+        // can be screenshot-verified without live GPS/typing.
+        if CommandLine.arguments.contains("-DEMO_ROUTE_AB") {
+            _savedCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: 37.3382, longitude: -121.8863))
+            _manualParticipants = State(initialValue: [
+                Participant.manual(label: "Kavi's place",
+                                   coordinate: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194))
+            ])
+            initialDetent = .fraction(0.45)
+        }
         #endif
         _selectedResult = State(initialValue: demoSelection)
         _selectedSheetDetent = State(initialValue: initialDetent)
@@ -475,10 +499,18 @@ struct OnboardingView: View {
     private var mapLayer: some View {
         Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
-                Annotation("You", coordinate: coord) {
+                Annotation(selfIsManual ? "You'll be at \(selfManualLabel ?? "here")" : "You", coordinate: coord) {
                     // Self stays in the location-dot family even when a ride
                     // is needed — the badge overlays it (post-push audit).
                     TweenPin(role: isUserIn ? .selfActive : .selfDot, needsRide: localNeedsRide)
+                }
+            }
+            // Locally-added points — a place/person you added for the solo A→B
+            // "what's in between" view, or someone who lacks the app. Always
+            // shown (a solo user isn't "in" a meetup), labelled with the name.
+            ForEach(manualParticipants) { point in
+                Annotation(point.name, coordinate: point.coordinate) {
+                    TweenPin(role: .friend, initials: TweenPin.initials(for: point.name))
                 }
             }
             // The meetup layer (friends, midpoint, agreement) renders only
@@ -710,6 +742,10 @@ struct OnboardingView: View {
                             },
                             onChange: { startChangeFlow(initialCoord: selection.coordinate) }
                         )
+                    case .addPoint:
+                        AddPointSheet(region: searchRegion,
+                                      resolvePlace: resolvePlace,
+                                      onAdd: addManualPoint)
                     }
                 }
                 // Alerts triggered from inside the sheet must present FROM the
@@ -1621,6 +1657,46 @@ struct OnboardingView: View {
                 .background(Tokens.Palette.surfaceSecondary, in: Capsule())
                 .accessibilityLabel(peerDistanceText)
         }
+
+        // Solo "A→B, see what's in between": add any address or where a friend
+        // is, and get the distance + fair spots between — no ping sent.
+        ForEach(manualParticipants) { point in
+            routePointChip(point)
+        }
+        Button { activeSheet = .addPoint } label: {
+            Label(manualParticipants.isEmpty ? "Add a place or person" : "Add another point",
+                  systemImage: "plus.circle.fill")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.tweenPrimary(.subtle))
+        .accessibilityHint("Add an address or where a friend is to see the distance and fair spots in between — nothing is sent")
+    }
+
+    /// A removable chip for one added A→B point, with its straight-line distance.
+    private func routePointChip(_ point: Participant) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Image(systemName: "mappin.circle.fill")
+                .foregroundStyle(Tokens.Palette.brand)
+            Text(point.name)
+                .font(Tokens.Typography.footnote.weight(.medium))
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .lineLimit(1)
+            if let distance = manualPointDistance(point) {
+                Text(distance)
+                    .font(Tokens.Typography.caption.monospacedDigit())
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            Spacer(minLength: 0)
+            Button { removeManualPoint(point) } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(point.name)")
+        }
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .padding(.vertical, Tokens.Spacing.s2)
+        .background(Tokens.Palette.surfaceSecondary, in: Capsule())
     }
 
     private var discoverySections: some View {
@@ -2153,6 +2229,16 @@ struct OnboardingView: View {
     /// (the coordinate-only demo pin can't exercise it).
     private func openDemoSpotSheetIfRequested() async {
         #if DEBUG
+        // -DEMO_ROUTE_AB seeded one added point at init; also seed a self
+        // location (in the cache, so the poll keeps it) and run a real search so
+        // the solo A→B ranking (fair spots between the two) renders.
+        if CommandLine.arguments.contains("-DEMO_ROUTE_AB") {
+            let sanJose = CLLocationCoordinate2D(latitude: 37.3382, longitude: -121.8863)
+            LocationCache.save(sanJose, isActive: true)
+            savedCoordinate = sanJose
+            await runSearch(trimmed: "coffee", reframeMap: true)
+            return
+        }
         // -DEMO_SPOT_CARD seeded a selection at init, which never fires
         // onChange — present its sheet here (fallback layout, no identifier).
         if CommandLine.arguments.contains("-DEMO_SPOT_CARD"), let item = selectedResult {
@@ -2457,7 +2543,7 @@ struct OnboardingView: View {
     /// and map feel connected as soon as a live search returns.
     private func frameSearchResults() {
         let resultCoords = displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate)
-        let context = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        let context = [savedCoordinate, peerCoordinate].compactMap { $0 } + manualParticipants.map(\.coordinate)
         let coords = context + resultCoords
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) {
@@ -2504,6 +2590,7 @@ struct OnboardingView: View {
         var coords = displayedItems.map(\.placemark.coordinate)
         if let me = savedCoordinate { coords.append(me) }
         if let peer = peerCoordinate { coords.append(peer) }
+        coords.append(contentsOf: manualParticipants.map(\.coordinate))
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) {
             position = Self.cameraPosition(for: coords, bottomBias: 0.35)
@@ -2763,17 +2850,25 @@ struct OnboardingView: View {
     /// known, otherwise whichever single location we have. A tighter local span
     /// keeps common searches like coffee, food, and gas near the active context.
     private var searchRegion: MKCoordinateRegion {
-        if let me = savedCoordinate, let peer = peerCoordinate {
-            let center = Self.midpoint(me, peer)
-            let latDelta = max(abs(me.latitude - peer.latitude) * 1.35, 0.25)
-            let lonDelta = max(abs(me.longitude - peer.longitude) * 1.35, 0.25)
+        // Bias the search toward the MIDDLE of everyone being compared — you,
+        // any live peer, and every added A→B point — so "what's in between"
+        // surfaces genuinely central spots, not just ones next to you.
+        var points = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        points.append(contentsOf: manualParticipants.map(\.coordinate))
+        if points.count >= 2 {
+            let lats = points.map(\.latitude), lons = points.map(\.longitude)
+            let center = CLLocationCoordinate2D(
+                latitude: lats.reduce(0, +) / Double(points.count),
+                longitude: lons.reduce(0, +) / Double(points.count))
+            let latDelta = max((lats.max()! - lats.min()!) * 1.35, 0.25)
+            let lonDelta = max((lons.max()! - lons.min()!) * 1.35, 0.25)
             return MKCoordinateRegion(
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))
         }
 
-        let center = savedCoordinate ?? peerCoordinate ?? Self.defaultCenter
-        let span = savedCoordinate != nil || peerCoordinate != nil ? 0.18 : 0.5
+        let center = points.first ?? Self.defaultCenter
+        let span = points.isEmpty ? 0.5 : 0.18
         return MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
@@ -2886,9 +2981,75 @@ struct OnboardingView: View {
         return true
     }
 
+    /// Resolves a query (address or place name) to map items. Shared by
+    /// `runSearch` and the "add a place / person" flow so both hit MapKit
+    /// identically; returns [] on failure or zero results.
+    private func resolvePlace(query: String, region: MKCoordinateRegion) async -> [MKMapItem] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.region = region
+        return (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+    }
+
+    /// The participant set the local fairness ranking compares — you, every live
+    /// peer/participant, AND every manually-added point (solo A→B / added
+    /// non-app-users). Nil when there's nobody to compare against (need ≥2
+    /// points), so the caller skips ranking and shows plain search results.
+    /// Manual points make the app useful alone without pinging anyone.
+    private var searchRankingParticipants: [Participant]? {
+        var participants: [Participant] = []
+        if let me = savedCoordinate {
+            let myName = UserProfile.displayName ?? UserName.fallback
+            participants.append(Participant(id: myName, name: myName, coordinate: me))
+        }
+        if let peer = peerCoordinate {
+            participants.append(Participant(id: "peer", name: "Friend", coordinate: peer))
+        }
+        participants.append(contentsOf: additionalParticipants)
+        participants.append(contentsOf: manualParticipants)
+        return participants.count >= 2 ? participants : nil
+    }
+
+    /// Adds a locally-picked point (solo A→B / a non-app-user) and refreshes the
+    /// map + any on-screen ranking. Never sent.
+    private func addManualPoint(_ point: Participant) {
+        manualParticipants.append(point)
+        frameUserContext()
+        Task { await rerankCurrentResults() }
+    }
+
+    private func removeManualPoint(_ point: Participant) {
+        manualParticipants.removeAll { $0.id == point.id }
+        frameUserContext()
+        Task { await rerankCurrentResults() }
+    }
+
+    /// Re-ranks the search results already on screen against the current
+    /// participant set — used after adding/removing a manual point, no fresh
+    /// MapKit round-trip. Clears ranking when there's nobody to compare against.
+    @MainActor
+    private func rerankCurrentResults() async {
+        guard let participants = searchRankingParticipants, !searchResults.isEmpty else {
+            rankedSpots = []
+            return
+        }
+        let cap = participants.count >= 3
+            ? FairnessRanker.recommendedCap(for: participants.count)
+            : Self.rankCap
+        rankedSpots = await FairnessRanker.rank(
+            candidates: searchResults, participants: participants, cap: cap)
+    }
+
+    /// Straight-line distance from you to a manual point, for the route chips.
+    private func manualPointDistance(_ point: Participant) -> String? {
+        guard let me = savedCoordinate else { return nil }
+        return ABDistanceLabel.formatDistance(from: me, to: point.coordinate)
+    }
+
     /// Runs `MKLocalSearch`, surfaces raw hits immediately, then ranks the same
-    /// hits by fairness when both coordinates are known. Committed searches
-    /// (Return, suggestion, chip, shortcut) may reframe the map.
+    /// hits by fairness whenever there's someone/somewhere to compare against
+    /// (a live peer OR a manually-added point). Committed searches (Return,
+    /// suggestion, chip, shortcut) may reframe the map.
     @MainActor
     private func runSearch(trimmed: String, reframeMap: Bool) async {
         guard monitor.isOnline else {
@@ -2899,25 +3060,8 @@ struct OnboardingView: View {
             return
         }
 
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = trimmed
-        request.region = searchRegion
-
-        let response: MKLocalSearch.Response
-        do {
-            response = try await MKLocalSearch(request: request).start()
-        } catch {
-            guard !Task.isCancelled else { return }
-            isSearchLoading = false
-            searchResults = []
-            rankedSpots = []
-            isSearchActive = true
-            searchState = .results
-            return
-        }
-
+        let items = await resolvePlace(query: trimmed, region: searchRegion)
         guard !Task.isCancelled else { return }
-        let items = response.mapItems
 
         rankedSpots = []
         searchResults = items
@@ -2928,13 +3072,11 @@ struct OnboardingView: View {
             frameSearchResults()
         }
 
-        if let me = savedCoordinate, let peer = peerCoordinate {
-            let myName = UserProfile.displayName ?? UserName.fallback
-            var participants: [Participant] = [
-                Participant(id: myName, name: myName, coordinate: me),
-                Participant(id: "peer", name: "Friend", coordinate: peer)
-            ]
-            participants.append(contentsOf: additionalParticipants)
+        // Rank fair spots whenever there's at least one other point to compare
+        // against — a live peer OR a manually-added place/person (solo A→B).
+        // The old code gated on a peer coordinate, which is why the app did
+        // nothing useful alone (device feedback).
+        if !items.isEmpty, let participants = searchRankingParticipants {
             let cap = participants.count >= 3
                 ? FairnessRanker.recommendedCap(for: participants.count)
                 : Self.rankCap
@@ -3234,6 +3376,7 @@ struct OnboardingView: View {
 
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
+        coords.append(contentsOf: manualParticipants.map(\.coordinate))
         guard !coords.isEmpty else { return }
         logger.debug("Map reframe triggered for \(coords.count, privacy: .public) coordinate(s)")
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords) }
@@ -3255,6 +3398,7 @@ struct OnboardingView: View {
     private func frameVisibleSearchContext() {
         var coords = [savedCoordinate, peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
+        coords.append(contentsOf: manualParticipants.map(\.coordinate))
 
         if let selectedResult {
             coords.append(selectedResult.placemark.coordinate)
@@ -3286,6 +3430,7 @@ struct OnboardingView: View {
 
         var coords = [peerCoordinate].compactMap { $0 }
         coords.append(contentsOf: additionalParticipants.map(\.coordinate))
+        coords.append(contentsOf: manualParticipants.map(\.coordinate))
         guard !coords.isEmpty else {
             withAnimation(Tokens.Motion.gentle) {
                 position = Self.cameraPosition(for: [Self.defaultCenter])
@@ -3689,6 +3834,76 @@ struct OnboardingView: View {
         return .region(MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)))
+    }
+}
+
+/// A lightweight place/address picker for the solo A→B "what's in between" mode
+/// and for adding someone who lacks the app. Reuses `SearchCompleter` for
+/// typeahead and the caller's `resolvePlace` to turn the pick into a
+/// coordinate. Nothing is sent — the result becomes a local `manual:` point.
+private struct AddPointSheet: View {
+    let region: MKCoordinateRegion
+    let resolvePlace: (String, MKCoordinateRegion) async -> [MKMapItem]
+    let onAdd: (Participant) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var completer = SearchCompleter()
+    @State private var adding = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if adding {
+                    HStack(spacing: Tokens.Spacing.s2) { ProgressView(); Text("Adding…") }
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                } else if !query.isEmpty && completer.results.isEmpty {
+                    Text(completer.phase == .searching ? "Searching…" : "No matches")
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                } else {
+                    ForEach(completer.results, id: \.self) { completion in
+                        Button { pick(completion) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(completion.title)
+                                    .foregroundStyle(Tokens.Palette.textPrimary)
+                                if !completion.subtitle.isEmpty {
+                                    Text(completion.subtitle)
+                                        .font(Tokens.Typography.caption)
+                                        .foregroundStyle(Tokens.Palette.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $query,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Address, or where they are")
+            .onChange(of: query) { _, q in completer.debouncedUpdate(query: q, region: region) }
+            .navigationTitle("Add a place or person")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func pick(_ completion: MKLocalSearchCompletion) {
+        adding = true
+        Task {
+            let query = completion.subtitle.isEmpty
+                ? completion.title : "\(completion.title), \(completion.subtitle)"
+            let items = await resolvePlace(query, region)
+            if let item = items.first {
+                onAdd(Participant.manual(label: item.name ?? completion.title,
+                                         coordinate: item.placemark.coordinate))
+            }
+            dismiss()
+        }
     }
 }
 
