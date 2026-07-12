@@ -1831,6 +1831,7 @@ struct OnboardingView: View {
                     item: item,
                     rankedSpot: rankedMatch(for: item),
                     userCoord: savedCoordinate,
+                    isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
@@ -3098,7 +3099,16 @@ struct OnboardingView: View {
     private func addManualPoint(_ point: Participant) {
         manualParticipants.append(point)
         frameUserContext()
-        Task { await rerankCurrentResults() }
+        if searchResults.isEmpty, searchRankingParticipants != nil {
+            // Nothing to rank yet — auto-find fair spots between the points so the
+            // "best spot" ranking activates immediately, instead of adding a point
+            // doing nothing until you separately search (device feedback: it should
+            // behave like a person joining). The category chips still let you
+            // change what's shown.
+            startShortcutSearch(Self.suggestedSpot)
+        } else {
+            Task { await rerankCurrentResults() }
+        }
     }
 
     private func removeManualPoint(_ point: Participant) {

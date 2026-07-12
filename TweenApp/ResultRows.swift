@@ -216,14 +216,29 @@ struct ResultCard: View {
     let item: MKMapItem
     let rankedSpot: RankedSpot?
     let userCoord: CLLocationCoordinate2D?
+    /// True for the single fairest spot in a ranked search — badged so the
+    /// "best spot" reads at a glance, like the extension's starred card.
+    var isBest: Bool = false
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            Text(item.name ?? "Unknown")
-                .font(Tokens.Typography.title2.weight(.semibold))
-                .lineLimit(1)
+            HStack(spacing: Tokens.Spacing.s2) {
+                Text(item.name ?? "Unknown")
+                    .font(Tokens.Typography.title2.weight(.semibold))
+                    .lineLimit(1)
+                if isBest {
+                    Label("Fairest", systemImage: "star.fill")
+                        .font(Tokens.Typography.caption2Bold)
+                        .foregroundStyle(Tokens.Palette.pinFair)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .frame(minHeight: 22)
+                        .background(Tokens.Palette.pinFair.opacity(0.16), in: Capsule())
+                        .accessibilityLabel("Fairest spot")
+                }
+                Spacer(minLength: 0)
+            }
 
             if let category = item.pointOfInterestCategory?.displayName {
                 Text(category)
