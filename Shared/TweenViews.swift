@@ -886,19 +886,20 @@ struct ExpandedView: View {
     /// Waiting, and Terminal-place (non-agreed) configurations of the state
     /// matrix; the panel's contents adapt to the current negotiation state.
     private var browseLayout: some View {
-        ZStack(alignment: .bottom) {
-            mapSection
-
-            if let pill = statusPill {
-                VStack(spacing: 0) {
+        // The panel is a bottom safe-area inset, so the map gets its OWN region
+        // ABOVE it and frames its content there — the old full-bleed-behind-panel
+        // layout hid the map's lower half under the panel and read as "cut off"
+        // (device feedback). The panel keeps its floating material look.
+        mapSection
+            .overlay(alignment: .top) {
+                if let pill = statusPill {
                     statusPillView(pill.text, isError: pill.isError)
                         .padding(.top, Tokens.Spacing.s3)
-                    Spacer(minLength: 0)
                 }
             }
-
-            browsePanel
-        }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                browsePanel
+            }
     }
 
     // MARK: Status pill
@@ -1246,9 +1247,10 @@ struct ExpandedView: View {
 
 
     private func invitePromptView(state: TweenState) -> some View {
-        ZStack(alignment: .bottom) {
-            mapSection
-
+        // Map gets its own region above the panel (device feedback: the map
+        // read as "cut off" behind the floating panel).
+        mapSection
+            .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: Tokens.Spacing.s4) {
                 Capsule()
                     .fill(Tokens.Palette.textTertiary.opacity(0.35))
@@ -1337,8 +1339,9 @@ struct ExpandedView: View {
                     markers: staticMarkers,
                     cornerRadius: 0,
                     focusCoordinate: snapshotFocus,
-                    // Lift the focus into the strip of map visible above the panel.
-                    focusYOffsetRatio: snapshotFocus != nil ? 0.28 : 0)
+                    // The map now has its own region above the panel, so only a
+                    // gentle lift keeps the spot off dead-center (room for the pill).
+                    focusYOffsetRatio: snapshotFocus != nil ? 0.1 : 0)
             } else {
                 interactiveMap
             }
@@ -1507,9 +1510,9 @@ struct ExpandedView: View {
     /// `.agree` and every non-proposer participant has agreed. Agreement is
     /// terminal for negotiation, but the user still needs to leave the meetup.
     private func meetupSetView(state: TweenState) -> some View {
-        ZStack(alignment: .bottom) {
-            mapSection
-
+        // Map gets its own region above the panel (device feedback).
+        mapSection
+            .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: Tokens.Spacing.s4) {
                 Capsule()
                     .fill(Tokens.Palette.textTertiary.opacity(0.35))
