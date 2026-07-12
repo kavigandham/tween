@@ -1098,7 +1098,13 @@ final class MessagesViewController: MSMessagesAppViewController {
             // stale coord that might land you in a worst-case route the
             // ranker would have rejected.
             let senderCoordinate: CLLocationCoordinate2D?
-            if let fresh = await acquireLocation() {
+            if let manual = LocationCache.loadSelf(), manual.isManual == true, LocationCache.isActive {
+                // Respect a declared "I'll be at…" location — agree with THAT,
+                // never overwrite it with a live GPS fix (which would broadcast
+                // your CURRENT spot and strip the declaration). Sibling of the
+                // handleImIn guard; missing it here was a post-push audit find.
+                senderCoordinate = manual.coordinate
+            } else if let fresh = await acquireLocation() {
                 // Cache the fix but keep the prior active flag — activation
                 // (which the host app reads as "you're in") is committed only
                 // once the agree bubble is actually delivered

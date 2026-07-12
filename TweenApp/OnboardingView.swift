@@ -3047,9 +3047,12 @@ struct OnboardingView: View {
             return false
         }
         // No anchor at all → searchRegion would fall back to the center of the
-        // continental US and quietly return results in Kansas. Ask for a fix
-        // and rerun this exact search when it lands.
-        guard savedCoordinate != nil || peerCoordinate != nil else {
+        // continental US and quietly return results in Kansas. A manually-added
+        // A→B point is a valid anchor too — otherwise a GPS-denied user doing a
+        // pure manual A→B search got nagged for location even though searchRegion
+        // already centers on their points (post-push audit). Ask for a fix only
+        // when there's truly nothing to anchor on.
+        guard savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty else {
             searchResults = []
             rankedSpots = []
             isSearchActive = false
@@ -3107,14 +3110,20 @@ struct OnboardingView: View {
             // change what's shown.
             startShortcutSearch(Self.suggestedSpot)
         } else {
-            Task { await rerankCurrentResults() }
+            // Funnel through searchTask so a rapid add/remove — or a committed
+            // search — cancels an in-flight re-rank; otherwise a slower older
+            // MKDirections round-trip could finish last and stomp the current
+            // ranking (post-push audit).
+            searchTask?.cancel()
+            searchTask = Task { @MainActor in await rerankCurrentResults() }
         }
     }
 
     private func removeManualPoint(_ point: Participant) {
         manualParticipants.removeAll { $0.id == point.id }
         frameUserContext()
-        Task { await rerankCurrentResults() }
+        searchTask?.cancel()
+        searchTask = Task { @MainActor in await rerankCurrentResults() }
     }
 
     /// Re-ranks the search results already on screen against the current
@@ -3129,8 +3138,11 @@ struct OnboardingView: View {
         let cap = participants.count >= 3
             ? FairnessRanker.recommendedCap(for: participants.count)
             : Self.rankCap
-        rankedSpots = await FairnessRanker.rank(
+        let ranked = await FairnessRanker.rank(
             candidates: searchResults, participants: participants, cap: cap)
+        // A newer search/re-rank may have superseded this one mid-flight.
+        guard !Task.isCancelled else { return }
+        rankedSpots = ranked
     }
 
     /// Straight-line distance from you to a manual point, for the route chips.

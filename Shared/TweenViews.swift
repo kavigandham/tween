@@ -1169,11 +1169,17 @@ struct ExpandedView: View {
             Spacer(minLength: Tokens.Spacing.s1)
             // Time coloured by the spot's fairness so a fair spot's rows read
             // green at a glance (device feedback: restore the color-coded times).
+            // On a tinted capsule (like the host chip) so it stays readable in
+            // both light and dark (post-push audit: bare yellow text was low
+            // contrast on a light surface).
             Text(formatETA(eta.eta))
                 .font(Tokens.Typography.captionBold.monospacedDigit())
                 .foregroundStyle(tint)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 6)
+                .frame(minHeight: 20)
+                .background(tint.opacity(0.16), in: Capsule())
         }
     }
 

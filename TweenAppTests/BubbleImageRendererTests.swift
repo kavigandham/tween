@@ -65,5 +65,21 @@ final class BubbleImageRendererTests: XCTestCase {
         let propose = TweenState(text: "Blue Bottle", latitude: 0, longitude: 0,
                                  kind: .place, messageType: .propose)
         XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: propose), "Blue Bottle")
+
+        let counter = TweenState(text: "Joe's", latitude: 0, longitude: 0,
+                                 kind: .place, messageType: .counter)
+        XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: counter), "Joe's")
+
+        // Fully-agreed → "Meeting at X" (Sam proposed, Alex agreed → consensus).
+        let agreed = TweenState(text: "Blue Bottle", latitude: 0, longitude: 0,
+                                senderName: "Sam", kind: .place, messageType: .agree,
+                                participants: [participant("sam", "Sam"), participant("alex", "Alex")],
+                                agreedNames: ["Alex"])
+        XCTAssertTrue(agreed.isFullyAgreed)
+        XCTAssertEqual(BubbleImageRenderer.footerHeadline(for: agreed), "Meeting at Blue Bottle")
+    }
+
+    private func participant(_ id: String, _ name: String) -> Participant {
+        Participant(id: id, name: name, latitude: 0, longitude: 0)
     }
 }

@@ -1,41 +1,37 @@
-# AUDIT REPORT — Tween — 2026-07-12 (HEAD f521012, post-push audit of the A→B feature push)
+# AUDIT REPORT — Tween — 2026-07-12 (HEAD ce5442e, post-push audit of the 3 device-feedback fixes)
 
-Scope: the three-feature push (`a8aa23d` solo A→B, `9b4fee4` where-I'll-be, `f521012` non-app-user) on the manual-location primitive, plus a regression pass.
+The three fixes in ce5442e (fairness colors, spot-in-context snapshot geometry, bubble footer) are **sound** — call sites consistent, tokens exist, `footerHeadline` is exhaustive over all five `MessageType` cases and sanitises the leave sender via `UserName.peerDisplayName`, and the new snapshot math is **NaN-safe** (coordinates guaranteed non-empty; single/degenerate points floor to a min span; the center bias keeps every point in frame — verified algebraically). The genuine problems were in adjacent recently-churned code — the "fix one encoder, miss the siblings" pattern again.
 
-**Invariant that HELD (verified):** manual A→B points never reach a send path — `manualParticipants` is read only by display/framing/ranking accessors and never by `scopedFirstRoster`/`saveLocalParticipant`/`proposalParticipantsForCurrentContext`/`nextParticipantList`/`refreshFromAppGroup`. `searchRegion`'s `max()!/min()!` are guarded by `count >= 2` on a non-empty array. `AddPointSheet` is clean (exhaustive sheet switch, `[weak self]` debounce, value-type closures).
+> **Status after this audit:** the three MAJOR + one MINOR findings are **FIXED** (commit following ce5442e). Notes/test-gaps triaged below.
 
-The real risk was the **declared self ("I'll be at…")**, whose freshness-exemption I decoupled from the opt-in gate. The audit found — and this pass FIXED — a stale-send cluster.
-
----
-
-## CRITICAL — FIXED
-
-- **[FIXED] A stale declared self could be sent after leave/reset/cold-launch.** `freshSelfCoordinate()` returned a manual coord regardless of `isActive`, and the self blob is only deactivated (never removed) by `startFreshMeetup`/`deactivateSelf` — so a later send re-shared a possibly days-old "I'll be at…". Fix: the manual branch of `freshSelfCoordinate()` now requires `isActive` (exempt from the 5-min *freshness* window, NOT the opt-in gate) — `LocationCache.swift:82`. Companion: `refreshFromAppGroup` only restores `selfIsManual` when the cached blob is *active*, so a deactivated declaration stops lingering as the self — `OnboardingView.swift:~3384`.
+## CRITICAL — none
 
 ## MAJOR — FIXED
 
-- **[FIXED] `autoJoinForOutgoingMessage` stripped `isManual` on the first send** (`LocationCache.save(...)` defaulted `isManual:false`), after which the poll + a background GPS fix clobbered the declared pin. Now re-saves with `isManual: selfIsManual` — `OnboardingView.swift:~2789`.
-- **[FIXED] Extension `handleImIn` respected a *deactivated* declared self** (branched on `isManual` only). Now also requires `LocationCache.isActive`, so after leaving, re-tapping "I'm in" in the chat acquires a fresh GPS fix — `MessagesViewController.swift:873`.
-- **[FIXED] Test asserted a `clearAll` path production never runs.** `testResetDeactivatesThenClearsManualSelf` replaced with `testDeactivatedManualSelfIsNotSendable` + `testProductionResetMakesManualSelfUnsendable`, which lock the real reset behavior (`freshSelfCoordinate()==nil` after leave/reset) — `ManualLocationTests.swift`.
+- **[FIXED] `sendAgreedPlace` broadcast a live GPS fix over a declared "I'll be at…" location and stripped `isManual`.** `handleImIn` guards this (`isManual && isActive → use declared coord`); the agree path did not — it unconditionally `acquireLocation()` + `save(fresh, isManual:false)`, broadcasting your CURRENT spot as `senderCoordinate` and corrupting the cache for later sends. Added the same guard at the top of coordinate resolution — `MessagesViewController.swift:~1101`.
+- **[FIXED] Manual-point re-rank ran in an untracked, uncancellable `Task` with no cancellation guard**, so a slower older ranking could finish last and stomp a newer one (and the map/list then showed spots for a stale participant set). `addManualPoint`/`removeManualPoint` now funnel through `searchTask` (so a committed search or rapid add/remove cancels the prior re-rank) and `rerankCurrentResults` guards `!Task.isCancelled` before assigning `rankedSpots` — `OnboardingView.swift:~3110`/`~3133`.
+- **[FIXED] `canSearch` accepted only a GPS/peer anchor**, so a GPS-denied user doing a pure manual A→B search got nagged for location even though `searchRegion` already centers on their manual points. Now also accepts `!manualParticipants.isEmpty` — `OnboardingView.swift:~3052`.
 
 ## MINOR — FIXED
 
-- **[FIXED] `imIn → setManualSelf` race**: a late GPS `.got` could overwrite the fresh declaration. `setManualSelf` now clears `awaitingImIn`/`pendingLocationAction` — `OnboardingView.swift:~2999`.
-- **[FIXED] `frameUserContext` snapped tightly onto you**, ignoring the added A→B point. Now frames you + added points together — `OnboardingView.swift:~3515`.
-- **[FIXED] `MapLinks.appleMapsURL` used `http://`** (some clients won't auto-linkify). Now `https://` — `MapLinks.swift:6` (test updated).
-- **[FIXED] "You'll be at here"** when the place name isn't persisted after relaunch → "You'll be there" fallback — `OnboardingView.swift:~526`.
+- **[FIXED] Fairness-tinted time text on the extension card row had no capsule backing** (bare yellow "Fair" on a light surface → low contrast in light mode). Added the same `tint.opacity(0.16)` capsule the host chip uses — `TweenViews.swift:~1174`.
 
 ## ARCHITECTURE NOTES
 
-- Root cause of the cluster: the manual freshness-exemption was unbounded and decoupled from the `isActive`/opt-in gate the rest of the system uses to answer "may this coordinate travel?". Binding the exemption to `isActive` (freshness-exempt, not active-exempt) collapsed the CRITICAL + two MAJORs. The place NAME is intentionally NOT persisted (App Group holds coords + prefs only) — the pin generalises to "You'll be there" after relaunch.
-- Provenance is folded into the single JSON blob (`CachedCoord.isManual`) and written atomically; `setFlag` preserves it on flag flips; pre-provenance blobs decode as GPS. This half of the primitive is solid.
+- **`isBest` reference-equality is fragile.** `rankedSpots.first?.item == item` works only because `displayedItems` reuses the same `MKMapItem` references; a refactor that rebuilds items would silently break the "Best" badge. Consider keying on `RankedSpot.id`. — `OnboardingView.swift:1834`, `TweenViews.swift:1119`.
+- **Outgoing-self-coordinate resolution is duplicated across four send paths** (`handleImIn`, `sendAgreedPlace`, `sendCounter`, `sendChosenSpot`/`sendDraft`); exactly one had drifted (the MAJOR above). Centralising into a single `resolveOutgoingSelfCoordinate()` that honours the manual/freshness/opt-in rules would kill the whole class of bug.
+- LocationCache manual gating is otherwise consistent (freshness-exempt but opt-in-gated; `setFlag` preserves `isManual`; a deactivated declaration is non-sendable).
 
-## TEST COVERAGE GAPS (remaining)
+## TEST COVERAGE GAPS
 
-- The send-path **isolation invariant** (manual points never in the roster builders) is verified by grep but has no unit test — the builders are `private` on `OnboardingView`. A refactor could re-introduce a leak green.
-- The `.got` `keepManual` guard and the extension `handleImIn` manual-respect (host-cache-driven) are exercised only indirectly; no extension-side unit test harness exists.
-- Covered now: `Participant.manual` flagging, freshness-vs-active exemption (incl. deactivated/reset non-sendability), pre-provenance decode, `spotBody` maps link, propose/counter subcaption change, https scheme.
+- **No test exercises the extension send paths** (`sendAgreedPlace`/`handleImIn`) — nothing imports `MessagesViewController`; the `sendAgreedPlace` clobber slipped through because of it. A declared+active agree keeping `isManual` + sending the declared coord would catch it.
+- **The snapshot focus-branch geometry has no unit test** — it's inside a private `View.render`. Extracting the region computation into a pure `MapGeometry` helper would make the single-point / everyone-in-frame invariants testable.
+- `footerHeadline` now covers `.leave`/`.invite`/`.propose`/`.counter`/`.agree` (added this pass). `rerankCurrentResults` cancellation/ordering still untested.
 
 ## FIX-FIRST PRIORITY LIST
 
-All CRITICAL + MAJOR + MINOR findings from this audit are FIXED in the follow-up commit. Remaining (future): a unit harness for the send-path isolation invariant and the extension manual-respect path.
+1. ~~`sendAgreedPlace` declared-location clobber~~ — FIXED.
+2. ~~Untracked/uncancelled manual re-rank race~~ — FIXED (searchTask + `!Task.isCancelled`).
+3. ~~`canSearch` blocks GPS-free manual A→B~~ — FIXED.
+4. ~~Yellow "Fair" time contrast~~ — FIXED (capsule backing).
+5. Future: extension-send test harness; extract the snapshot region math for testing; centralise outgoing-self-coordinate resolution.
