@@ -3073,18 +3073,30 @@ struct OnboardingView: View {
     /// `runSearch` and the "add a place / person" flow so both hit MapKit
     /// identically; returns [] on failure or zero results.
     private func resolvePlace(query: String, region: MKCoordinateRegion) async -> [MKMapItem] {
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = query
-        request.region = region
-        // Constrain the search to the meetup area (not just a hint), so a query
-        // with no LOCAL name match generalises to the IDEA within the region —
-        // like Apple/Google Maps, "unlimited sushi" → nearby sushi restaurants,
-        // instead of a business literally named "Sushi Unlimited" on the far side
-        // of the world (device feedback). Older iOS keeps the region as a hint.
-        if #available(iOS 18.0, *) {
-            request.regionPriority = .required
+        func search(regionRequired: Bool) async -> [MKMapItem] {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            request.region = region
+            if regionRequired, #available(iOS 18.0, *) {
+                request.regionPriority = .required
+            }
+            return (try? await MKLocalSearch(request: request).start().mapItems) ?? []
         }
-        return (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+        // First pass constrains the search to the meetup area (not just a hint),
+        // so a query with no LOCAL name match generalises to the IDEA within the
+        // region — like Apple/Google Maps, "unlimited sushi" → nearby sushi,
+        // instead of a business literally named "Sushi Unlimited" on the far side
+        // of the world (device feedback). But `.required` returns NOTHING for a
+        // genuinely distant unique place (a typed exact name, or a tapped
+        // completer suggestion outside the region), which would dead-end to "no
+        // fair spots" (post-push audit). So if the local pass is empty, fall back
+        // to the region as a hint only — a distant name-match still resolves.
+        let local = await search(regionRequired: true)
+        if !local.isEmpty { return local }
+        if #available(iOS 18.0, *) {
+            return await search(regionRequired: false)
+        }
+        return local
     }
 
     /// The participant set the local fairness ranking compares — you, every live

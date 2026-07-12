@@ -1110,7 +1110,7 @@ struct ExpandedView: View {
         .contentShape(Rectangle())
         .onTapGesture { select(spot, animateMap: true) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot))")
+        .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -1516,7 +1516,7 @@ struct ExpandedView: View {
         let isBestFair = rankedSpots.first?.id == spot.id
         let role: TweenPin.Role = isBestFair ? .fairSpot : .result
         return VStack(spacing: 2) {
-            Text(SpotETADisplay.compactLabel(for: spot))
+            Text(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Tokens.Palette.textPrimary)
                 .padding(.horizontal, 6)
@@ -1537,7 +1537,7 @@ struct ExpandedView: View {
         }
         // Tapping a pin highlights its row in the list below (which scrolls to it).
         .onTapGesture { select(spot, animateMap: false) }
-        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(SpotETADisplay.compactLabel(for: spot))")
+        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 

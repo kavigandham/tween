@@ -85,7 +85,11 @@ final class SpotETADisplayTests: XCTestCase {
         // A far-but-even spot (both drive ~55 min) is NOT "Fair" when a closer
         // option exists — the core bug this fixes.
         XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 3300), ("B", 3300)]), bestWorstETA: best), "Far")
-        // A single spot (nil reference) compares to itself → "Fair".
-        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 3300), ("B", 3300)])), "Fair")
+        // A single spot (nil reference) has no better option to rank against, so
+        // it's judged by its own evenness instead: identical legs → "Even"…
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 3300), ("B", 3300)])), "Even")
+        // …and a lopsided lone spot reads "Uneven" (coherent with fairnessCaption),
+        // not the misleading "Fair"/green it showed before.
+        XCTAssertEqual(SpotETADisplay.qualityWord(for: spot([("A", 300), ("B", 1500)])), "Uneven")
     }
 }

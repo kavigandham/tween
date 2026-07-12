@@ -54,11 +54,16 @@ enum SpotETADisplay {
         }
     }
 
-    /// How much WORSE this spot is than the best option — its worst-case drive
-    /// minus the shortest worst-case drive in the results. 0 for the best spot.
-    /// A single spot (nil reference) compares to itself → 0 → "as good as it gets".
-    private static func qualityDelta(_ spot: RankedSpot, _ bestWorstETA: TimeInterval?) -> TimeInterval {
-        spot.worstETA - (bestWorstETA ?? spot.worstETA)
+    /// The metric a spot's colour/word bucket against.
+    /// - Multi-spot (`bestWorstETA` supplied): how much WORSE this spot is than
+    ///   the best option — its worst-case drive minus the shortest worst-case in
+    ///   the results. 0 for the best spot.
+    /// - Single spot (nil): there's no better option to rank against, so judge it
+    ///   by its own evenness (`fairnessSpread`) — this keeps the per-person pills
+    ///   coherent with `fairnessCaption` below them (a lopsided spot isn't green).
+    private static func qualityMetric(_ spot: RankedSpot, _ bestWorstETA: TimeInterval?) -> TimeInterval {
+        guard let bestWorstETA else { return spot.fairnessSpread }
+        return spot.worstETA - bestWorstETA
     }
 
     /// Colour a spot by QUALITY relative to the BEST option, NOT by evenness
@@ -66,17 +71,27 @@ enum SpotETADisplay {
     /// 14-min best reads yellow). Best + options within ~5 min are green, a bit
     /// longer is yellow, much longer is orange. `bestWorstETA` = the shortest
     /// worst-case drive among the current ranked spots (`rankedSpots.map(\.worstETA).min()`).
+    /// Nil (a single spot on its own detail sheet) falls back to evenness.
     static func qualityColor(for spot: RankedSpot, bestWorstETA: TimeInterval? = nil) -> Color {
-        switch qualityDelta(spot, bestWorstETA) {
+        switch qualityMetric(spot, bestWorstETA) {
         case ..<300: return Tokens.Palette.fairnessGood
         case ..<900: return Tokens.Palette.fairnessOkay
         default:     return Tokens.Palette.fairnessPoor
         }
     }
 
-    /// One-word quality tag for a compact chip (relative to the best option).
+    /// One-word quality tag for a compact chip. Comparative when a best reference
+    /// is supplied ("Fair"/"Longer"/"Far" vs the best option); evenness-based for
+    /// a lone spot ("Even"/"Fair"/"Uneven"), matching `fairnessCaption`.
     static func qualityWord(for spot: RankedSpot, bestWorstETA: TimeInterval? = nil) -> String {
-        switch qualityDelta(spot, bestWorstETA) {
+        guard let bestWorstETA else {
+            switch spot.fairnessSpread {
+            case ..<300: return "Even"
+            case ..<900: return "Fair"
+            default:     return "Uneven"
+            }
+        }
+        switch spot.worstETA - bestWorstETA {
         case ..<300: return "Fair"
         case ..<900: return "Longer"
         default:     return "Far"
