@@ -85,4 +85,32 @@ final class ManualLocationTests: XCTestCase {
         XCTAssertEqual(LocationCache.loadSelf()?.isManual, true,
                        "flipping the active flag must not lose provenance")
     }
+
+    // MARK: Poll must not wipe a solo ranking after a leave
+
+    func testLeaveResetsRankingOnlyWhileTearingDownPeerState() {
+        // Device bug: after leaving a meetup, the conversation keeps a leave
+        // tombstone, so refreshFromAppGroup saw `localLeft == true` on EVERY 2 s
+        // poll. It unconditionally cleared rankedSpots — wiping a fresh solo/
+        // manual A→B search the user started AFTER leaving ("search works, then
+        // it refreshes and loses all logic"). The reset must fire only on the
+        // tick that actually tears down live peer state, not forever after.
+
+        // The teardown tick: a peer (or extras) is still present, being removed.
+        XCTAssertTrue(OnboardingView.shouldResetRankingOnLeave(
+            localLeft: true, hasLivePeerState: true),
+            "the tick the departure lands should clear stale peer chips")
+
+        // Every subsequent poll: tombstone still says left, but the peer is gone.
+        // A solo/manual ranking has no departed-peer chips — it must survive.
+        XCTAssertFalse(OnboardingView.shouldResetRankingOnLeave(
+            localLeft: true, hasLivePeerState: false),
+            "a solo A→B search after leaving must not be wiped on every poll")
+
+        // Not left → never reset from this path, regardless of peer state.
+        XCTAssertFalse(OnboardingView.shouldResetRankingOnLeave(
+            localLeft: false, hasLivePeerState: true))
+        XCTAssertFalse(OnboardingView.shouldResetRankingOnLeave(
+            localLeft: false, hasLivePeerState: false))
+    }
 }

@@ -2317,6 +2317,27 @@ struct OnboardingView: View {
             await runSearch(trimmed: "coffee", reframeMap: true)
             return
         }
+        // -DEMO_SOLO_AFTER_LEAVE: regression for the "ranking wiped on refresh"
+        // device bug. Seeds a LEFT-meetup tombstone in the active conversation,
+        // then a solo A→B search (self + one added place). The leave tombstone
+        // makes refreshFromAppGroup's localLeft branch clear rankedSpots on every
+        // poll tick, so the fresh solo ranking flickers away ~2 s after it lands.
+        if CommandLine.arguments.contains("-DEMO_SOLO_AFTER_LEAVE") {
+            let key = ConversationMeetupStore.conversationKey(localID: "me", remotes: ["friend"])
+            ConversationMeetupStore.lastActiveConversationKey = key
+            ConversationMeetupStore.save(MeetupSnapshot(
+                conversationKey: key,
+                participants: [Participant(id: "friend", name: "Friend",
+                    coordinate: CLLocationCoordinate2D(latitude: 39.05, longitude: -77.5))]))
+            ConversationMeetupStore.setLocalUserLeft(true, key: key)
+            let sanJose = CLLocationCoordinate2D(latitude: 37.3382, longitude: -121.8863)
+            LocationCache.save(sanJose, isActive: true)
+            savedCoordinate = sanJose
+            manualParticipants = [Participant.manual(label: "Adams Center",
+                coordinate: CLLocationCoordinate2D(latitude: 37.28, longitude: -121.95))]
+            await runSearch(trimmed: "coffee", reframeMap: true)
+            return
+        }
         // -DEMO_SPOT_CARD seeded a selection at init, which never fires
         // onChange — present its sheet here (fallback layout, no identifier).
         if CommandLine.arguments.contains("-DEMO_SPOT_CARD"), let item = selectedResult {
@@ -3300,6 +3321,15 @@ struct OnboardingView: View {
         return refreshFromAppGroup()
     }
 
+    /// Whether a poll/refresh that observes a local leave should reset an open
+    /// search ranking. TRUE only when the refresh is tearing down live peer
+    /// state THIS tick — never on the subsequent polls where the tombstone still
+    /// reads "left" but the peer is already gone, or a fresh solo/manual A→B
+    /// search started after leaving would be wiped on every 2 s tick.
+    static func shouldResetRankingOnLeave(localLeft: Bool, hasLivePeerState: Bool) -> Bool {
+        localLeft && hasLivePeerState
+    }
+
     @MainActor
     @discardableResult
     private func refreshFromAppGroup() -> Bool {
@@ -3369,7 +3399,18 @@ struct OnboardingView: View {
         // deactivated flags — it must reset an open results list exactly
         // like the app-side leave (commitLeaveLocally) does, or the stale
         // "You X min | Sam Y min" chips survive until the next search.
-        if localLeft {
+        //
+        // But ONLY on the tick that actually tears down live peer state — NOT
+        // on every poll. The leave tombstone lingers for the conversation, so
+        // an unconditional clear here wiped a fresh solo/manual A→B search the
+        // user started AFTER leaving: it ranked, then the next 2 s poll nuked
+        // rankedSpots and the list fell back to raw distance (device feedback:
+        // "search works, then it refreshes and loses all logic"). A solo ranking
+        // (self + an added place, no peer) has no departed-peer chips to clear.
+        // `peerCoordinate`/`additionalParticipants` still hold their pre-update
+        // values here (reconciled below), so they detect the teardown tick.
+        let hasLivePeerState = peerCoordinate != nil || !additionalParticipants.isEmpty
+        if Self.shouldResetRankingOnLeave(localLeft: localLeft, hasLivePeerState: hasLivePeerState) {
             if !rankedSpots.isEmpty {
                 rankedSpots = []
             }
