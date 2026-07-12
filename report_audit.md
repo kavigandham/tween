@@ -1,37 +1,31 @@
-# AUDIT REPORT — Tween — 2026-07-12 (HEAD ce5442e, post-push audit of the 3 device-feedback fixes)
+# AUDIT REPORT — Tween — 2026-07-12 (HEAD 470b721, post-push audit of the 3 device-feedback fixes)
 
-The three fixes in ce5442e (fairness colors, spot-in-context snapshot geometry, bubble footer) are **sound** — call sites consistent, tokens exist, `footerHeadline` is exhaustive over all five `MessageType` cases and sanitises the leave sender via `UserName.peerDisplayName`, and the new snapshot math is **NaN-safe** (coordinates guaranteed non-empty; single/degenerate points floor to a min span; the center bias keeps every point in frame — verified algebraically). The genuine problems were in adjacent recently-churned code — the "fix one encoder, miss the siblings" pattern again.
+Fixes audited: quality colours ranked vs the best option, local idea-match search (`regionPriority = .required`), and the extension solo-waiting dedupe. The 2-person flow (host list card, place sheet, extension spot cards, drive-balance) was threaded correctly and it compiles — but the audit hit the **"fixed one site, missed a sibling"** pattern again on two paths.
 
-> **Status after this audit:** the three MAJOR + one MINOR findings are **FIXED** (commit following ce5442e). Notes/test-gaps triaged below.
+> **Status after this audit:** the two MAJOR + one MINOR findings are **FIXED** (commit `1e185e9`, following 470b721). Verdict was "not a hard blocker for the common 2-person flow, but fix before relying on group meetups or suggestion taps" — done.
 
 ## CRITICAL — none
 
 ## MAJOR — FIXED
 
-- **[FIXED] `sendAgreedPlace` broadcast a live GPS fix over a declared "I'll be at…" location and stripped `isManual`.** `handleImIn` guards this (`isManual && isActive → use declared coord`); the agree path did not — it unconditionally `acquireLocation()` + `save(fresh, isManual:false)`, broadcasting your CURRENT spot as `senderCoordinate` and corrupting the cache for later sends. Added the same guard at the top of coordinate resolution — `MessagesViewController.swift:~1101`.
-- **[FIXED] Manual-point re-rank ran in an untracked, uncancellable `Task` with no cancellation guard**, so a slower older ranking could finish last and stomp a newer one (and the map/list then showed spots for a stale participant set). `addManualPoint`/`removeManualPoint` now funnel through `searchTask` (so a committed search or rapid add/remove cancels the prior re-rank) and `rerankCurrentResults` guards `!Task.isCancelled` before assigning `rankedSpots` — `OnboardingView.swift:~3110`/`~3133`.
-- **[FIXED] `canSearch` accepted only a GPS/peer anchor**, so a GPS-denied user doing a pure manual A→B search got nagged for location even though `searchRegion` already centers on their manual points. Now also accepts `!manualParticipants.isEmpty` — `OnboardingView.swift:~3052`.
+- **[FIXED] Extension map-pin label + spot-card/pin a11y labels omitted `bestWorstETA` → every 3+ pin read a constant "Fair".** `compactLabel` calls `qualityWord` for 3+ participants; with no reference the delta was `worstETA − worstETA = 0`, so a genuinely far group spot's pin mislabelled itself "Fair" — the exact bug class the commit fixes, missed at three siblings (`TweenViews.swift:1113`/`:1519`/`:1540`). Threaded the existing `spotBestWorstETA` (`TweenViews.swift:1143`) into all three. 2-person pins were never affected (they return names+times).
+- **[FIXED] `.required` search dead-ended a distant unique place to zero results.** A typed exact name, or a tapped `SearchCompleter` suggestion outside `searchRegion`, resolved under `.required`, matched nothing local, and landed on "No fair spots found" — a dead-end that didn't exist pre-commit. `resolvePlace` now runs the `.required` local pass first and, only if it's empty, falls back to the region-as-hint search (`OnboardingView.swift:3075`), so idea-match stays local but a distant name-match still resolves. Chosen over constraining the completer because it also covers the typed-name case (audit NOTE C).
 
 ## MINOR — FIXED
 
-- **[FIXED] Fairness-tinted time text on the extension card row had no capsule backing** (bare yellow "Fair" on a light surface → low contrast in light mode). Added the same `tint.opacity(0.16)` capsule the host chip uses — `TweenViews.swift:~1174`.
+- **[FIXED] A lone spot's detail strip read uniformly green even when lopsided**, contradicting the `fairnessCaption` ("A longer drive for some than others") directly below it (`SpotDetailCard.swift:290`). A single spot has no better option to rank against, so `nil` `bestWorstETA` now judges it by its own evenness (`fairnessSpread` → "Even"/"Fair"/"Uneven", same tiers as the caption) instead of defaulting to green — `SpotETADisplay.qualityColor/qualityWord`.
 
-## ARCHITECTURE NOTES
+## NOTES (verified, no action)
 
-- **`isBest` reference-equality is fragile.** `rankedSpots.first?.item == item` works only because `displayedItems` reuses the same `MKMapItem` references; a refactor that rebuilds items would silently break the "Best" badge. Consider keying on `RankedSpot.id`. — `OnboardingView.swift:1834`, `TweenViews.swift:1119`.
-- **Outgoing-self-coordinate resolution is duplicated across four send paths** (`handleImIn`, `sendAgreedPlace`, `sendCounter`, `sendChosenSpot`/`sendDraft`); exactly one had drifted (the MAJOR above). Centralising into a single `resolveOutgoingSelfCoordinate()` that honours the manual/freshness/opt-in rules would kill the whole class of bug.
-- LocationCache manual gating is otherwise consistent (freshness-exempt but opt-in-gated; `setFlag` preserves `isManual`; a deactivated declaration is non-sendable).
+- `RankedResultRow` / `SpotETASummaryPill` render a `nil`-default reference, but `RankedResultRow` is used ONLY in a `#Preview` (`ResultRows.swift:394`) — not production. With the new `nil → evenness` fallback it degrades to a spread-based tint rather than constant green anyway.
+- `.required` tradeoff is now bounded by the fallback: a search still prefers local idea-matches; only when NOTHING local matches does a distant name-match surface.
+- Extension category search (`MessagesViewController.swift:775`, fixed category term) intentionally keeps region as a bias only — no far name-match risk, not touched.
+- Rename completeness clean: `grep fairnessColor|fairnessWord` → zero refs across app/extension/tests; `fairnessCaption` retained, single-spot/spread-based. Tests updated to the new semantics.
+- `panelEmptyState` / `primaryCTA` dedupe safe across every (isUserIn × hasSpots × waiting) combination — the `isUserIn` CTA→`EmptyView` branch is only reachable when `panelEmptyState` renders the status card, so no blank panel. "You're in" is reached only in the pure solo-waiting substate.
 
-## TEST COVERAGE GAPS
+## STILL OPEN (carried from prior audits — future, not regressions)
 
-- **No test exercises the extension send paths** (`sendAgreedPlace`/`handleImIn`) — nothing imports `MessagesViewController`; the `sendAgreedPlace` clobber slipped through because of it. A declared+active agree keeping `isManual` + sending the declared coord would catch it.
-- **The snapshot focus-branch geometry has no unit test** — it's inside a private `View.render`. Extracting the region computation into a pure `MapGeometry` helper would make the single-point / everyone-in-frame invariants testable.
-- `footerHeadline` now covers `.leave`/`.invite`/`.propose`/`.counter`/`.agree` (added this pass). `rerankCurrentResults` cancellation/ordering still untested.
-
-## FIX-FIRST PRIORITY LIST
-
-1. ~~`sendAgreedPlace` declared-location clobber~~ — FIXED.
-2. ~~Untracked/uncancelled manual re-rank race~~ — FIXED (searchTask + `!Task.isCancelled`).
-3. ~~`canSearch` blocks GPS-free manual A→B~~ — FIXED.
-4. ~~Yellow "Fair" time contrast~~ — FIXED (capsule backing).
-5. Future: extension-send test harness; extract the snapshot region math for testing; centralise outgoing-self-coordinate resolution.
+- Extension-send test harness (`sendAgreedPlace`/`handleImIn` are untested).
+- Extract the snapshot region math into a pure `MapGeometry` helper for unit testing.
+- Centralise outgoing-self-coordinate resolution across the four send paths.
+- `isBest` reference-equality (`rankedSpots.first?.id == spot.id`) is fine now that it keys on `RankedSpot.id`.
