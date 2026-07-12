@@ -2150,7 +2150,18 @@ struct OnboardingView: View {
         // -DEMO_SPOT_CARD seeded a selection at init, which never fires
         // onChange — present its sheet here (fallback layout, no identifier).
         if CommandLine.arguments.contains("-DEMO_SPOT_CARD"), let item = selectedResult {
-            activeSheet = .spot(SpotSelection(item: item, ranked: nil))
+            // -DEMO_SPOT_GROUP seeds a 4-person ranking so the place sheet shows
+            // the per-person time chips + drive-balance track (audit F1) — the
+            // host used to cap this at two people. Screenshot hook only.
+            let ranked = CommandLine.arguments.contains("-DEMO_SPOT_GROUP")
+                ? RankedSpot(item: item, etas: [
+                    ParticipantETA(id: "you", name: "You", eta: 480, fromRoute: true),
+                    ParticipantETA(id: "kavi", name: "Kavi", eta: 720, fromRoute: true),
+                    ParticipantETA(id: "maya", name: "Maya", eta: 600, fromRoute: true),
+                    ParticipantETA(id: "sam", name: "Sam", eta: 960, fromRoute: true)
+                  ], confidence: 1.0)
+                : nil
+            activeSheet = .spot(SpotSelection(item: item, ranked: ranked))
             return
         }
         guard CommandLine.arguments.contains("-DEMO_SPOT_SHEET") else { return }
