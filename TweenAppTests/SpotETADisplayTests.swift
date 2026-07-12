@@ -28,12 +28,20 @@ final class SpotETADisplayTests: XCTestCase {
         XCTAssertEqual(items.map(\.0), ["Sam", "Maya", "Alex"])
     }
 
-    func testChipItemsCollapsesToBestTypicalLongForGroups() {
+    func testChipItemsShowsEveryNameUpToSix() {
+        // Device feedback: show each person's OWN time, not Best/Typical/Long.
         let items = SpotETADisplay.chipItems(for:
             spot([("A", 300), ("B", 600), ("C", 900), ("D", 1200)]))
-        XCTAssertEqual(items.map(\.0), ["Best", "Typical", "Long"])
-        XCTAssertEqual(items.first?.1, "5 min")   // bestETA = 300s
-        XCTAssertEqual(items.last?.1, "20 min")   // worstETA = 1200s
+        XCTAssertEqual(items.map(\.0), ["A", "B", "C", "D"])
+        XCTAssertEqual(items.first?.1, "5 min")   // 300s
+        XCTAssertEqual(items.last?.1, "20 min")   // 1200s
+    }
+
+    func testChipItemsCollapsesOnlyForVeryLargeGroups() {
+        let big = spot((1...8).map { ("P\($0)", TimeInterval($0 * 120)) })
+        let items = SpotETADisplay.chipItems(for: big)
+        XCTAssertEqual(items.count, 6)                       // 5 fastest + a count
+        XCTAssertEqual(items.last?.0, "+3 more")
     }
 
     func testChipItemsFallsBackToABWhenEtasEmpty() {
@@ -51,22 +59,25 @@ final class SpotETADisplayTests: XCTestCase {
         XCTAssertEqual(label, "Sam 8 min · Maya 12 min")
     }
 
-    func testCompactLabelSummarizesGroups() {
+    func testCompactLabelSummarizesGroupsWithPlainFairness() {
+        // No "X min spread" jargon (device feedback) — a plain word instead.
         let label = SpotETADisplay.compactLabel(for:
             spot([("A", 300), ("B", 600), ("C", 900)]))
-        XCTAssertEqual(label, "3 people · 10 min spread")   // spread = 900-300 = 600s
+        XCTAssertEqual(label, "3 people · Fair")   // spread 600s → "Fair"
     }
 
-    // MARK: fairnessCaption
+    // MARK: fairness language (no "spread")
 
-    func testFairnessCaptionEvenPair() {
+    func testFairnessCaptionIsPlainLanguage() {
         XCTAssertEqual(SpotETADisplay.fairnessCaption(for: spot([("Sam", 480), ("Maya", 540)])),
-                       "Even split")
+                       "Everyone drives about the same")
+        let uneven = SpotETADisplay.fairnessCaption(for: spot([("A", 120), ("B", 1500)]))
+        XCTAssertFalse(uneven.contains("spread"), uneven)
     }
 
-    func testFairnessCaptionGroup() {
-        let caption = SpotETADisplay.fairnessCaption(for:
-            spot([("A", 300), ("B", 600), ("C", 900)]))
-        XCTAssertTrue(caption.hasPrefix("Fair for 3"), caption)
+    func testFairnessWordTiers() {
+        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 480), ("B", 540)])), "Even")
+        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 300), ("B", 900)])), "Fair")
+        XCTAssertEqual(SpotETADisplay.fairnessWord(for: spot([("A", 120), ("B", 1500)])), "Uneven")
     }
 }

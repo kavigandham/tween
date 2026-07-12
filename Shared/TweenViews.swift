@@ -399,7 +399,7 @@ struct CompactView: View {
                             .font(Tokens.Typography.captionBold)
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
-                    .buttonStyle(.tweenPrimary(.neutral))
+                    .buttonStyle(.tweenPrimary(.destructive))
                     .accessibilityHint("Stops sharing you as active for this meetup")
                 } else {
                     Button(action: onExpand) {
@@ -407,7 +407,7 @@ struct CompactView: View {
                             .font(Tokens.Typography.captionBold)
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
-                    .buttonStyle(.tweenPrimary(.neutral))
+                    .buttonStyle(.tweenPrimary(.subtle))
                 }
             }
         }
@@ -467,7 +467,7 @@ struct CompactView: View {
                             .font(Tokens.Typography.captionBold)
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
-                    .buttonStyle(.tweenPrimary(.neutral))
+                    .buttonStyle(.tweenPrimary(.destructive))
                     .accessibilityHint("Stops sharing you as active for this meetup")
                 }
             }
@@ -741,8 +741,8 @@ struct ExpandedView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // Spot cards grow with the user's text size instead of clipping.
-    @ScaledMetric(relativeTo: .subheadline) private var spotCardWidth: CGFloat = 172
-    @ScaledMetric(relativeTo: .subheadline) private var spotCardHeight: CGFloat = 156
+    @ScaledMetric(relativeTo: .subheadline) private var spotCardWidth: CGFloat = 176
+    @ScaledMetric(relativeTo: .subheadline) private var spotCardHeight: CGFloat = 176
 
     /// The panel/pill background: translucent material, or an opaque surface
     /// when the user has asked to reduce transparency.
@@ -1125,9 +1125,9 @@ struct ExpandedView: View {
 
     @ViewBuilder
     private func spotCardPeople(_ spot: RankedSpot) -> some View {
-        let extra = spot.etas.count - 3
+        let extra = spot.etas.count - 4
         VStack(alignment: .leading, spacing: 5) {
-            ForEach(spot.etas.prefix(3)) { eta in
+            ForEach(spot.etas.prefix(4)) { eta in
                 spotCardPersonRow(eta)
             }
             if extra > 0 {
@@ -1161,12 +1161,13 @@ struct ExpandedView: View {
 
     private func spotCardSpread(_ spot: RankedSpot) -> some View {
         HStack(spacing: Tokens.Spacing.s1) {
-            Image(systemName: "arrow.left.and.right")
-                .font(.system(size: 9, weight: .bold))
-            Text(SpotETADisplay.fairnessSummary(for: spot))
+            Circle()
+                .fill(SpotETADisplay.fairnessColor(for: spot))
+                .frame(width: 7, height: 7)
+            Text(SpotETADisplay.fairnessWord(for: spot))
                 .font(Tokens.Typography.caption2Bold)
+                .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
         }
-        .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
     }
 
     /// The card rail's empty slot — ranking shimmer, waiting, or "no spots".
@@ -1590,7 +1591,7 @@ struct ExpandedView: View {
                             .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.tweenPrimary(.neutral))
+                    .buttonStyle(.tweenPrimary(.subtle))
                     .accessibilityHint("Opens the full Tween app to search for places")
                 }
             }
@@ -1890,7 +1891,7 @@ struct ExpandedView: View {
                     .minimumScaleFactor(0.78)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.tweenPrimary(.neutral))
+            .buttonStyle(.tweenPrimary(.subtle))
             .disabled(isSending || didSend)
             .accessibilityHint("Sends your preloaded spot instead of the received proposal")
         }
@@ -1907,7 +1908,7 @@ struct ExpandedView: View {
                     Label("I'm out", systemImage: "location.slash")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.tweenPrimary(.subtle))
+                .buttonStyle(.tweenPrimary(.destructive))
                 .accessibilityHint("Stops sharing you as active for this meetup")
             }
         } else {

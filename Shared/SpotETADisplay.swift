@@ -10,24 +10,23 @@ import SwiftUI
 /// source of truth both processes use, so host and extension render identical
 /// times. Pure display — no ranking, no side effects.
 enum SpotETADisplay {
-    /// Up to three `(label, value)` pairs for the chip strip. For ≤3
-    /// participants each is a real name + time; for 4+ it collapses to
-    /// Best / Typical / Long so a row stays compact. Empty `etas` (the legacy
-    /// 2-person `RankedSpot` init used by tests/previews) falls back to A / B.
+    /// One `(name, time)` pair per participant — always a real name, so people
+    /// see their OWN drive time, not a "Best/Typical/Long" summary (device
+    /// feedback). Only a genuinely large group (7+) collapses to keep the strip
+    /// readable. Empty `etas` (the legacy 2-person `RankedSpot` init used by
+    /// tests/previews) falls back to A / B.
     static func chipItems(for spot: RankedSpot) -> [(String, String)] {
         if spot.etas.isEmpty {
             return [("A", formatETA(spot.etaFromA)), ("B", formatETA(spot.etaFromB))]
         }
-        if spot.etas.count <= 3 {
+        if spot.etas.count <= 6 {
             return spot.etas.map { ($0.name, formatETA($0.eta)) }
         }
+        // Very large groups: show the fastest five by name, then a count.
         let sorted = spot.etas.sorted { $0.eta < $1.eta }
-        let median = sorted[sorted.count / 2]
-        return [
-            ("Best", formatETA(spot.bestETA)),
-            ("Typical", formatETA(median.eta)),
-            ("Long", formatETA(spot.worstETA))
-        ]
+        var items = sorted.prefix(5).map { ($0.name, formatETA($0.eta)) }
+        items.append(("+\(spot.etas.count - 5) more", ""))
+        return items
     }
 
     /// One-line summary for tight trailing slots (result-list rows) and map-pin
@@ -41,21 +40,27 @@ enum SpotETADisplay {
         if etas.count <= 2 {
             return etas.map { "\($0.name) \(formatETA($0.eta))" }.joined(separator: " · ")
         }
-        return "\(etas.count) people · \(formatETA(spot.fairnessSpread)) spread"
+        return "\(etas.count) people · \(fairnessWord(for: spot))"
     }
 
-    /// "Fair for N people" / "Even split" descriptor for the place sheet.
+    /// Plain-language fairness for the place sheet — no "X min spread" jargon
+    /// (device feedback: "what even is an 8 minute spread"). The per-person
+    /// times already show the detail; this just says how even the trip is.
     static func fairnessCaption(for spot: RankedSpot) -> String {
-        let count = spot.etas.isEmpty ? 2 : spot.etas.count
-        if spot.fairnessSpread < 300 {
-            return count <= 2 ? "Even split" : "Fair for all \(count)"
+        switch spot.fairnessSpread {
+        case ..<300: return "Everyone drives about the same"
+        case ..<900: return "A fairly even trip for everyone"
+        default:     return "A longer drive for some than others"
         }
-        return "Fair for \(count) · \(formatETA(spot.fairnessSpread)) spread"
     }
 
-    static func fairnessSummary(for spot: RankedSpot) -> String {
-        if spot.fairnessSpread < 300 { return "Very even" }
-        return "\(formatETA(spot.fairnessSpread)) spread"
+    /// One-word fairness tag for a compact chip.
+    static func fairnessWord(for spot: RankedSpot) -> String {
+        switch spot.fairnessSpread {
+        case ..<300: return "Even"
+        case ..<900: return "Fair"
+        default:     return "Uneven"
+        }
     }
 
     static func fairnessColor(for spot: RankedSpot) -> Color {
@@ -180,12 +185,12 @@ struct SpotDriveBalance: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Drive balance")
+                Text("Who drives how long")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                 Spacer(minLength: 0)
-                Text(SpotETADisplay.fairnessSummary(for: spot))
-                    .font(Tokens.Typography.caption)
+                Text(SpotETADisplay.fairnessWord(for: spot))
+                    .font(Tokens.Typography.caption2Bold)
                     .foregroundStyle(SpotETADisplay.fairnessColor(for: spot))
             }
 
