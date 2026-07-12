@@ -43,6 +43,7 @@
 		6C5FF34BE079E32BE1B002DE /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */; };
 		6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C546097077ED186216682C7A /* PingLogTests.swift */; };
 		71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */; };
+		79502AD55AA57B826B28A9C3 /* BubbleCaptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2032FA19D11B0E2BF32A4F /* BubbleCaptionTests.swift */; };
 		7F57BEB332C6B6FF9D6AD9DF /* UserName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDD40282483BFE2BDFF2AC5 /* UserName.swift */; };
 		8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */; };
 		81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
@@ -164,6 +165,7 @@
 		CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TweenAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
 		D3C440EB69DC883032023978 /* NameIntegrityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameIntegrityTests.swift; sourceTree = "<group>"; };
+		DA2032FA19D11B0E2BF32A4F /* BubbleCaptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleCaptionTests.swift; sourceTree = "<group>"; };
 		DEA256CAEB5D69FB5441F7C3 /* Participant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Participant.swift; sourceTree = "<group>"; };
 		DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationMeetupStore.swift; sourceTree = "<group>"; };
 		DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenFriend.swift; sourceTree = "<group>"; };
@@ -202,6 +204,7 @@
 		49817FB5DB93353E39CC6E78 /* TweenAppTests */ = {
 			isa = PBXGroup;
 			children = (
+				DA2032FA19D11B0E2BF32A4F /* BubbleCaptionTests.swift */,
 				B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */,
 				8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */,
 				45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */,
@@ -508,6 +511,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				79502AD55AA57B826B28A9C3 /* BubbleCaptionTests.swift in Sources */,
 				4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */,
 				6066C7E5A4F0A85FE3A7C834 /* FairnessRankerTests.swift in Sources */,
 				49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */,

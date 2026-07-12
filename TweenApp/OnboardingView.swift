@@ -2005,12 +2005,18 @@ struct OnboardingView: View {
         if isUserIn, let coordinate = savedCoordinate, !participants.contains(where: { $0.matches(localContext) }) {
             participants.append(Participant(id: TweenIdentity.stableID, name: myName, coordinate: coordinate, needsRide: localNeedsRide))
         }
-        if let peerCoordinate, !participants.contains(where: { $0.name == peerDisplayName }) {
-            participants.append(Participant(id: peerDisplayName, name: peerDisplayName, coordinate: peerCoordinate, needsRide: peerNeedsRide))
+        // Legacy 2-person projection: only synthesise a peer when the roster
+        // carries NO remote participant. The old `$0.name == peerDisplayName`
+        // guard broke once F2 sanitised the display name — it compared "Friend"
+        // against the raw ""/"You" roster entry, never matched, and double-listed
+        // the peer (inflating "N in"). Identity-based, and never a display string
+        // as an id.
+        if let peerCoordinate, !participants.contains(where: { !isLocalParticipant($0) }) {
+            participants.append(Participant(id: "peer", name: peerDisplayName, coordinate: peerCoordinate, needsRide: peerNeedsRide))
         }
         return participants.sorted { lhs, rhs in
-            if lhs.name == myName { return true }
-            if rhs.name == myName { return false }
+            if isLocalParticipant(lhs) { return true }
+            if isLocalParticipant(rhs) { return false }
             if lhs.needsRide != rhs.needsRide { return lhs.needsRide && !rhs.needsRide }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }

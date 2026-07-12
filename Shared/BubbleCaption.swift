@@ -43,9 +43,10 @@ enum BubbleCaption {
                 layout.subcaption = "Tap for directions"
             } else {
                 // `name` (from senderName) is the original proposer — the
-                // most recent agreer is `agreedNames.last`. Use that for the
-                // caption so users see who just confirmed.
-                let agreer = state.agreedNames.last ?? "Your friend"
+                // most recent agreer is `agreedNames.last`. Sanitise it so an
+                // un-named agreer reads as "Friend", never the "You" fallback
+                // (audit F2: agreedNames is encoded without outgoingName()).
+                let agreer = state.agreedNames.last.map(UserName.peerDisplayName) ?? "Your friend"
                 let needed = max(state.participants.count - 1, 1)
                 let have = state.agreedIDs.isEmpty ? state.agreedNames.count : state.agreedIDs.count
                 layout.caption = "\(agreer) agrees to \(state.text) (\(have) of \(needed))"
