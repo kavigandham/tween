@@ -103,6 +103,17 @@ struct OnboardingView: View {
     /// Prefilled body for an out-of-band SMS nudge to a friend.
     private static let inviteText =
         "Where should we meet? Open Tween and tap “I'm in” so we can find a fair spot. 📍"
+
+    /// Plain-text body for a spot message — the name plus a universal Apple Maps
+    /// directions link so ANYONE in the chat (including people without Tween) can
+    /// tap to navigate; the rich MSMessage bubble is app-only. Falls back to the
+    /// name alone if the link can't build.
+    static func spotBody(prefix: String, name: String, coordinate: CLLocationCoordinate2D) -> String {
+        guard let url = MapLinks.appleMapsURL(name: name, coordinate: coordinate)?.absoluteString else {
+            return "\(prefix) \(name)."
+        }
+        return "\(prefix) \(name). Directions: \(url)"
+    }
     private static let suggestedSpot = QuickSpotShortcut(
         title: "Coffee near the midpoint",
         subtitle: "Suggested spot",
@@ -2708,7 +2719,10 @@ struct OnboardingView: View {
                     // the user picks who in Messages (no selected-friend concept here).
                     activeSheet = .message(PendingMessage(
                         recipients: [],
-                        body: "Let's go to \(selection.name).",
+                        // The plain-text body carries a universal Apple Maps link
+                        // so anyone in the chat — including people without Tween —
+                        // can tap for directions (the rich bubble is app-only).
+                        body: Self.spotBody(prefix: "Let's meet at", name: selection.name, coordinate: coord),
                         message: message,
                         onSent: {
                             noteOutgoingRevision(revision)
@@ -3799,7 +3813,7 @@ struct OnboardingView: View {
                 for: state, totalSeats: state.participants.count) else { return }
             activeSheet = .message(PendingMessage(
                 recipients: [],
-                body: "I'm in for \(selection.name)",
+                body: Self.spotBody(prefix: "I'm in —", name: selection.name, coordinate: selection.coordinate),
                 message: message,
                 onSent: {
                     noteOutgoingRevision(revision)
