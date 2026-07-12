@@ -186,7 +186,6 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(TweenPin.Role.rideNeeded.accessibilityName, "Participant needs a ride")
         XCTAssertEqual(TweenPin.Role.selfActive.accessibilityName, "Your shared location")
         XCTAssertEqual(TweenPin.Role.result.accessibilityName, "Search result")
-        XCTAssertEqual(TweenPin.Role.midpoint.accessibilityName, "Geographic midpoint")
     }
 
     func testPinAvatarInitials() {

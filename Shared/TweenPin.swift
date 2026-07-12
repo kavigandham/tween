@@ -8,8 +8,8 @@ import SwiftUI
 ///    with a soft halo while you're sharing.
 ///  * **People** — Find-My-style circular avatars: participant color, white
 ///    ring, the person's initials; a small car badge when they need a ride.
-///  * **Spots** (fair spot, midpoint, results) — compact white-ringed glyph
-///    circles. Color is never the sole differentiator (accessibility).
+///  * **Spots** (fair spot, results) — compact white-ringed glyph circles.
+///    Color is never the sole differentiator (accessibility).
 struct TweenPin: View {
     enum Role {
         case selfDot
@@ -19,7 +19,6 @@ struct TweenPin: View {
         case fairSpot
         case closestToUser
         case result
-        case midpoint
 
         var fill: Color {
             switch self {
@@ -30,7 +29,6 @@ struct TweenPin: View {
             case .fairSpot:      return Tokens.Palette.pinFair
             case .closestToUser: return Tokens.Palette.pinClosest
             case .result:        return Tokens.Palette.pinResult
-            case .midpoint:      return Tokens.Palette.pinMidpoint
             }
         }
 
@@ -43,7 +41,6 @@ struct TweenPin: View {
             case .fairSpot:      return "star.fill"
             case .closestToUser: return "location.fill"
             case .result:        return "mappin"
-            case .midpoint:      return "diamond.fill"
             }
         }
 
@@ -57,7 +54,6 @@ struct TweenPin: View {
             case .fairSpot:      return "Best fair meetup spot"
             case .closestToUser: return "Place closest to you"
             case .result:        return "Search result"
-            case .midpoint:      return "Geographic midpoint"
             }
         }
 
@@ -65,8 +61,6 @@ struct TweenPin: View {
             switch self {
             case .fairSpot:
                 return 42
-            case .midpoint:
-                return 28
             default:
                 return 32
             }
@@ -121,7 +115,7 @@ struct TweenPin: View {
             selfDot
         case .friend, .rideNeeded:
             avatar
-        case .fairSpot, .closestToUser, .result, .midpoint:
+        case .fairSpot, .closestToUser, .result:
             glyphCircle
         }
     }

@@ -507,11 +507,10 @@ struct OnboardingView: View {
                                  needsRide: participant.needsRide)
                     }
                 }
-                if let midpoint {
-                    Annotation("Midpoint", coordinate: midpoint) {
-                        TweenPin(role: .midpoint)
-                    }
-                }
+                // Midpoint pin removed (audit F3 / device feedback: "no more
+                // midpoint star"). The centroid math still centers search; we
+                // just don't draw a marker for it. The fair-spot star is the
+                // meaningful pin and stays.
                 if let agreedMeetup, agreedMeetup.kind == .place {
                     Annotation(agreedMeetup.text, coordinate: agreedMeetup.coordinate, anchor: .bottom) {
                         TweenPin(role: .fairSpot)
@@ -3178,21 +3177,6 @@ struct OnboardingView: View {
     }
 
     // MARK: - Geometry
-
-    private var midpoint: CLLocationCoordinate2D? {
-        guard let me = savedCoordinate, let peer = peerCoordinate else { return nil }
-        // Groups (3+): centroid of every "in" participant. 2-person path
-        // collapses to the legacy midpoint because the extra-participants
-        // array is empty there.
-        if additionalParticipants.isEmpty {
-            return Self.midpoint(me, peer)
-        }
-        let extras = additionalParticipants.map(\.coordinate)
-        let all = [me, peer] + extras
-        let lat = all.map(\.latitude).reduce(0, +) / Double(all.count)
-        let lon = all.map(\.longitude).reduce(0, +) / Double(all.count)
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
 
     private func reframe() {
         if let agreedMeetup, agreedMeetup.kind == .place {

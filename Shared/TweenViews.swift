@@ -1157,9 +1157,9 @@ struct ExpandedView: View {
         for participant in otherParticipants {
             result.append(MapMarker(coordinate: participant.coordinate, role: participant.needsRide ? .rideNeeded : .friend))
         }
-        if allMeetupCoords.count >= 2 {
-            result.append(MapMarker(coordinate: MapGeometry.centroid(of: allMeetupCoords), role: .midpoint))
-        }
+        // No centroid/midpoint marker (audit F3): the geographic middle isn't a
+        // place anyone meets, and on the small extension map it just adds
+        // clutter. The centroid still frames the camera via allMeetupCoords.
         // Exactly ONE gold "the spot" pin. When a proposed place and/or a draft
         // is on the map, the ranked candidates all render as plain results —
         // three identical gold pins gave the user no way to tell which one was
@@ -1204,13 +1204,8 @@ struct ExpandedView: View {
                 }
             }
 
-            // Centroid pin — the geographic middle of everyone "in".
-            // Equivalent to the old midpoint for the 2-person case.
-            if allMeetupCoords.count >= 2 {
-                Annotation("Midpoint", coordinate: MapGeometry.centroid(of: allMeetupCoords)) {
-                    TweenPin(role: .midpoint, animated: false)
-                }
-            }
+            // Centroid marker removed (audit F3): no midpoint pin. The
+            // centroid still frames the camera, it just isn't drawn.
 
             if let receivedPlaceCoord {
                 Annotation(received?.text ?? "Meetup spot", coordinate: receivedPlaceCoord) {

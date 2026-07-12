@@ -58,7 +58,6 @@ enum Tokens {
         static let pinFair = Color(uiColor: .systemYellow)
         static let pinClosest = Color(uiColor: .systemGreen)
         static let pinResult = Color(uiColor: .systemTeal)
-        static let pinMidpoint = pinFair
 
         // Text — semantic label colors, fully adaptive.
         static let textPrimary = Color(uiColor: .label)
@@ -85,7 +84,6 @@ enum Tokens {
             static let pinFair = UIColor.systemYellow
             static let pinClosest = UIColor.systemGreen
             static let pinResult = UIColor.systemTeal
-            static let pinMidpoint = pinFair
             static let brand = UIColor { traits in
                 traits.userInterfaceStyle == .dark
                 ? UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1)       // #29C7C7
