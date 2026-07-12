@@ -735,6 +735,21 @@ struct ExpandedView: View {
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
+    // Accessibility (Phase C): the floating panel + status pill are translucent
+    // material; fall back to a solid surface under Reduce Transparency, and drop
+    // the slide-in under Reduce Motion.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Spot cards grow with the user's text size instead of clipping.
+    @ScaledMetric(relativeTo: .subheadline) private var spotCardWidth: CGFloat = 172
+    @ScaledMetric(relativeTo: .subheadline) private var spotCardHeight: CGFloat = 156
+
+    /// The panel/pill background: translucent material, or an opaque surface
+    /// when the user has asked to reduce transparency.
+    private var panelSurface: AnyShapeStyle {
+        reduceTransparency ? AnyShapeStyle(Tokens.Palette.surface) : AnyShapeStyle(.regularMaterial)
+    }
+
     private var myName: String {
         UserProfile.displayName ?? UserName.fallback
     }
@@ -907,11 +922,11 @@ struct ExpandedView: View {
         .foregroundStyle(tint)
         .padding(.horizontal, Tokens.Spacing.s3)
         .padding(.vertical, Tokens.Spacing.s2)
-        .background(.regularMaterial, in: Capsule())
+        .background(panelSurface, in: Capsule())
         .overlay(Capsule().strokeBorder(tint.opacity(0.25), lineWidth: 0.5))
         .padding(.horizontal, Tokens.Spacing.s4)
         .tweenElevation(.pin)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         .accessibilityLabel(text)
     }
 
@@ -939,7 +954,7 @@ struct ExpandedView: View {
         }
         .padding(Tokens.Spacing.s4)
         .frame(maxWidth: .infinity)
-        .background(.regularMaterial, in: UnevenRoundedRectangle(
+        .background(panelSurface, in: UnevenRoundedRectangle(
             topLeadingRadius: Tokens.Radius.sheet,
             bottomLeadingRadius: 0,
             bottomTrailingRadius: 0,
@@ -1075,13 +1090,14 @@ struct ExpandedView: View {
             spotCardSpread(spot)
         }
         .padding(Tokens.Spacing.s3)
-        .frame(width: 172, height: 156, alignment: .topLeading)
+        .frame(width: spotCardWidth, height: spotCardHeight, alignment: .topLeading)
         .background(isSelected ? Tokens.Palette.brand.opacity(0.14) : Tokens.Palette.surface,
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
                 .strokeBorder(isSelected ? Tokens.Palette.brand : Color.clear, lineWidth: 1.5)
         }
+        .animation(reduceMotion ? nil : Tokens.Motion.snappy, value: isSelected)
         .contentShape(Rectangle())
         .onTapGesture { select(spot, animateMap: true) }
         .accessibilityElement(children: .combine)
@@ -1097,6 +1113,7 @@ struct ExpandedView: View {
                 .font(Tokens.Typography.subheadline.weight(.semibold))
                 .foregroundStyle(Tokens.Palette.textPrimary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Spacer(minLength: 0)
             if isBest {
                 Image(systemName: "star.fill")
@@ -1132,10 +1149,13 @@ struct ExpandedView: View {
                 .font(Tokens.Typography.caption)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Spacer(minLength: Tokens.Spacing.s1)
             Text(formatETA(eta.eta))
                 .font(Tokens.Typography.captionBold.monospacedDigit())
                 .foregroundStyle(Tokens.Palette.textPrimary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -1300,6 +1320,13 @@ struct ExpandedView: View {
 
     // MARK: Map
 
+    /// What the static snapshot centers on. The spot you've selected takes
+    /// priority — tapping a card recenters the map (redesign: "selection
+    /// re-focuses the snapshot") — then a received place or staged draft.
+    private var snapshotFocus: CLLocationCoordinate2D? {
+        selectedSpot?.item?.placemark.coordinate ?? receivedPlaceCoord ?? draft?.coordinate
+    }
+
     @ViewBuilder
     private var mapSection: some View {
         if hasMapContent {
@@ -1308,8 +1335,9 @@ struct ExpandedView: View {
                 TweenMapSnapshotView(
                     markers: staticMarkers,
                     cornerRadius: 0,
-                    focusCoordinate: receivedPlaceCoord ?? draft?.coordinate,
-                    focusYOffsetRatio: (receivedPlaceCoord != nil || draft != nil) ? 0.22 : 0)
+                    focusCoordinate: snapshotFocus,
+                    // Lift the focus into the strip of map visible above the panel.
+                    focusYOffsetRatio: snapshotFocus != nil ? 0.28 : 0)
             } else {
                 interactiveMap
             }
