@@ -77,9 +77,14 @@ enum LocationCache {
     /// travel in a payload or seed fairness ranking.
     static func freshSelfCoordinate() -> CLLocationCoordinate2D? {
         guard let cached = loadSelf() else { return nil }
-        // A user-declared location ("I'll be at…") isn't a GPS fix, so it never
-        // goes stale — it's current until the user changes it or resets.
-        if cached.isManual == true { return cached.coordinate }
+        // A user-declared location ("I'll be at…") isn't a GPS fix, so it's
+        // exempt from the 5-min freshness window — BUT only while you're still
+        // active. Leaving deactivates it (isActive=false); after that it must
+        // not be sendable, or a stale declaration could be re-shared on a later
+        // send (post-push audit). Freshness-exempt, not opt-in-exempt.
+        if cached.isManual == true {
+            return (cached.isActive ?? false) ? cached.coordinate : nil
+        }
         guard Date().timeIntervalSince(cached.timestamp) <= freshnessWindow else { return nil }
         return cached.coordinate
     }

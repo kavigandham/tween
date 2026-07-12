@@ -523,7 +523,7 @@ struct OnboardingView: View {
     private var mapLayer: some View {
         Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
-                Annotation(selfIsManual ? "You'll be at \(selfManualLabel ?? "here")" : "You", coordinate: coord) {
+                Annotation(selfIsManual ? (selfManualLabel.map { "You'll be at \($0)" } ?? "You'll be there") : "You", coordinate: coord) {
                     // Self stays in the location-dot family even when a ride
                     // is needed — the badge overlays it (post-push audit).
                     TweenPin(role: isUserIn ? .selfActive : .selfDot, needsRide: localNeedsRide)
@@ -2245,6 +2245,10 @@ struct OnboardingView: View {
     /// isn't overwritten by a background GPS fix.
     private func setManualSelf(_ point: Participant) {
         ensureNamed {
+            // Cancel any in-flight GPS request so its late .got can't overwrite
+            // this declaration (the .got guard keys on !awaitingImIn).
+            awaitingImIn = false
+            pendingLocationAction = nil
             let coord = point.coordinate
             selfIsManual = true
             selfManualLabel = point.name
@@ -2780,7 +2784,11 @@ struct OnboardingView: View {
             savedCoordinateAt = Date()
             isUserIn = true
         }
-        LocationCache.save(coordinate, isActive: true)
+        // Preserve declared-location provenance on re-save — dropping it here
+        // stripped isManual on the first proposal/agree, after which the poll
+        // and a background GPS fix clobbered the "I'll be at…" pin (post-push
+        // audit).
+        LocationCache.save(coordinate, isActive: true, isManual: selfIsManual)
         saveLocalParticipant(coordinate)
         return true
     }
@@ -3379,8 +3387,10 @@ struct OnboardingView: View {
         // Restore the declared-location provenance from the cache so a relaunch
         // or a poll tick keeps the GPS-clobber guard + "You'll be at…" labels
         // consistent with what was saved (the place NAME isn't persisted — the
-        // cache holds coords + prefs only — so the label may generalise).
-        let cachedIsManual = cachedSelfBlob?.isManual == true
+        // cache holds coords + prefs only — so the label may generalise). Only
+        // an ACTIVE declaration counts — after a leave it's deactivated and must
+        // stop lingering as a manual self (post-push audit).
+        let cachedIsManual = cachedSelfBlob?.isManual == true && cachedSelfBlob?.isActive == true
         if selfIsManual != cachedIsManual {
             selfIsManual = cachedIsManual
             if !cachedIsManual { selfManualLabel = nil }
@@ -3504,6 +3514,15 @@ struct OnboardingView: View {
 
     private func frameUserContext() {
         if let savedCoordinate {
+            // Frame you together with any added A→B points, so adding a place
+            // shows both ends rather than snapping tightly onto you.
+            let others = manualParticipants.map(\.coordinate) + additionalParticipants.map(\.coordinate)
+            if !others.isEmpty {
+                withAnimation(Tokens.Motion.gentle) {
+                    position = Self.cameraPosition(for: [savedCoordinate] + others, padding: 1.35, minSpan: 0.04)
+                }
+                return
+            }
             logger.debug("Manual map reset to user location")
             withAnimation(Tokens.Motion.gentle) {
                 position = .region(MKCoordinateRegion(

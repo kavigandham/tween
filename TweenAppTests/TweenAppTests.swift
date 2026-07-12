@@ -213,7 +213,7 @@ final class TweenAppTests: XCTestCase {
         let coordinate = CLLocationCoordinate2D(latitude: 37.7825, longitude: -122.4099)
 
         let appleURL = try XCTUnwrap(MapLinks.appleMapsURL(name: "Blue Bottle Coffee", coordinate: coordinate))
-        XCTAssertEqual(appleURL.scheme, "http")
+        XCTAssertEqual(appleURL.scheme, "https")
         XCTAssertTrue(appleURL.absoluteString.contains("q=Blue%20Bottle%20Coffee"))
         XCTAssertTrue(appleURL.absoluteString.contains("ll=37.7825,-122.4099"))
 

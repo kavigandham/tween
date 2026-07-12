@@ -3,7 +3,8 @@ import CoreLocation
 
 enum MapLinks {
     static func appleMapsURL(name: String, coordinate: CLLocationCoordinate2D) -> URL? {
-        var components = URLComponents(string: "http://maps.apple.com/")
+        // https so more clients auto-linkify it in the plain-text SMS body.
+        var components = URLComponents(string: "https://maps.apple.com/")
         components?.queryItems = [
             URLQueryItem(name: "ll", value: coordinatePair(coordinate)),
             URLQueryItem(name: "q", value: name)

@@ -58,10 +58,23 @@ final class ManualLocationTests: XCTestCase {
         XCTAssertNil(LocationCache.freshSelfCoordinate())
     }
 
-    func testResetDeactivatesThenClearsManualSelf() {
+    func testDeactivatedManualSelfIsNotSendable() {
+        // The freshness exemption is opt-in-gated: an ACTIVE declaration travels,
+        // a deactivated one (after leaving) must NOT be re-shared (post-push audit).
+        LocationCache.save(coord, at: stale, isActive: true, isManual: true)
+        XCTAssertNotNil(LocationCache.freshSelfCoordinate())
+        LocationCache.deactivateSelf()
+        XCTAssertNil(LocationCache.freshSelfCoordinate(),
+                     "a deactivated declaration must not be sendable")
+    }
+
+    func testProductionResetMakesManualSelfUnsendable() {
+        // startFreshMeetup is the production reset (clearAll has no prod callers).
         LocationCache.save(coord, at: stale, isActive: true, isManual: true)
         LocationCache.startFreshMeetup()
         XCTAssertFalse(LocationCache.isActive, "a reset deactivates the manual self")
+        XCTAssertNil(LocationCache.freshSelfCoordinate(),
+                     "after a reset the declared self must not travel in a send")
         LocationCache.clearAll()
         XCTAssertNil(LocationCache.loadSelf()?.coordinate, "clearAll wipes it entirely")
     }

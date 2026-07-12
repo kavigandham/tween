@@ -870,9 +870,11 @@ final class MessagesViewController: MSMessagesAppViewController {
             // the fallback when CoreLocation can't deliver a fresh fix in
             // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
-            if let manual = LocationCache.loadSelf(), manual.isManual == true {
-                // The user declared a future location ("I'll be at…") in the
-                // app — join with THAT, don't overwrite it with a live GPS fix.
+            if let manual = LocationCache.loadSelf(), manual.isManual == true, LocationCache.isActive {
+                // The user declared a future location ("I'll be at…") in the app
+                // AND is still active — join with THAT, don't overwrite it with a
+                // live GPS fix. A deactivated declaration (after leaving) must NOT
+                // be re-shared; fall through to a fresh fix (post-push audit).
                 coordinate = manual.coordinate
                 logger.debug("Joined with a declared (manual) self location")
             } else if let fresh = await acquireLocation() {

@@ -1,109 +1,41 @@
-# AUDIT REPORT — Tween — 2026-07-12 (HEAD deca838, post-push audit of Phase A+B)
+# AUDIT REPORT — Tween — 2026-07-12 (HEAD f521012, post-push audit of the A→B feature push)
 
-Read-only audit fanned out over the six high-risk files plus the rest of `Shared/`,
-`TweenApp/`, and the tests. Recently-changed areas (ExpandedView rebuild,
-SpotETADisplay, `outgoingName`/`peerDisplayName` sanitization, `.midpoint` removal,
-TweenPin.Context) were verified line-by-line.
+Scope: the three-feature push (`a8aa23d` solo A→B, `9b4fee4` where-I'll-be, `f521012` non-app-user) on the manual-location primitive, plus a regression pass.
 
-Headline: the ETAChip→Spot* migration, `.midpoint`/`pinMidpoint` removal, revision
-tie-break, departure gossip, and the TTL/sync-state split are all correct and
-consistent — no dangling references, all pin-role switches exhaustive, all migrated
-call sites match. Regressions clustered around the name-sanitization work (F2) and
-the rebuilt ExpandedView.
+**Invariant that HELD (verified):** manual A→B points never reach a send path — `manualParticipants` is read only by display/framing/ranking accessors and never by `scopedFirstRoster`/`saveLocalParticipant`/`proposalParticipantsForCurrentContext`/`nextParticipantList`/`refreshFromAppGroup`. `searchRegion`'s `max()!/min()!` are guarded by `count >= 2` on a non-empty array. `AddPointSheet` is clean (exhaustive sheet switch, `[weak self]` debounce, value-type closures).
 
-> **Status after this audit:** the CRITICAL and both MAJOR name-sanitization
-> findings are **FIXED** (commit following deca838); the interactive-map finding is
-> the standing T10 decision; the rest are triaged below.
+The real risk was the **declared self ("I'll be at…")**, whose freshness-exemption I decoupled from the opt-in gate. The audit found — and this pass FIXED — a stale-send cluster.
 
 ---
 
-## CRITICAL — RESOLVED
+## CRITICAL — FIXED
 
-- **[FIXED] Stray `@ViewBuilder` on `snapshotFocus`** (a non-View computed property).
-  This was a transient mid-Phase-C state the audit caught; the committed code moved
-  `@ViewBuilder` back onto `mapSection`. Build + full suite green. — `Shared/TweenViews.swift`
+- **[FIXED] A stale declared self could be sent after leave/reset/cold-launch.** `freshSelfCoordinate()` returned a manual coord regardless of `isActive`, and the self blob is only deactivated (never removed) by `startFreshMeetup`/`deactivateSelf` — so a later send re-shared a possibly days-old "I'll be at…". Fix: the manual branch of `freshSelfCoordinate()` now requires `isActive` (exempt from the 5-min *freshness* window, NOT the opt-in gate) — `LocationCache.swift:82`. Companion: `refreshFromAppGroup` only restores `selfIsManual` when the cached blob is *active*, so a deactivated declaration stops lingering as the self — `OnboardingView.swift:~3384`.
 
-## MAJOR
+## MAJOR — FIXED
 
-- **[FIXED] "You" leaked into the agree bubble caption.** `sendAgreedPlace` appends
-  `myName` (= "You" for un-named users) to `agreedNames`, encoded via `encodeNames`
-  which — unlike `encodeParticipants` — does not apply `outgoingName()`, so
-  `BubbleCaption` rendered "You agrees to …". Fixed by sanitizing the agreer through
-  `UserName.peerDisplayName` in BubbleCaption (catches both wire-"You" and empty);
-  2 new BubbleCaptionTests. — `Shared/BubbleCaption.swift:48`
-- **[FIXED] Unnamed peer double-counted in the host roster ("2 in" for one peer).**
-  `activeParticipantsForDisplay` gated the legacy peer append on
-  `$0.name == peerDisplayName` — since F2 that compares "Friend" against the raw
-  ""/"You" roster entry, never matches, and appended a synthetic peer. Fixed:
-  identity-based guard (`!contains { !isLocalParticipant($0) }`), real id, and the
-  self-sort now uses `isLocalParticipant`. — `TweenApp/OnboardingView.swift:2008`
-- **[DEFERRED — T10] The sanctioned interactive `Map` path is unreachable.**
-  `usesStaticMapForCurrentState` is hardcoded `true`, so `interactiveMap`/`spotPin`/
-  `cameraBounds` and the `mapDegraded`/`useStaticMap`/`didReceiveMemoryWarning`
-  degrade machinery are dead. This satisfies HARD CONSTRAINT #1 more strictly than
-  documented but contradicts the CLAUDE.md sanctioned-exception text. Decision
-  pending on-device memory profiling; if kept, delete the dead live-map code and
-  update CLAUDE.md. — `Shared/TweenViews.swift:1446`
+- **[FIXED] `autoJoinForOutgoingMessage` stripped `isManual` on the first send** (`LocationCache.save(...)` defaulted `isManual:false`), after which the poll + a background GPS fix clobbered the declared pin. Now re-saves with `isManual: selfIsManual` — `OnboardingView.swift:~2789`.
+- **[FIXED] Extension `handleImIn` respected a *deactivated* declared self** (branched on `isManual` only). Now also requires `LocationCache.isActive`, so after leaving, re-tapping "I'm in" in the chat acquires a fresh GPS fix — `MessagesViewController.swift:873`.
+- **[FIXED] Test asserted a `clearAll` path production never runs.** `testResetDeactivatesThenClearsManualSelf` replaced with `testDeactivatedManualSelfIsNotSendable` + `testProductionResetMakesManualSelfUnsendable`, which lock the real reset behavior (`freshSelfCoordinate()==nil` after leave/reset) — `ManualLocationTests.swift`.
 
-## MINOR (triaged — not yet applied)
+## MINOR — FIXED
 
-- `SearchCompleter.update(query:)` doesn't cancel a pending debounce task, so a
-  keystroke debounced ~300 ms earlier can fire after a clear. — `TweenApp/SearchCompleter.swift:133`
-- `LocationCache.clearAll()` omits `MeetupSync.post()` (test-only caller today). — `Shared/LocationCache.swift:250`
-- `RankedSpot.score` divides by `confidence` with no floor → NaN/Inf for
-  `confidence == 0` (public/DEBUG inits only), which breaks the sort's strict-weak
-  ordering. — `Shared/FairnessRanker.swift:45`
-- `FairnessRanker.rank` traps on negative `cap` (`prefix(cap)`); unreachable with
-  current callers. — `Shared/FairnessRanker.swift:119`
-- `fullScreenCover` (tutorial) and `sheet(item:)` share one anchor — an `onOpenURL`
-  place sheet during first-run tutorial is dropped/deferred. — `TweenApp/OnboardingView.swift:637`
-- Extension `Task` closures capture `self` strongly (all `@MainActor`, stored,
-  cancelled in `willResignActive` — bounded). — `TweenMessages/MessagesViewController.swift`
-- `handleImIn`/`handleImOut` lack the `!isSending` re-entrancy guard `sendAgreedPlace`
-  has (roster merge dedupes, so low impact). — `TweenMessages/MessagesViewController.swift:860`
+- **[FIXED] `imIn → setManualSelf` race**: a late GPS `.got` could overwrite the fresh declaration. `setManualSelf` now clears `awaitingImIn`/`pendingLocationAction` — `OnboardingView.swift:~2999`.
+- **[FIXED] `frameUserContext` snapped tightly onto you**, ignoring the added A→B point. Now frames you + added points together — `OnboardingView.swift:~3515`.
+- **[FIXED] `MapLinks.appleMapsURL` used `http://`** (some clients won't auto-linkify). Now `https://` — `MapLinks.swift:6` (test updated).
+- **[FIXED] "You'll be at here"** when the place name isn't persisted after relaunch → "You'll be there" fallback — `OnboardingView.swift:~526`.
 
 ## ARCHITECTURE NOTES
 
-- God methods (>80 lines): OnboardingView `body` (~284), `handleIncomingURL` (~192),
-  `refreshFromAppGroup` (~186); MessagesViewController `sendAgreedPlace` (~112);
-  TweenViews `primaryCTA` (~139, a 9-way if/else cascade — the most fragile part of
-  the rebuilt view; a computed CTA-state enum would help).
-- Cross-process last-writer-wins on the snapshot blob is the residual concurrency
-  exposure (mitigated by the sync-state split; revision is monotonic-max, flags
-  idempotent).
-- Extension is unit-untested: no test target imports `TweenMessages`, so
-  `effectiveReceived`/`deliverBubble`/activation logic have zero coverage.
+- Root cause of the cluster: the manual freshness-exemption was unbounded and decoupled from the `isActive`/opt-in gate the rest of the system uses to answer "may this coordinate travel?". Binding the exemption to `isActive` (freshness-exempt, not active-exempt) collapsed the CRITICAL + two MAJORs. The place NAME is intentionally NOT persisted (App Group holds coords + prefs only) — the pin generalises to "You'll be there" after relaunch.
+- Provenance is folded into the single JSON blob (`CachedCoord.isManual`) and written atomically; `setFlag` preserves it on flag flips; pre-provenance blobs decode as GPS. This half of the primitive is solid.
 
-## LEGACY DEBT INVENTORY
+## TEST COVERAGE GAPS (remaining)
 
-- Legacy 2-person accessors `etaFromA`/`etaFromB`/`worseETA`/`fairnessGap` + the
-  2-person `RankedSpot` init still in use (compat shim): read by SpotETADisplay,
-  ResultRows, SpotDetailCard. Marked for "Slice 5/6" removal.
-- Dead `ETAChip` struct — zero call sites after the migration. — `TweenApp/ResultRows.swift:~54`
-- `RankedResultRow` used only by its own `#Preview`.
-- Redundant memory-degrade machinery (`mapDegraded`/`useStaticMap`) — no-ops while
-  ExpandedView is always static.
-
-## TEST COVERAGE GAPS
-
-Well-covered: TweenState codec, `Participant.matches` (incl. remote-"You"),
-ConversationMeetupStore (TTL/revision/tombstones/migration), RosterMerge, LocationCache
-freshness, FairnessRanker scoring, `outgoingName`, `peerDisplayName`, and now
-BubbleCaption agreer sanitization.
-
-Still thin: `effectiveReceived` sticky rule, `deliverBubble` staged delivery,
-`MeetupSync.post()` observation, SpotETADisplay drive-balance track math
-(`position`/`spreadStart`/`spreadWidth`), `isFullyAgreed` positive duplicate-name case,
-host send/agree/leave flows.
+- The send-path **isolation invariant** (manual points never in the roster builders) is verified by grep but has no unit test — the builders are `private` on `OnboardingView`. A refactor could re-introduce a leak green.
+- The `.got` `keepManual` guard and the extension `handleImIn` manual-respect (host-cache-driven) are exercised only indirectly; no extension-side unit test harness exists.
+- Covered now: `Participant.manual` flagging, freshness-vs-active exemption (incl. deactivated/reset non-sendability), pre-provenance decode, `spotBody` maps link, propose/counter subcaption change, https scheme.
 
 ## FIX-FIRST PRIORITY LIST
 
-1. ~~Verify `snapshotFocus` compiles~~ — FIXED.
-2. ~~Stop the "You" leak in agree captions~~ — FIXED (BubbleCaption sanitize + tests).
-3. ~~Fix the unnamed-peer double-count~~ — FIXED (identity-based dedup).
-4. Decide the interactive map (T10) — remove dead code + update CLAUDE.md, or restore.
-5. `SearchCompleter.update(query:)` cancels its debounce task.
-6. Harden `FairnessRanker` (confidence floor, `prefix(max(cap,0))`); add
-   `MeetupSync.post()` to `clearAll()`.
-7. Backfill unit tests for `effectiveReceived`, `deliverBubble` staging, and the
-   SpotETADisplay track math.
+All CRITICAL + MAJOR + MINOR findings from this audit are FIXED in the follow-up commit. Remaining (future): a unit harness for the send-path isolation invariant and the extension manual-respect path.
