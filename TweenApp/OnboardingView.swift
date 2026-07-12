@@ -327,6 +327,7 @@ struct OnboardingView: View {
         case message(PendingMessage)
         case spot(SpotSelection)
         case addPoint
+        case whereIllBe
 
         var id: String {
             switch self {
@@ -336,6 +337,7 @@ struct OnboardingView: View {
             case .message(let m):    return "message-\(m.id)"
             case .spot(let s):       return "spot-\(s.id)"
             case .addPoint:          return "addPoint"
+            case .whereIllBe:        return "whereIllBe"
             }
         }
     }
@@ -481,6 +483,17 @@ struct OnboardingView: View {
                 Participant.manual(label: "Kavi's place",
                                    coordinate: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194))
             ])
+            initialDetent = .fraction(0.45)
+        }
+        // -DEMO_WHERE_ILL_BE: seeds a DECLARED future self location so the
+        // "You'll be at X" label + active state can be screenshot-verified.
+        if CommandLine.arguments.contains("-DEMO_WHERE_ILL_BE") {
+            let blueBottle = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+            LocationCache.save(blueBottle, isActive: true, isManual: true)
+            _savedCoordinate = State(initialValue: blueBottle)
+            _selfIsManual = State(initialValue: true)
+            _selfManualLabel = State(initialValue: "Blue Bottle, SF")
+            _isUserIn = State(initialValue: true)
             initialDetent = .fraction(0.45)
         }
         #endif
@@ -746,6 +759,12 @@ struct OnboardingView: View {
                         AddPointSheet(region: searchRegion,
                                       resolvePlace: resolvePlace,
                                       onAdd: addManualPoint)
+                    case .whereIllBe:
+                        AddPointSheet(title: "Where will you be?",
+                                      prompt: "The address you're heading to",
+                                      region: searchRegion,
+                                      resolvePlace: resolvePlace,
+                                      onAdd: setManualSelf)
                     }
                 }
                 // Alerts triggered from inside the sheet must present FROM the
@@ -766,23 +785,30 @@ struct OnboardingView: View {
         .onChange(of: provider.status) { _, status in
             let wasAwaitingImIn = awaitingImIn
             if case let .got(coord) = status {
-                withAnimation(Tokens.Motion.spring) {
-                    savedCoordinate = coord
-                    // Stamp the freshness of this in-memory fix so a pending
-                    // send (which resumes right below) knows it's current even
-                    // though the silent branch doesn't touch the cache.
-                    savedCoordinateAt = Date()
-                    // Only the explicit "I'm in" gesture flips presence on and
-                    // persists the coordinate for the peer hand-off. The silent
-                    // launch fix just recenters the map on a self dot.
-                    if awaitingImIn {
-                        LocationCache.save(coord, isActive: true)
-                        saveLocalParticipant(coord)
-                        isUserIn = true
+                // A declared "I'll be at…" self must survive a background GPS
+                // fix — ignore the silent fix entirely (keep the map + coord on
+                // the declared place). An explicit "I'm in" tap already cleared
+                // selfIsManual, so a deliberate live join still wins.
+                let keepManual = selfIsManual && !awaitingImIn
+                if !keepManual {
+                    withAnimation(Tokens.Motion.spring) {
+                        savedCoordinate = coord
+                        // Stamp the freshness of this in-memory fix so a pending
+                        // send (which resumes right below) knows it's current even
+                        // though the silent branch doesn't touch the cache.
+                        savedCoordinateAt = Date()
+                        // Only the explicit "I'm in" gesture flips presence on and
+                        // persists the coordinate for the peer hand-off. The silent
+                        // launch fix just recenters the map on a self dot.
+                        if awaitingImIn {
+                            LocationCache.save(coord, isActive: true)
+                            saveLocalParticipant(coord)
+                            isUserIn = true
+                        }
                     }
+                    reframe()
                 }
                 awaitingImIn = false
-                reframe()
                 // Resume whatever send the user initiated before the fix
                 // landed (send-to-chat, agree reply). Runs after the cache
                 // writes above so the action sees the fresh coordinate.
@@ -1641,6 +1667,16 @@ struct OnboardingView: View {
             .buttonStyle(.tweenPrimary())
             .disabled(awaitingImIn || provider.status == .requesting)
             .accessibilityHint("Shares where you are and finds fair places to meet")
+
+            // Join with a place you're HEADING to instead of where you are now
+            // (a plan for later while you're driving).
+            Button { activeSheet = .whereIllBe } label: {
+                Text("or share where you'll be")
+                    .font(Tokens.Typography.footnote.weight(.medium))
+                    .foregroundStyle(Tokens.Palette.brand)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Join with an address you're heading to instead of your current location")
         }
 
         Text(statusText)
@@ -2183,8 +2219,33 @@ struct OnboardingView: View {
 
     private func imIn() {
         ensureNamed {
+            // A live GPS join clears any declared "I'll be at…" so the fresh fix
+            // takes over.
+            selfIsManual = false
+            selfManualLabel = nil
             awaitingImIn = true
             provider.requestOnce()
+        }
+    }
+
+    /// Joins the meetup with a DECLARED future location (a place you're heading
+    /// to) instead of live GPS — "I'll be at…". The declared coordinate is
+    /// freshness-exempt (LocationCache.isManual) so it travels in the bubble and
+    /// isn't overwritten by a background GPS fix.
+    private func setManualSelf(_ point: Participant) {
+        ensureNamed {
+            let coord = point.coordinate
+            selfIsManual = true
+            selfManualLabel = point.name
+            savedCoordinate = coord
+            savedCoordinateAt = Date()
+            isUserIn = true
+            LocationCache.save(coord, isActive: true, isManual: true)
+            saveLocalParticipant(coord)   // this is what travels to the group
+            withAnimation(Tokens.Motion.spring) {
+                position = Self.cameraPosition(for: [coord])
+            }
+            showToast("You'll be at \(point.name)")
         }
     }
 
@@ -3289,7 +3350,8 @@ struct OnboardingView: View {
             }
         }
 
-        let cachedSelf = LocationCache.loadSelf()?.coordinate
+        let cachedSelfBlob = LocationCache.loadSelf()
+        let cachedSelf = cachedSelfBlob?.coordinate
         if !same(savedCoordinate, cachedSelf) {
             savedCoordinate = cachedSelf
             // This coordinate came from the cache, not a live fix — clear the
@@ -3299,6 +3361,15 @@ struct OnboardingView: View {
             // an older cache value while the stamp still read "recent".)
             savedCoordinateAt = nil
             didChange = true
+        }
+        // Restore the declared-location provenance from the cache so a relaunch
+        // or a poll tick keeps the GPS-clobber guard + "You'll be at…" labels
+        // consistent with what was saved (the place NAME isn't persisted — the
+        // cache holds coords + prefs only — so the label may generalise).
+        let cachedIsManual = cachedSelfBlob?.isManual == true
+        if selfIsManual != cachedIsManual {
+            selfIsManual = cachedIsManual
+            if !cachedIsManual { selfManualLabel = nil }
         }
         // Presence tracks the opt-in flag, NOT coordinate freshness — the old
         // `isActive` read silently flipped "I'm in" back off five minutes
@@ -3842,6 +3913,8 @@ struct OnboardingView: View {
 /// typeahead and the caller's `resolvePlace` to turn the pick into a
 /// coordinate. Nothing is sent — the result becomes a local `manual:` point.
 private struct AddPointSheet: View {
+    var title = "Add a place or person"
+    var prompt = "Address, or where they are"
     let region: MKCoordinateRegion
     let resolvePlace: (String, MKCoordinateRegion) async -> [MKMapItem]
     let onAdd: (Participant) -> Void
@@ -3879,9 +3952,9 @@ private struct AddPointSheet: View {
             .listStyle(.plain)
             .searchable(text: $query,
                         placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Address, or where they are")
+                        prompt: prompt)
             .onChange(of: query) { _, q in completer.debouncedUpdate(query: q, region: region) }
-            .navigationTitle("Add a place or person")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

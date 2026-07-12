@@ -870,7 +870,12 @@ final class MessagesViewController: MSMessagesAppViewController {
             // the fallback when CoreLocation can't deliver a fresh fix in
             // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
-            if let fresh = await acquireLocation() {
+            if let manual = LocationCache.loadSelf(), manual.isManual == true {
+                // The user declared a future location ("I'll be at…") in the
+                // app — join with THAT, don't overwrite it with a live GPS fix.
+                coordinate = manual.coordinate
+                logger.debug("Joined with a declared (manual) self location")
+            } else if let fresh = await acquireLocation() {
                 // Cache the fix but keep the prior active flag — the host app
                 // reads LocationCache.isActive as "you're in", so a join must
                 // not look successful before the bubble is actually delivered.
