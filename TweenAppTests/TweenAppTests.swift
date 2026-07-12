@@ -188,6 +188,17 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(TweenPin.Role.result.accessibilityName, "Search result")
     }
 
+    func testCompactPinDiametersAreSmaller() {
+        // Audit F5: the extension's static snapshot draws .compact so pins don't
+        // clutter a thumbnail map.
+        XCTAssertEqual(TweenPin.Role.fairSpot.diameter(.compact), 28)
+        XCTAssertEqual(TweenPin.Role.result.diameter(.compact), 22)
+        XCTAssertEqual(TweenPin.Role.friend.diameter(.compact), 24)
+        XCTAssertEqual(TweenPin.Role.fairSpot.diameter(.regular), 42)
+        XCTAssertLessThan(TweenPin.Role.fairSpot.diameter(.compact),
+                          TweenPin.Role.fairSpot.diameter(.regular))
+    }
+
     func testPinAvatarInitials() {
         XCTAssertEqual(TweenPin.initials(for: "Hassan Ahmed"), "HA")
         XCTAssertEqual(TweenPin.initials(for: "Sam"), "S")

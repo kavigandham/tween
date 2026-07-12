@@ -288,20 +288,20 @@ struct TweenMapSnapshotView: View {
         }
     }
 
-    /// A colored dot inside a faint halo with a white rim — a flattened echo of
-    /// `TweenPin` that survives rasterization at small sizes.
-    private static func drawMarker(_ role: TweenPin.Role, at point: CGPoint, in ctx: CGContext) {
+    /// A flat colored dot with a thin white rim — a flattened echo of `TweenPin`
+    /// at the `.compact` scale. The old 1.6× halo (audit F5) inflated every
+    /// marker's footprint and cluttered the extension's thumbnail map; dropped
+    /// in favour of a clean rim-only dot.
+    private static func drawMarker(_ role: TweenPin.Role, at point: CGPoint, in ctx: CGContext,
+                                   context: TweenPin.Context = .compact) {
         let color = UIColor(role.fill)
-        let d = role.diameter * 0.7
-
-        ctx.setFillColor(color.withAlphaComponent(0.25).cgColor)
-        ctx.fillEllipse(in: CGRect(x: point.x - d * 0.8, y: point.y - d * 0.8, width: d * 1.6, height: d * 1.6))
+        let d = role.diameter(context)
 
         let dot = CGRect(x: point.x - d / 2, y: point.y - d / 2, width: d, height: d)
         ctx.setFillColor(color.cgColor)
         ctx.fillEllipse(in: dot)
         ctx.setStrokeColor(UIColor.white.cgColor)
-        ctx.setLineWidth(2)
+        ctx.setLineWidth(1.5)
         ctx.strokeEllipse(in: dot)
     }
 }

@@ -65,6 +65,29 @@ struct TweenPin: View {
                 return 32
             }
         }
+
+        /// Compact diameter for the extension's small static snapshot (audit
+        /// F5): host-sized furniture cluttered a thumbnail map. Spot 28, result
+        /// 22, avatars/self 24.
+        var compactDiameter: CGFloat {
+            switch self {
+            case .fairSpot:      return 28
+            case .result:        return 22
+            case .closestToUser: return 26
+            default:             return 24
+            }
+        }
+
+        func diameter(_ context: TweenPin.Context) -> CGFloat {
+            context == .compact ? compactDiameter : diameter
+        }
+    }
+
+    /// Render scale. Host surfaces stay `.regular`; the extension's small static
+    /// snapshot draws `.compact` so pins don't clutter a thumbnail map (F5).
+    enum Context {
+        case regular
+        case compact
     }
 
     let role: Role
