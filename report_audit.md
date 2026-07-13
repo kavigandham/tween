@@ -1,59 +1,58 @@
-# AUDIT REPORT — Tween — 2026-07-12 (full repo audit, post-push of d0d9a64)
+# AUDIT REPORT — Tween — 2026-07-13 (full repo at 1aa4712, post-push; fixes landed in the follow-up commit)
 
-Read-only full-repo audit per `prompts/repo_audit.md`, extra scrutiny on the just-pushed `470b721` + `1e185e9`. No source modified during the audit.
+Extra scrutiny on `1aa4712` (SpotVicinity between-people filter, POI category chips, Google Maps trampoline). Zero CRITICAL. The three MAJORs + two MINORs below are **FIXED** in the commit following this report; the rest is triaged.
 
-> **Separately found + FIXED (`bd55de7`, not from this audit):** a device-feedback bug where a solo A→B search's ranking was wiped ~2 s after landing — `refreshFromAppGroup`'s `localLeft` branch cleared `rankedSpots` on every poll tick while a conversation's leave tombstone lingered. Now gated on `shouldResetRankingOnLeave(localLeft:hasLivePeerState:)` (clear only on the peer-teardown tick). Unit-tested + simulator-verified via `-DEMO_SOLO_AFTER_LEAVE`.
-
-## EXTRA-SCRUTINY VERDICT (470b721 + 1e185e9) — CLEAN, one caveat
-- `qualityColor`/`qualityWord`/`qualityMetric` correct; color and word bucket on the same metric (nil → `fairnessSpread`; non-nil → `worstETA − bestWorstETA`). No stale `fairnessColor`/`fairnessWord` refs.
-- Every production multi-spot render site threads the correct `rankedSpots.map(\.worstETA).min()`. The only nil-passing caller besides single-spot `SpotDetailCard` is `RankedResultRow` — `#Preview`-only.
-- `resolvePlace` two-pass search: no loop / no double-count; local match returns the `.required` result immediately (no "Sushi Unlimited" regression); iOS 17 collapses to one search; callers handle empty without dead-ending.
-- Solo-waiting dedupe: no blank/broken panel in any (isUserIn × hasSpots × waiting) state.
-- **Caveat:** two of the three `spotBestWorstETA` sites `1e185e9` threaded (`spotPin` text + a11y, `TweenViews.swift:1519/1540`) live in the DEAD interactive-map path (see MAJOR), so that portion has no runtime effect today. The fix itself is correct.
+## COMMIT 1aa4712 SCRUTINY — verified clean
+- SpotVicinity math correct (spread = max centroid→participant distance; radius = max(0.75×spread + 2 km, 3 km)); safe on empty inputs; in BOTH targets' Sources; extension interplay sane (pool 8 → filter ≥3 → cap 5).
+- Chip branch can't misfire (selectedCategory cleared on divergent keystrokes; suppress latch protects the committed search). All 12 `MKPointOfInterestCategory` values are iOS 13+. `regionPriority` correctly iOS 18-gated.
+- Trampoline routing unambiguous both directions: only `tween://maps` decodes as a handoff; meetup payloads are `https://tween.app/m` (and require `t`), `tween://search` is host-checked. Percent-encoding round-trips (now tested incl. emoji). No `canOpenURL` anywhere → no `LSApplicationQueriesSchemes` needed.
 
 ## CRITICAL — none
-No ≥70%-confidence crash/corruption path. Extension state machine + URL codec are heavily hardened (revision floors, tombstones, staged-delivery deferral, delivery-gated commits).
 
-## MAJOR
-- **Conversation switch cancels `rankingTask` but not `sendTask`, never resets `isSending`** — `MessagesViewController.swift:~161`. An in-flight send completing after the switch commits roster/revision under the NEW conversation's key; a stuck `isSending` disables CTAs. Fix: `sendTask?.cancel()` + `isSending = false` in the switch block.
-- **Interactive `ExpandedView` Map is unreachable** — `usesStaticMapForCurrentState` hardcoded `true` (`TweenViews.swift:1507`), so the sanctioned pan/zoom map, `cameraBounds`, `spotPin`, `mapPosition` fly-to are all dead. No constraint violated (snapshotter-only is safest for 120 MB), but a documented feature is silently off + dead code. Fix: delete the interactive-map members or restore a real per-state condition.
-- **`AddPointSheet.pick` runs a bare `Task {}` (no `@MainActor`)** that mutates OnboardingView `@State` (`manualParticipants`, `savedCoordinate`, `isUserIn`, `position`) + `dismiss()` off-main after `await resolvePlace` — `OnboardingView.swift:~4046`. Fix: `Task { @MainActor in … }`.
-- **Search cancellation leaves `isSearchLoading` stuck true** — `runSearch`'s `guard !Task.isCancelled` returns before `isSearchLoading = false` (`~3190`); the scenePhase handler cancels the task, so a backgrounded/superseded search leaves the spinner up until the next keystroke. Fix: reset in the cancellation guard / scenePhase handler.
+## MAJOR — all FIXED
+- **[FIXED] SpotVicinity spec/behavior mismatch.** `filter` never returns empty for non-empty input (relax ×1.5/×2.5 → unfiltered fallback), so (a) the "far typed place doesn't rank" comment was wrong, and (b) when ≥3 in-circle hits existed, the far place the user actually searched was silently DROPPED from the visible list (display swapped entirely to rankedSpots). Fix: `displayedItems` now unions ranked spots + any raw hits the cut (or rank cap) trimmed, as unranked rows below — a searched far place never vanishes; comments rewritten to match real semantics. — `OnboardingView.swift` displayedItems + runSearch comment.
+- **[FIXED] "I'm out" double-fire.** `handleImOut` lacked the `!isSending` re-entrancy guard — a second tap during the send window cancelled a delivered leave and emitted a duplicate `.leave`. Guard added (and to `handleImIn` for the same `.invite` race). — `MessagesViewController.swift`.
+- **[FIXED] Departed user force-expanded back into MEETUP SET.** Leaving a group that still has members preserves the scoped `agreedState` (by design, for rejoin), but neither the `willBecomeActive` snapshot restore nor `effectiveReceived`'s sticky-agreement injection consulted the leave tombstone — a leaver reopening the extension landed in the terminal "It's a plan!" hero. Both injection points now gate on `ConversationMeetupStore.localUserLeft(key:)`; the roster restore stays (rejoin needs it). — `MessagesViewController.swift`.
 
-## MINOR
-- `mapDegraded` not reset on conversation switch — bleeds a degraded static map into the next chat (`MessagesViewController.swift:~161`).
-- `sendChosenSpot`/`sendCounter`/`sendDraft` lack the `guard !isSending` guard `sendAgreedPlace` has — a double-tap can emit two place bubbles (`~1047/~1245/~1289`).
-- `decodeAndCache` advances the revision floor under `revisionKey` but persists the scoped snapshot only when the `conversationKey` ivar is non-nil — a nil-ivar decode could bump the floor while dropping the snapshot (`~382`).
-- `FairnessRanker` route calls (`MKDirections.calculate()`, `FairnessRanker.swift:195`) have no timeout; one stalled leg keeps `rank()` pending + the spinner up. Only `MKLocalSearch` has the 8 s timeout.
-- `LocationProvider.locationManagerDidChangeAuthorization` mutates `status` directly, bypassing the `settle()` main-actor hop (`~116`).
-- `.fullScreenCover($showTutorial)` + `.sheet(item:$activeSheet)` on the same view — Help button no-ops the tutorial while any sheet is open (`~693`).
-- `(x)`-clear path doesn't reset `searchViewMode` — a prior `.map` mode persists into the next search (`~2974`).
-- `TweenState.isFullyAgreed` legacy name-only path can false-positive with duplicate display names (`TweenState.swift:109`); new builds stamp unique `senderID`, so legacy/rev-less bubbles only.
-- Stale comments say "300 ms poll" where `pollPeer` sleeps 2 s (`~848/~3288/~3463`).
+## MINOR — two FIXED, rest triaged
+- **[FIXED] `resolveCategory` POI region unclamped** — far-apart groups exceeded `MKLocalPointsOfInterestRequest.maxRadius`, erroring the request and silently downgrading chips to the text engine. Now clamps radius to the API max around the midpoint. — `OnboardingView.swift`.
+- **[FIXED] `handleImIn` tail ran on failed/cancelled sends** (force-expand + re-rank of whatever chat is now active). Gated on `didSend && !Task.isCancelled`. Also **[FIXED]**: `addManualPoint`/`removeManualPoint` cancel a mid-flight search without clearing `isSearchLoading` → stuck spinner; cleared at the cancel site.
+- Harness/launch hooks (`-HARNESS_HOST_*`, `-START_AT_PEEK`, `-SKIP_TUTORIAL`) not `#if DEBUG`-gated — ship in release (low risk; launch args need a dev connection). — `OnboardingView.swift:~96/~263`.
+- `FairnessRanker.recommendedCap` floors at 3 → `cap × participants` can exceed `maxTotalRouteCalls = 20` at 7+ people (legs degrade to straight-line under throttle). — `FairnessRanker.swift:107`.
+- `UserProfile.displayName` setter writes `userName` unsanitized (UserName.save trims/rejects empty) — two writers, one key. — `OnboardingFlags.swift:37`.
+- `FriendRoster.delete` never prunes `pingLog` → orphaned entries accumulate. — `TweenFriend.swift:57`.
+- Several app surfaces render `senderName` raw instead of `UserName.peerDisplayName` (legacy "You" payloads show "You" in cards). — `BubbleCaption.swift:14`, `TweenViews.swift:641/1235/1262/1308`, `OnboardingView.swift:1956/3920/3953`, `SpotDetailCard.swift:384`.
+- `saveParticipantSnapshot` writes roster + legacy peer projection as two `defaults.set` calls — transiently inconsistent cross-process (self-heals). — `LocationCache.swift:191`.
+- `lastActiveConversationKey` never cleared — can dam global peer writes via a stale conversation's tombstone until the next activation. — `ConversationMeetupStore.swift:163`.
+- `TweenState(url:)` validates scheme but not host — tighten now that `tween://maps` routing relies on host discrimination. — `TweenState.swift:333`.
+- Test hygiene: the suite wipes the REAL App Group in `setUp` (running tests on a device with the app installed destroys live state) — point tests at an isolated suite. `SearchCompleterTests` fires a live network request.
 
 ## ARCHITECTURE NOTES
-- God files: `OnboardingView.swift` 4061 lines (`body ~301`, `refreshFromAppGroup ~198`, `handleIncomingURL ~192`); `TweenViews.swift` 2011; `MessagesViewController.swift` 1595.
-- Duplicated rank-cap derivation (app `count>=3 ? recommendedCap : 8` vs extension `min(5, recommendedCap)`) — consider one `FairnessRanker.cap(for:ceiling:)`.
-- Two `saveParticipantSnapshot` overloads; the name-only one still called from `OnboardingView.swift:442` (`localName:"You"`).
-- Verified clean: all App Group keys have matching reader/writer via shared constants (no orphans); every canonical writer posts `MeetupSync`; `MeetupSyncToken.deinit` removes the observer; TTL clear preserves `ConversationSyncState`; no force-unwrap crash paths.
+- God files: `OnboardingView.swift` 4,235 (body 309, handleIncomingURL 210, refreshFromAppGroup 209), `TweenViews.swift` 2,011, `MessagesViewController.swift` 1,657.
+- Rank-cap derivation duplicated app vs extension (numerically equivalent); `SearchResultMerger` misplaced in FairnessRanker.swift; distance/ETA formatting duplicated (ResultCard vs ABDistanceLabel vs SpotDetailCard.driveLabel).
+- View-layer contracts clean: all call sites pass required params; no force unwraps in view code; CompactView keyboard-free; snapshotter-only in CompactView/BubbleImageRenderer.
 
-## LEGACY DEBT
-- `etaFromA`/`etaFromB` still called: `SpotETADisplay.swift:20/38`, `ResultRows.swift:137/142`, `SpotDetailCard.swift:348`.
-- Dead code to remove: `insertBubble(for:dismissAfterInsert:)` (`MessagesViewController.swift:1397`, zero callers); `interactiveMap`/`cameraBounds`/`spotPin`/`allMeetupCoords`/`mapPosition` (dead behind the static-map flag); `ETAChip` + `RankedResultRow` (`#Preview`-only); `LocationProvider.requestOnceIfAuthorized()`; `UserName.clear()`; `OnboardingView.midpoint(_:_:)`.
+## LEGACY DEBT (carried)
+- `etaFromA/etaFromB` callers render participants[0]/[1] only (`SpotETADisplay.swift:20/38`, `ResultRows.swift`, `SpotDetailCard.swift:348`); legacy 2-person rank adapter; deprecated `BubbleImageRenderer.makeImage(selfCoord:peerCoord:)` (zero callers); dead UI code (`ETAChip`, `RankedResultRow`, interactive-map members behind the hardcoded static flag, `insertBubble`, `requestOnceIfAuthorized`, `UserName.clear`, `OnboardingView.midpoint`, `LocationCache.clearAll`); legacy peer-projection keys dual-written; name-only `saveParticipantSnapshot` overload still called (`OnboardingView.swift:442`).
 
 ## TEST COVERAGE GAPS
-- `ConversationMeetupStore` TTL age-expiry boundary; `effectiveReceived` sticky rule; `MeetupSync` post/observe; `SpotETADisplay.qualityColor` (only `qualityWord` covered); `resolvePlace` two-pass fallback; `deliverBubble` staged-delivery UI path; `handleImIn`/`handleImOut`/`sendAgreedPlace`/`sendCounter`; `OnboardingFlags`; `isFullyAgreed` duplicate-name legacy path.
-- Covered (no gap): revision tie-break, departure gossip + cap, `freshSelfCoordinate` window incl. manual exemption, `Participant.matches` edges, `isFullyAgreed` via IDs, URL round-trip + ≤5000 cap.
+- Extension-target logic unreachable by the unit suite (no target imports MessagesViewController) — `effectiveReceived` sticky rule + the new tombstone gates, staged-delivery path, `MeetupSync`, TTL age-out boundary all untested.
+- New-surface gaps now partially closed: CategoryPreset mappings ✔ (added), decodeHandoff negatives + emoji ✔ (added); SpotVicinity ×2.5 tier still never the deciding tier in a test.
+- Still uncovered: `LocationCache.agreedMeetup` trio, `LocationProvider`, `NetworkMonitor`, `OnboardingFlags`, `SpotETADisplay.qualityColor`.
+
+## CARRIED (unchanged from prior audits)
+- Dead interactive map (`usesStaticMapForCurrentState` hardcoded true) — decision pending.
+- `isFullyAgreed` legacy name-only path duplicate-name false positive (legacy payloads only).
+- First-run tutorial cover can swallow an incoming `tween://` proposal sheet (Help-button direction fixed earlier; cold-open direction open).
+- `UserDefaults(suiteName:)` nil (bad entitlement) undetected — `TweenIdentity.stableID` would mint per-call UUIDs.
+- Stale "300 ms poll" comments (poll sleeps 2 s).
 
 ## FIX-FIRST PRIORITY LIST
-1. ~~Cancel `sendTask` + reset `isSending` on conversation switch~~ — **FIXED `460da42`** (+ `deliverBubble` now keys canonical writes to the delivery conversation, + `mapDegraded` reset).
-2. Decide the interactive map: delete the dead `Map`/`cameraBounds`/`spotPin`, or restore a real `usesStaticMapForCurrentState` condition. — OPEN (cleanup, non-blocking; snapshotter-only is safe).
-3. ~~`AddPointSheet.pick` post-await mutations → `@MainActor`~~ — **FIXED `460da42`**.
-4. ~~Reset `isSearchLoading` on search cancellation~~ — **FIXED `460da42`** (at the scenePhase cancel source).
-5. ~~`!isSending` re-entrancy guard on the propose/counter/draft sends~~ — **FIXED `460da42`** (added to shared `sendBubble`).
-6. ~~Per-leg timeout on `FairnessRanker` route calls~~ — **FIXED `460da42`** (10 s task-group, falls back to straight-line).
-   Also **FIXED `460da42`:** `LocationProvider` off-main `status` write; Help-button no-op while a sheet is open.
-   Batch adversarially verified clean (~90%); 161 tests pass; solo A→B + search simulator-verified.
-7. Tests: `effectiveReceived` sticky-rule, TTL expiry, `MeetupSync`, `qualityColor`. — OPEN.
-8. Delete dead code (list above). — OPEN (cleanup).
-9. Harden `isFullyAgreed` duplicate-name legacy path. — OPEN (legacy/rev-less bubbles only).
+1. ~~SpotVicinity spec/display mismatch~~ — **FIXED** (displayedItems union + honest comments).
+2. ~~"I'm out"/"I'm in" double-fire guards~~ — **FIXED**.
+3. ~~Departed-user MEETUP SET restore~~ — **FIXED** (tombstone gates at both injection points).
+4. ~~POI region clamp~~ / ~~handleImIn tail~~ / ~~manual-point stuck spinner~~ — **FIXED**.
+5. Isolated App Group suite for tests (stop wiping real device state).
+6. Extension-logic test harness (effectiveReceived + tombstone gates are now load-bearing and untested).
+7. Hygiene batch: #if DEBUG harness args, peerDisplayName sweep, PingLog prune, displayName sanitize, route-call bound, lastActiveConversationKey lifecycle, TweenState host validation.
+8. Carried decisions: interactive map delete-or-restore; isFullyAgreed name-path hardening; god-file split.

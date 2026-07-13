@@ -254,6 +254,26 @@ final class TweenAppTests: XCTestCase {
         // Non-handoff tween:// URLs must not decode as one (they carry meetup
         // state and route elsewhere in handleIncomingURL).
         XCTAssertNil(MapLinks.decodeHandoff(URL(string: "tween://search")!))
+        // Nor may a meetup-state URL (https host) or a corrupt handoff.
+        XCTAssertNil(MapLinks.decodeHandoff(URL(string: "https://tween.app/m?lat=1&lon=2")!))
+        XCTAssertNil(MapLinks.decodeHandoff(URL(string: "tween://maps?lat=notanumber&lon=2")!))
+
+        // Names with spaces + emoji survive the round-trip (URLComponents
+        // percent-encodes both directions symmetrically).
+        let fancy = try XCTUnwrap(MapLinks.googleMapsHandoffURL(name: "Boba & Chill 🧋", coordinate: coordinate))
+        XCTAssertEqual(try XCTUnwrap(MapLinks.decodeHandoff(fancy)).name, "Boba & Chill 🧋")
+    }
+
+    func testCategoryPresetsCarryRealCategories() {
+        // Chips are POI-category browses (Apple Maps' own category buttons) —
+        // every preset must map to at least one category and a text-engine
+        // fallback term, or the chip dead-ends like "Study Spots" did.
+        for preset in CategoryPreset.allCases {
+            XCTAssertFalse(preset.poiCategories.isEmpty, "\(preset.rawValue) has no POI categories")
+            XCTAssertFalse(preset.mapKitQuery.isEmpty, "\(preset.rawValue) has no fallback query")
+        }
+        XCTAssertTrue(CategoryPreset.study.poiCategories.contains(.library),
+                      "Study means libraries first")
     }
 
     // 7. LocationCache returns nil on a clean suite.

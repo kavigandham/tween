@@ -1855,8 +1855,14 @@ struct OnboardingView: View {
 
     /// The map items currently shown in the list — ranked when both coordinates
     /// are known, otherwise the raw search hits. Source of truth for map markers.
+    /// Hits the vicinity cut (or the rank cap) trimmed from the RANKED pool stay
+    /// visible as unranked rows below it — a typed search for one specific far
+    /// place must never vanish from the list just because it isn't a fair
+    /// "between" candidate (post-push audit of 1aa4712).
     private var displayedItems: [MKMapItem] {
-        rankedSpots.isEmpty ? searchResults : rankedSpots.compactMap(\.item)
+        guard !rankedSpots.isEmpty else { return searchResults }
+        let ranked = rankedSpots.compactMap(\.item)
+        return ranked + searchResults.filter { !ranked.contains($0) }
     }
 
     private func mapItem(for state: TweenState) -> MKMapItem {
@@ -3182,7 +3188,14 @@ struct OnboardingView: View {
     /// Sparse areas fall back to the text engine with a term it DOES know,
     /// still filtered to the chip's categories.
     private func resolveCategory(_ preset: CategoryPreset, region: MKCoordinateRegion) async -> [MKMapItem] {
-        let request = MKLocalPointsOfInterestRequest(coordinateRegion: region)
+        // POI requests hard-cap their radius (MKPointsOfInterestRequestMaxRadius);
+        // a far-apart group's searchRegion exceeds it, which errored the request
+        // and silently skipped the category engine. Clamp instead — the widest
+        // allowed circle around the midpoint is exactly where fair spots live
+        // (post-push audit).
+        let halfSpanMeters = max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000 / 2
+        let radius = min(max(halfSpanMeters, 1_000), MKLocalPointsOfInterestRequest.maxRadius)
+        let request = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
         request.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
         let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
         if !items.isEmpty { return SearchResultMerger.deduped(items) }
@@ -3236,6 +3249,9 @@ struct OnboardingView: View {
             // MKDirections round-trip could finish last and stomp the current
             // ranking (post-push audit).
             searchTask?.cancel()
+            // The cancelled search returns before its own `isSearchLoading =
+            // false` — clear it here or the spinner hangs (post-push audit).
+            isSearchLoading = false
             searchTask = Task { @MainActor in await rerankCurrentResults() }
         }
     }
@@ -3244,6 +3260,7 @@ struct OnboardingView: View {
         manualParticipants.removeAll { $0.id == point.id }
         frameUserContext()
         searchTask?.cancel()
+        isSearchLoading = false
         searchTask = Task { @MainActor in await rerankCurrentResults() }
     }
 
@@ -3320,9 +3337,11 @@ struct OnboardingView: View {
                 : Self.rankCap
             // Hard between-people cut BEFORE ranking (device feedback: spots
             // must actually sit between the group, not in whatever commercial
-            // corridor MapKit's relevance drifted to). When the cut leaves
-            // nothing rankable — a typed search for one specific far place —
-            // rankedSpots stays empty and the raw results still display.
+            // corridor MapKit's relevance drifted to). The cut trims the RANKED
+            // pool only — anything it drops (a typed search's one specific far
+            // place) stays visible as an unranked row via displayedItems, and
+            // a wholly-far pool passes through unfiltered rather than emptying
+            // the list (SpotVicinity relaxes ×1.5/×2.5, then gives up).
             let candidates = SpotVicinity.filter(items, participants: participants, minimumCount: 3)
             let ranked = await FairnessRanker.rank(
                 candidates: candidates, participants: participants, cap: cap)

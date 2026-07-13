@@ -209,7 +209,14 @@ final class MessagesViewController: MSMessagesAppViewController {
         // snapshot, which erased the "X left" banner.
         if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
-            received = snapshot.agreedState ?? snapshot.proposedState
+            // A user who left this meetup must NOT be restored into its agreed/
+            // proposed UI (the snapshot deliberately keeps the group's state
+            // alive for a rejoin — D4 — but this device renders as "out").
+            // Without the tombstone gate, a leaver reopening the extension was
+            // force-expanded straight back into MEETUP SET (post-push audit).
+            received = ConversationMeetupStore.localUserLeft(key: key)
+                ? nil
+                : snapshot.agreedState ?? snapshot.proposedState
             // Cached state, not a live decode — surface its age so a newer
             // unprocessed bubble (someone's leave, a counter) isn't mistaken
             // for absent.
@@ -589,7 +596,13 @@ final class MessagesViewController: MSMessagesAppViewController {
         // no agreement leaked chat A's MEETUP SET into chat B.
         let agreedCandidate: TweenState?
         if let conversationKey {
-            agreedCandidate = ConversationMeetupStore.load(key: conversationKey)?.agreedState
+            // The sticky agreement never applies to a user who LEFT this
+            // conversation's meetup — the stored agreed state stays alive for
+            // the remaining group (and a rejoin), but this device is out and
+            // must not be bounced back into MEETUP SET (post-push audit).
+            agreedCandidate = ConversationMeetupStore.localUserLeft(key: conversationKey)
+                ? nil
+                : ConversationMeetupStore.load(key: conversationKey)?.agreedState
         } else {
             agreedCandidate = LocationCache.loadAgreedMeetup()
         }
@@ -909,6 +922,9 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// carrying the full participant roster so any recipient can reconstruct
     /// who's in.
     private func handleImIn() {
+        // Same re-entrancy guard as handleImOut — a double-tap must not emit
+        // two .invite bubbles (post-push audit).
+        guard !isSending else { return }
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
@@ -992,6 +1008,10 @@ final class MessagesViewController: MSMessagesAppViewController {
             // where we're already expanded and no transition fires. Skip the
             // expand when the bubble was only STAGED — expanding would cover
             // the input field holding the bubble the user still has to send.
+            // Only on a real delivery: a failed or conversation-switch-cancelled
+            // send must not force-expand and re-rank whatever chat is now active
+            // (post-push audit).
+            guard didSend, !Task.isCancelled else { return }
             if sendStatusMessage != Self.stagedDeliveryStatus {
                 requestPresentationStyle(.expanded)
             }
@@ -1002,6 +1022,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Removes the local user from the active roster and sends a canonical
     /// `.leave` snapshot so every recipient stops ranking this participant.
     private func handleImOut() {
+        // Re-entrancy guard (same as sendAgreedPlace/sendBubble): a second tap
+        // during the send window would cancel a leave that already delivered
+        // and emit a duplicate .leave bubble (post-push audit).
+        guard !isSending else { return }
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
