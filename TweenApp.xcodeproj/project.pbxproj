@@ -29,6 +29,7 @@
 		4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */; };
 		40A1AD454FAFF52473DF9F83 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
 		434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */; };
+		44DD443AB9AFC37B914530A9 /* SearchResultMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */; };
 		49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */; };
 		4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */; };
 		5039441274C0C1DCA4784605 /* TweenMessages.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -141,6 +142,7 @@
 		62B03D220EE99E30C33F9CEE /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		62FCD4F41CD181ED05A79647 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		65D5E40D144C329C588077FE /* OnboardingFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlags.swift; sourceTree = "<group>"; };
+		6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultMergerTests.swift; sourceTree = "<group>"; };
 		73C8D82F71D0698CFE660B31 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLog.swift; sourceTree = "<group>"; };
 		7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -218,6 +220,7 @@
 				C546097077ED186216682C7A /* PingLogTests.swift */,
 				903D56EC7E4EC861015BC630 /* RosterMergeTests.swift */,
 				F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */,
+				6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */,
 				8C4AE34164C6ECD1128C471A /* SpotETADisplayTests.swift */,
 				0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */,
 			);
@@ -526,6 +529,7 @@
 				6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */,
 				C99724C777E8BD20CE80E3D0 /* RosterMergeTests.swift in Sources */,
 				DC7DA94CACA043FA99BCBA4B /* SearchCompleterTests.swift in Sources */,
+				44DD443AB9AFC37B914530A9 /* SearchResultMergerTests.swift in Sources */,
 				511EFAD003280373599B7F48 /* SpotETADisplayTests.swift in Sources */,
 				276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */,
 			);

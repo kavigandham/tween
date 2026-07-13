@@ -3118,17 +3118,15 @@ struct OnboardingView: View {
         // so a query with no LOCAL name match generalises to the IDEA within the
         // region — like Apple/Google Maps, "unlimited sushi" → nearby sushi,
         // instead of a business literally named "Sushi Unlimited" on the far side
-        // of the world (device feedback). But `.required` returns NOTHING for a
-        // genuinely distant unique place (a typed exact name, or a tapped
-        // completer suggestion outside the region), which would dead-end to "no
-        // fair spots" (post-push audit). So if the local pass is empty, fall back
-        // to the region as a hint only — a distant name-match still resolves.
+        // of the world (device feedback). A tiny strict result set can still be
+        // incomplete for category-style searches, though, so merge the broader
+        // region-hint pass until we have enough candidates for ranking.
         let local = await search(regionRequired: true)
-        if !local.isEmpty { return local }
         if #available(iOS 18.0, *) {
-            return await search(regionRequired: false)
+            let fallback = local.count < Self.rankCap ? await search(regionRequired: false) : []
+            return SearchResultMerger.merge(local: local, fallback: fallback, minimumCount: Self.rankCap)
         }
-        return local
+        return SearchResultMerger.deduped(local)
     }
 
     /// The participant set the local fairness ranking compares — you, every live
