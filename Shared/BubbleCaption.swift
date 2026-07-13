@@ -34,11 +34,10 @@ enum BubbleCaption {
             layout.subcaption = inCount > 0 ? "Tap for the updated plan" : "Tap to start over"
 
         case .propose:
-            // Subcaption reads as information, not a "Tap…" CTA a non-app-user
-            // can't act on — the spot name is in the caption, and the plain-text
-            // message body carries a universal Apple Maps link for everyone.
+            // Subcaption reads as information, not a raw-link promise: the spot
+            // name is in the caption, and the plain-text message stays human.
             layout.caption = "\(name) suggests \(state.text)"
-            layout.subcaption = "A fair spot to meet · directions in the chat"
+            layout.subcaption = "A fair spot to meet"
 
         case .agree:
             if state.isFullyAgreed {
@@ -63,7 +62,7 @@ enum BubbleCaption {
 
         case .counter:
             layout.caption = "\(name) suggests \(state.text) instead"
-            layout.subcaption = "A different fair spot · directions in the chat"
+            layout.subcaption = "A different fair spot"
         }
     }
 }

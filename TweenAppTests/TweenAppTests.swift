@@ -182,6 +182,7 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(TweenPin.Role.selfDot.accessibilityName, "Your location")
         XCTAssertEqual(TweenPin.Role.friend.accessibilityName, "Your friend's location")
         XCTAssertEqual(TweenPin.Role.fairSpot.accessibilityName, "Best fair meetup spot")
+        XCTAssertEqual(TweenPin.Role.midpoint.accessibilityName, "Search midpoint")
         XCTAssertEqual(TweenPin.Role.closestToUser.accessibilityName, "Place closest to you")
         XCTAssertEqual(TweenPin.Role.rideNeeded.accessibilityName, "Participant needs a ride")
         XCTAssertEqual(TweenPin.Role.selfActive.accessibilityName, "Your shared location")
@@ -192,9 +193,11 @@ final class TweenAppTests: XCTestCase {
         // Audit F5: the extension's static snapshot draws .compact so pins don't
         // clutter a thumbnail map.
         XCTAssertEqual(TweenPin.Role.fairSpot.diameter(.compact), 28)
+        XCTAssertEqual(TweenPin.Role.midpoint.diameter(.compact), 14)
         XCTAssertEqual(TweenPin.Role.result.diameter(.compact), 22)
         XCTAssertEqual(TweenPin.Role.friend.diameter(.compact), 24)
         XCTAssertEqual(TweenPin.Role.fairSpot.diameter(.regular), 42)
+        XCTAssertEqual(TweenPin.Role.midpoint.diameter(.regular), 18)
         XCTAssertLessThan(TweenPin.Role.fairSpot.diameter(.compact),
                           TweenPin.Role.fairSpot.diameter(.regular))
     }

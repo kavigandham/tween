@@ -421,9 +421,11 @@ final class MessagesViewController: MSMessagesAppViewController {
                 ConversationMeetupStore.saveProposed(state, key: conversationKey)
             }
         } else if state.messageType == .leave {
-            LocationCache.clearAgreedMeetup()
-            if let conversationKey {
-                ConversationMeetupStore.clearProposalState(key: conversationKey)
+            if state.participants.isEmpty {
+                LocationCache.clearAgreedMeetup()
+                if let conversationKey {
+                    ConversationMeetupStore.clearProposalState(key: conversationKey)
+                }
             }
         } else if state.kind == .place, let conversationKey {
             ConversationMeetupStore.saveProposed(state, key: conversationKey)
@@ -1535,7 +1537,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             // else, and a later rejoin must broadcast the full group, not
             // [me]. This device renders as "out" via membership + tombstone.
             ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
-            ConversationMeetupStore.clearProposalState(key: conversationKey)
+            if state.participants.isEmpty {
+                ConversationMeetupStore.clearProposalState(key: conversationKey)
+            }
         }
     }
 

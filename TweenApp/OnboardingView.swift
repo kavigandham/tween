@@ -104,15 +104,11 @@ struct OnboardingView: View {
     private static let inviteText =
         "Where should we meet? Open Tween and tap “I'm in” so we can find a fair spot. 📍"
 
-    /// Plain-text body for a spot message — the name plus a universal Apple Maps
-    /// directions link so ANYONE in the chat (including people without Tween) can
-    /// tap to navigate; the rich MSMessage bubble is app-only. Falls back to the
-    /// name alone if the link can't build.
+    /// Plain-text body for a spot message. Keep this human-readable: the rich
+    /// MSMessage bubble already carries the route payload, and exposing the raw
+    /// Maps URL in the typed text makes the send preview feel noisy.
     static func spotBody(prefix: String, name: String, coordinate: CLLocationCoordinate2D) -> String {
-        guard let url = MapLinks.appleMapsURL(name: name, coordinate: coordinate)?.absoluteString else {
-            return "\(prefix) \(name)."
-        }
-        return "\(prefix) \(name). Directions: \(url)"
+        "\(prefix) \(name)."
     }
     private static let suggestedSpot = QuickSpotShortcut(
         title: "Coffee near the midpoint",
@@ -563,10 +559,11 @@ struct OnboardingView: View {
                                  needsRide: participant.needsRide)
                     }
                 }
-                // Midpoint pin removed (audit F3 / device feedback: "no more
-                // midpoint star"). The centroid math still centers search; we
-                // just don't draw a marker for it. The fair-spot star is the
-                // meaningful pin and stays.
+                if let midpointCoordinate {
+                    Annotation("Midpoint", coordinate: midpointCoordinate) {
+                        TweenPin(role: .midpoint)
+                    }
+                }
                 if let agreedMeetup, agreedMeetup.kind == .place {
                     Annotation(agreedMeetup.text, coordinate: agreedMeetup.coordinate, anchor: .bottom) {
                         TweenPin(role: .fairSpot)
@@ -2390,12 +2387,26 @@ struct OnboardingView: View {
             ?? roster.first(where: { $0.matches(localContext) })?.coordinate
             ?? Self.defaultCenter
         let remainingParticipants = roster.filter { !$0.matches(localContext) }
+        if remainingParticipants.isEmpty && !hasSharedPlanToCancel {
+            commitLeaveLocally(remaining: [], revision: nil)
+            showToast("You're out")
+            return
+        }
         // Nothing commits here. Leaving takes effect only once the leave
         // bubble is actually sent (commitLeaveLocally, via onSent) — the same
         // didSend gating the extension uses. Committing up front left this
         // device "out" with no leave bubble in the chat when the composer was
         // cancelled: a split-brain the peers could never repair.
         presentLeaveMessage(participants: remainingParticipants, fallbackCoordinate: fallbackCoordinate)
+    }
+
+    private var hasSharedPlanToCancel: Bool {
+        if pendingProposal != nil || agreedMeetup != nil { return true }
+        guard let key = ConversationMeetupStore.lastActiveConversationKey,
+              let snapshot = ConversationMeetupStore.load(key: key),
+              Date().timeIntervalSince(snapshot.updatedAt) <= ConversationMeetupStore.snapshotTTL
+        else { return false }
+        return snapshot.proposedState != nil || snapshot.agreedState != nil
     }
 
     private func presentLeaveMessage(participants: [Participant],
@@ -2727,6 +2738,7 @@ struct OnboardingView: View {
                 return
             }
             let revision = nextOutgoingRevisionForActiveConversation()
+            let messageType: TweenState.MessageType = agreedMeetup == nil ? .propose : .counter
             let state = TweenState(
                 text: selection.name,
                 latitude: coord.latitude,
@@ -2735,7 +2747,7 @@ struct OnboardingView: View {
                 senderID: TweenIdentity.stableID,
                 kind: .place,
                 senderCoordinate: savedCoordinate,        // set by ensureNamed
-                messageType: .propose,
+                messageType: messageType,
                 participants: participants,
                 revision: revision)
             guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
@@ -2764,6 +2776,14 @@ struct OnboardingView: View {
                         message: message,
                         onSent: {
                             noteOutgoingRevision(revision)
+                            if let key = ConversationMeetupStore.lastActiveConversationKey {
+                                ConversationMeetupStore.saveProposed(state, key: key)
+                            }
+                            pendingProposal = state
+                            if messageType == .counter {
+                                LocationCache.clearAgreedMeetup()
+                                agreedMeetup = nil
+                            }
                             PingLog.logGenericInvite()
                             lastGenericInviteAt = PingLog.lastGenericInviteAt
                             showOwnProposalOnMap(state)
@@ -2963,24 +2983,37 @@ struct OnboardingView: View {
 
     // MARK: - Search
 
-    /// The region search is biased toward the midpoint when both friends are
+    /// Every point that participates in the fair-spot comparison.
+    private var comparisonCoordinates: [CLLocationCoordinate2D] {
+        var points = [savedCoordinate, peerCoordinate].compactMap { $0 }
+        points.append(contentsOf: additionalParticipants.map(\.coordinate))
+        points.append(contentsOf: manualParticipants.map(\.coordinate))
+        return points
+    }
+
+    /// The visible center Tween is searching around when comparing two or more
+    /// people/points.
+    private var midpointCoordinate: CLLocationCoordinate2D? {
+        let points = comparisonCoordinates
+        guard points.count >= 2 else { return nil }
+        let lats = points.map(\.latitude)
+        let lons = points.map(\.longitude)
+        return CLLocationCoordinate2D(
+            latitude: lats.reduce(0, +) / Double(points.count),
+            longitude: lons.reduce(0, +) / Double(points.count))
+    }
+
+    /// The region search is biased toward the midpoint when multiple points are
     /// known, otherwise whichever single location we have. A tighter local span
     /// keeps common searches like coffee, food, and gas near the active context.
     private var searchRegion: MKCoordinateRegion {
-        // Bias the search toward the MIDDLE of everyone being compared — you,
-        // any live peer, and every added A→B point — so "what's in between"
-        // surfaces genuinely central spots, not just ones next to you.
-        var points = [savedCoordinate, peerCoordinate].compactMap { $0 }
-        points.append(contentsOf: manualParticipants.map(\.coordinate))
+        let points = comparisonCoordinates
         if points.count >= 2 {
             let lats = points.map(\.latitude), lons = points.map(\.longitude)
-            let center = CLLocationCoordinate2D(
-                latitude: lats.reduce(0, +) / Double(points.count),
-                longitude: lons.reduce(0, +) / Double(points.count))
             let latDelta = max((lats.max()! - lats.min()!) * 1.35, 0.25)
             let lonDelta = max((lons.max()! - lons.min()!) * 1.35, 0.25)
             return MKCoordinateRegion(
-                center: center,
+                center: midpointCoordinate ?? Self.defaultCenter,
                 span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))
         }
 
@@ -3745,6 +3778,13 @@ struct OnboardingView: View {
         switch state.messageType {
         case .propose, .counter:
             if openedOwnProposal {
+                if state.messageType == .counter {
+                    LocationCache.clearAgreedMeetup()
+                    agreedMeetup = nil
+                }
+                if let activeConversationKey {
+                    ConversationMeetupStore.saveProposed(state, key: activeConversationKey)
+                }
                 showOwnProposalOnMap(state)
                 return
             }
@@ -3818,11 +3858,14 @@ struct OnboardingView: View {
             // the payload's verbatim roster never overwrites it (audit at
             // 18c182a).
             guard adoptRoster else { break }
-            LocationCache.clearAgreedMeetup()
-            if let activeConversationKey {
-                ConversationMeetupStore.clearProposalState(key: activeConversationKey)
+            if state.participants.isEmpty {
+                LocationCache.clearAgreedMeetup()
+                if let activeConversationKey {
+                    ConversationMeetupStore.clearProposalState(key: activeConversationKey)
+                }
+                agreedMeetup = nil
+                pendingProposal = nil
             }
-            agreedMeetup = nil
             // A proposal card from someone who just left is dead — dismiss
             // it rather than leaving it orphaned over the departure toast.
             if case .spot(let sel) = activeSheet, sel.incoming != nil {
@@ -3835,6 +3878,7 @@ struct OnboardingView: View {
     }
 
     private func showOwnProposalOnMap(_ state: TweenState) {
+        pendingProposal = state
         selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
         let placemark = MKPlacemark(coordinate: state.coordinate)
         let item = MKMapItem(placemark: placemark)

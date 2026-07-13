@@ -56,6 +56,7 @@ enum Tokens {
         static let pinFriend = Color(uiColor: .systemOrange)
         static let pinRideNeeded = Color(uiColor: .systemMint)
         static let pinFair = Color(uiColor: .systemYellow)
+        static let pinMidpoint = Color(uiColor: .systemOrange)
         static let pinClosest = Color(uiColor: .systemGreen)
         static let pinResult = Color(uiColor: .systemTeal)
 
@@ -82,6 +83,7 @@ enum Tokens {
             static let pinFriend = UIColor.systemOrange
             static let pinRideNeeded = UIColor.systemMint
             static let pinFair = UIColor.systemYellow
+            static let pinMidpoint = UIColor.systemOrange
             static let pinClosest = UIColor.systemGreen
             static let pinResult = UIColor.systemTeal
             static let brand = UIColor { traits in

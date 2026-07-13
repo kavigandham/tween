@@ -34,16 +34,14 @@ final class BubbleCaptionTests: XCTestCase {
         XCTAssertTrue(caption.contains("Friend agrees"), caption)
     }
 
-    // MARK: Non-app-user reach
+    // MARK: Message body copy
 
-    func testSpotBodyCarriesUniversalMapsLink() {
-        // The plain-text body ships alongside the rich bubble to SMS/non-app
-        // recipients — it must carry an Apple Maps link anyone can open.
+    func testSpotBodyDoesNotExposeRawMapsLink() {
         let body = OnboardingView.spotBody(
             prefix: "Let's meet at", name: "Blue Bottle",
             coordinate: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194))
-        XCTAssertTrue(body.contains("Blue Bottle"), body)
-        XCTAssertTrue(body.contains("maps.apple.com"), body)
+        XCTAssertEqual(body, "Let's meet at Blue Bottle.")
+        XCTAssertFalse(body.contains("maps.apple.com"), body)
     }
 
     func testProposeSubcaptionIsNotABareTapPrompt() {
@@ -53,7 +51,7 @@ final class BubbleCaptionTests: XCTestCase {
         let layout = MSMessageTemplateLayout()
         BubbleCaption.apply(to: layout, state: state, totalSeats: 2)
         XCTAssertNotEqual(layout.subcaption, "Tap to see the route")
-        XCTAssertTrue((layout.subcaption ?? "").contains("directions"), layout.subcaption ?? "")
+        XCTAssertEqual(layout.subcaption, "A fair spot to meet")
     }
 
     func testNamedAgreerIsUntouched() {

@@ -17,6 +17,7 @@ struct TweenPin: View {
         case friend
         case rideNeeded
         case fairSpot
+        case midpoint
         case closestToUser
         case result
 
@@ -27,6 +28,7 @@ struct TweenPin: View {
             case .friend:        return Tokens.Palette.pinFriend
             case .rideNeeded:    return Tokens.Palette.pinRideNeeded
             case .fairSpot:      return Tokens.Palette.pinFair
+            case .midpoint:      return Tokens.Palette.pinMidpoint
             case .closestToUser: return Tokens.Palette.pinClosest
             case .result:        return Tokens.Palette.pinResult
             }
@@ -39,6 +41,7 @@ struct TweenPin: View {
             case .friend:        return "person.fill"
             case .rideNeeded:    return "figure.wave"
             case .fairSpot:      return "star.fill"
+            case .midpoint:      return "circle.fill"
             case .closestToUser: return "location.fill"
             case .result:        return "mappin"
             }
@@ -52,6 +55,7 @@ struct TweenPin: View {
             case .friend:        return "Your friend's location"
             case .rideNeeded:    return "Participant needs a ride"
             case .fairSpot:      return "Best fair meetup spot"
+            case .midpoint:      return "Search midpoint"
             case .closestToUser: return "Place closest to you"
             case .result:        return "Search result"
             }
@@ -61,6 +65,8 @@ struct TweenPin: View {
             switch self {
             case .fairSpot:
                 return 42
+            case .midpoint:
+                return 18
             default:
                 return 32
             }
@@ -72,6 +78,7 @@ struct TweenPin: View {
         var compactDiameter: CGFloat {
             switch self {
             case .fairSpot:      return 28
+            case .midpoint:      return 14
             case .result:        return 22
             case .closestToUser: return 26
             default:             return 24
@@ -138,6 +145,8 @@ struct TweenPin: View {
             selfDot
         case .friend, .rideNeeded:
             avatar
+        case .midpoint:
+            midpointDot
         case .fairSpot, .closestToUser, .result:
             glyphCircle
         }
@@ -208,6 +217,14 @@ struct TweenPin: View {
 
     // MARK: - Spots: compact glyph circles
 
+    private var midpointDot: some View {
+        Circle()
+            .fill(role.fill)
+            .frame(width: role.diameter, height: role.diameter)
+            .overlay(Circle().strokeBorder(.white.opacity(0.92), lineWidth: 2))
+            .tweenElevation(.pin)
+    }
+
     private var glyphCircle: some View {
         ZStack {
             Circle()
@@ -229,6 +246,7 @@ struct TweenPin: View {
         TweenPin(role: .friend, initials: "SA")
         TweenPin(role: .rideNeeded, initials: "KG")
         TweenPin(role: .fairSpot)
+        TweenPin(role: .midpoint)
         TweenPin(role: .closestToUser)
         TweenPin(role: .result)
     }
