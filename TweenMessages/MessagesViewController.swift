@@ -79,6 +79,10 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     /// Hard cap for route resolution inside the extension (vs. 8 in the app).
     private static let rankCap = 5
+    /// Fetch a slightly larger search pool than we route. MapKit's first few
+    /// hits can drift off-axis, so ranking needs nearby alternatives to choose
+    /// from without paying route costs for all of them.
+    private static let searchPoolSize = 8
     /// iMessage extensions are short-lived; don't let MapKit search leave the
     /// CTA stuck in "Finding fair spots..." if the network or service stalls.
     private static let searchTimeoutNanoseconds: UInt64 = 8_000_000_000
@@ -784,15 +788,16 @@ final class MessagesViewController: MSMessagesAppViewController {
         let cap = min(Self.rankCap, FairnessRanker.recommendedCap(for: participants.count))
 
         rankingTask = Task { @MainActor in
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = Self.defaultQuery
-            request.region = MKCoordinateRegion(
+            let region = MKCoordinateRegion(
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
-
-            let response = await Self.search(request, timeoutNanoseconds: Self.searchTimeoutNanoseconds)
+            let candidates = await Self.searchCandidates(
+                query: Self.defaultQuery,
+                region: region,
+                minimumCount: Self.searchPoolSize,
+                timeoutNanoseconds: Self.searchTimeoutNanoseconds)
             guard !Task.isCancelled else { return }
-            guard let response else {
+            guard !candidates.isEmpty else {
                 self.isRanking = false
                 self.rankedSpots = []
                 self.presentUI(for: self.presentationStyle)
@@ -800,7 +805,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             }
 
             let ranked = await FairnessRanker.rank(
-                candidates: response.mapItems, participants: participants, cap: cap)
+                candidates: candidates, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
 
             self.rankedSpots = ranked
@@ -809,9 +814,36 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
     }
 
-    private static func search(_ request: MKLocalSearch.Request,
-                               timeoutNanoseconds: UInt64) async -> MKLocalSearch.Response? {
-        await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
+    private static func searchCandidates(query: String,
+                                         region: MKCoordinateRegion,
+                                         minimumCount: Int,
+                                         timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+        let local = await searchItems(query: query,
+                                      region: region,
+                                      regionRequired: true,
+                                      timeoutNanoseconds: timeoutNanoseconds)
+        if #available(iOS 18.0, *), local.count < minimumCount {
+            let fallback = await searchItems(query: query,
+                                             region: region,
+                                             regionRequired: false,
+                                             timeoutNanoseconds: timeoutNanoseconds)
+            return SearchResultMerger.merge(local: local, fallback: fallback, minimumCount: minimumCount)
+        }
+        return SearchResultMerger.deduped(local)
+    }
+
+    private static func searchItems(query: String,
+                                    region: MKCoordinateRegion,
+                                    regionRequired: Bool,
+                                    timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.region = region
+        if regionRequired, #available(iOS 18.0, *) {
+            request.regionPriority = .required
+        }
+
+        let response = await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
             group.addTask {
                 try? await MKLocalSearch(request: request).start()
             }
@@ -824,6 +856,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             group.cancelAll()
             return response
         }
+        return response?.mapItems ?? []
     }
 
     private func rankingParticipants() -> [Participant] {

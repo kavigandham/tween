@@ -32,6 +32,16 @@ final class FriendRosterTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.name), ["Ada", "Grace"])
     }
 
+    func testAddSameContactRefreshesExistingRow() {
+        FriendRoster.add(TweenFriend(name: "Ada", contactIdentifier: "contact-1", handle: "555-0100"))
+        FriendRoster.add(TweenFriend(name: "Ada Lovelace", contactIdentifier: "contact-1", handle: "(555) 0100"))
+
+        let loaded = FriendRoster.load()
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.name, "Ada Lovelace")
+        XCTAssertEqual(loaded.first?.handle, "(555) 0100")
+    }
+
     // 3. Renaming keeps the same id (so ping history stays attached).
     func testRenameKeepsID() {
         let friend = TweenFriend(name: "Ada")

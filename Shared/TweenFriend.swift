@@ -41,9 +41,15 @@ enum FriendRoster {
         defaults?.set(data, forKey: storageKey)
     }
 
-    /// Appends a friend to the end of the roster, preserving add order.
+    /// Adds or refreshes a friend. Contacts can be selected more than once from
+    /// the picker, so match stable identifiers/handles before appending.
     static func add(_ friend: TweenFriend) {
         var friends = load()
+        if let index = friends.firstIndex(where: { $0.representsSamePerson(as: friend) }) {
+            friends[index] = friend
+            save(friends)
+            return
+        }
         friends.append(friend)
         save(friends)
     }
@@ -62,5 +68,28 @@ enum FriendRoster {
 
     static func clear() {
         defaults?.removeObject(forKey: storageKey)
+    }
+}
+
+private extension TweenFriend {
+    func representsSamePerson(as other: TweenFriend) -> Bool {
+        if let contactIdentifier,
+           let otherIdentifier = other.contactIdentifier,
+           contactIdentifier == otherIdentifier {
+            return true
+        }
+        if let handle = normalizedHandle,
+           let otherHandle = other.normalizedHandle,
+           handle == otherHandle {
+            return true
+        }
+        return id == other.id
+    }
+
+    var normalizedHandle: String? {
+        handle?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { !$0.isWhitespace && $0 != "-" && $0 != "(" && $0 != ")" }
+            .lowercased()
     }
 }
