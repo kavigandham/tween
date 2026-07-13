@@ -1,4 +1,5 @@
 import XCTest
+import MapKit
 @testable import TweenApp
 
 /// Pure, network-free coverage of the fairness math. Every spot is built with
@@ -165,6 +166,37 @@ final class FairnessRankerTests: XCTestCase {
         XCTAssertEqual(FairnessRanker.recommendedCap(for: 10), 3)
         // Floor of 3 even for very large groups.
         XCTAssertEqual(FairnessRanker.recommendedCap(for: 50), 3)
+    }
+
+    // MARK: - Midpoint bias
+
+    func testRankedScorePrefersMidpointWhenRoutesTie() {
+        let participants = [
+            Participant(id: "A", name: "A", latitude: 39.0, longitude: -77.55),
+            Participant(id: "B", name: "B", latitude: 39.0, longitude: -77.35)
+        ]
+        let midpoint = mapItem(name: "Central Cafe", latitude: 39.0, longitude: -77.45)
+        let offToSide = mapItem(name: "Side Cafe", latitude: 39.0, longitude: -77.25)
+        let centralSpot = RankedSpot(
+            item: midpoint,
+            etas: etas([("A", 900), ("B", 900)]),
+            confidence: 1.0)
+        let sideSpot = RankedSpot(
+            item: offToSide,
+            etas: etas([("A", 900), ("B", 900)]),
+            confidence: 1.0)
+
+        XCTAssertEqual(centralSpot.score, sideSpot.score, accuracy: 1e-9)
+        XCTAssertLessThan(
+            FairnessRanker.rankedScore(centralSpot, participants: participants),
+            FairnessRanker.rankedScore(sideSpot, participants: participants))
+    }
+
+    private func mapItem(name: String, latitude: Double, longitude: Double) -> MKMapItem {
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        item.name = name
+        return item
     }
 }
 

@@ -97,6 +97,9 @@ enum FairnessRanker {
     /// Total per-spot route calls cap. Keeps extension memory bounded:
     /// 2 ppl × 5 candidates = 10 routes; 5 ppl × 4 candidates = 20 routes.
     private static let maxTotalRouteCalls = 20
+    /// Max penalty added for candidates at the edge of the participant spread.
+    /// This keeps "fair" from drifting sideways away from the actual midpoint.
+    private static let midpointPenaltyWeight: TimeInterval = 8 * 60
 
     /// Scales candidate count by participant count so total route calls stay
     /// under `maxTotalRouteCalls`. Always returns at least 3 candidates so the
@@ -116,7 +119,9 @@ enum FairnessRanker {
         cap: Int
     ) async -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
-        let capped = Array(candidates.prefix(cap))
+        let capped = Array(candidates
+            .sorted { centralityDistance(for: $0, participants: participants) < centralityDistance(for: $1, participants: participants) }
+            .prefix(cap))
 
         let spots = await withTaskGroup(of: RankedSpot.self) { group -> [RankedSpot] in
             for item in capped {
@@ -131,7 +136,9 @@ enum FairnessRanker {
             return results
         }
 
-        return spots.sorted { $0.score < $1.score }
+        return spots.sorted {
+            rankedScore($0, participants: participants) < rankedScore($1, participants: participants)
+        }
     }
 
     /// Legacy 2-person adapter. Existing callers (kickOffRanking, autoRank)
@@ -148,6 +155,32 @@ enum FairnessRanker {
             Participant(id: "B", name: "B", latitude: b.latitude, longitude: b.longitude)
         ]
         return await rank(candidates: candidates, participants: synthetic, cap: cap)
+    }
+
+    static func rankedScore(_ spot: RankedSpot, participants: [Participant]) -> TimeInterval {
+        spot.score + centralityPenalty(for: spot.item, participants: participants)
+    }
+
+    static func centralityPenalty(for item: MKMapItem?, participants: [Participant]) -> TimeInterval {
+        guard participants.count >= 2, let item else { return 0 }
+        let distance = centralityDistance(for: item, participants: participants)
+        let spread = max(participantSpread(participants), 500)
+        return min(distance / spread, 2) * midpointPenaltyWeight
+    }
+
+    private static func centralityDistance(for item: MKMapItem, participants: [Participant]) -> CLLocationDistance {
+        let center = MapGeometry.centroid(of: participants)
+        return CLLocation(latitude: item.placemark.coordinate.latitude,
+                          longitude: item.placemark.coordinate.longitude)
+            .distance(from: CLLocation(latitude: center.latitude, longitude: center.longitude))
+    }
+
+    private static func participantSpread(_ participants: [Participant]) -> CLLocationDistance {
+        let center = MapGeometry.centroid(of: participants)
+        let centerLocation = CLLocation(latitude: center.latitude, longitude: center.longitude)
+        return participants
+            .map { CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: centerLocation) }
+            .max() ?? 0
     }
 
     /// Resolves every participant's ETA to a single candidate, concurrently.
