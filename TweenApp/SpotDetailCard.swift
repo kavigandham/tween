@@ -515,7 +515,7 @@ struct SpotDetailCard: View {
             .accessibilityHint("Opens \(name) in Apple Maps")
 
             Button {
-                if let url = googleMapsURL { openURL(url) }
+                openGoogleMaps()
             } label: {
                 Label("Google Maps", systemImage: "globe")
             }
@@ -531,9 +531,18 @@ struct SpotDetailCard: View {
         MapLinks.appleMapsURL(name: name, coordinate: coordinate)
     }
 
-    /// `comgooglemaps://?q=NAME&center=LAT,LON` — opens Google Maps when installed.
-    private var googleMapsURL: URL? {
-        MapLinks.googleMapsURL(name: name, coordinate: coordinate)
+    /// App scheme first; when Google Maps isn't installed the scheme is
+    /// unhandled, so fall back to the universal `/maps/dir/` link (opens the
+    /// web version) instead of silently doing nothing.
+    private func openGoogleMaps() {
+        guard let appURL = MapLinks.googleMapsURL(name: name, coordinate: coordinate) else { return }
+        UIApplication.shared.open(appURL) { opened in
+            guard !opened,
+                  let webURL = MapLinks.googleMapsWebURL(name: name, coordinate: coordinate) else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.open(webURL)
+            }
+        }
     }
 }
 

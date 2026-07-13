@@ -791,12 +791,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             let region = MKCoordinateRegion(
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
-            let candidates = await Self.searchCandidates(
+            let pool = await Self.searchCandidates(
                 query: Self.defaultQuery,
                 region: region,
                 minimumCount: Self.searchPoolSize,
                 timeoutNanoseconds: Self.searchTimeoutNanoseconds)
             guard !Task.isCancelled else { return }
+            // Hard between-people cut BEFORE ranking: the merged pool can be
+            // dominated by a commercial corridor off to one side (the request
+            // region is only relevance guidance, and the broadened fallback is
+            // unconstrained), and the soft centrality penalty can't rescue a
+            // pool that's entirely off-axis (device feedback).
+            let candidates = SpotVicinity.filter(pool, participants: participants, minimumCount: 3)
             guard !candidates.isEmpty else {
                 self.isRanking = false
                 self.rankedSpots = []
@@ -1631,18 +1637,20 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     private func openGoogleMaps(for state: TweenState) {
-        guard let url = MapLinks.googleMapsURL(name: state.text, coordinate: state.coordinate) else { return }
-        extensionContext?.open(url) { [weak self] didOpen in
+        // iMessage extensions may not open URLs to other apps —
+        // extensionContext.open launches the CONTAINING app regardless of the
+        // URL (which is why handing it a comgooglemaps:// link opened Tween —
+        // device feedback). So open the containing app ON PURPOSE with a
+        // handoff deep link; the host decodes it and immediately relaunches
+        // into Google Maps (app scheme when installed, web/universal link
+        // otherwise). One extra hop, but it always lands in Google Maps.
+        guard let handoff = MapLinks.googleMapsHandoffURL(
+            name: state.text, coordinate: state.coordinate) else { return }
+        extensionContext?.open(handoff) { [weak self] didOpen in
             guard !didOpen else { return }
-            guard let webURL = MapLinks.googleMapsWebURL(name: state.text, coordinate: state.coordinate) else { return }
             DispatchQueue.main.async {
-                self?.extensionContext?.open(webURL) { openedWeb in
-                    guard !openedWeb else { return }
-                    DispatchQueue.main.async {
-                        self?.sendStatusMessage = "Google Maps isn't installed."
-                        self?.presentUI(for: self?.presentationStyle ?? .expanded)
-                    }
-                }
+                self?.sendStatusMessage = "Couldn't open Google Maps. Try from the Tween app."
+                self?.presentUI(for: self?.presentationStyle ?? .expanded)
             }
         }
     }

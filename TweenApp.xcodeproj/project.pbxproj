@@ -31,6 +31,7 @@
 		434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */; };
 		44DD443AB9AFC37B914530A9 /* SearchResultMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */; };
 		49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */; };
+		4BA9FA520D58D8E1F58BC9A1 /* SpotVicinity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2174E7F02B909D70550DB68 /* SpotVicinity.swift */; };
 		4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */; };
 		5039441274C0C1DCA4784605 /* TweenMessages.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		511EFAD003280373599B7F48 /* SpotETADisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4AE34164C6ECD1128C471A /* SpotETADisplayTests.swift */; };
@@ -46,6 +47,7 @@
 		6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C546097077ED186216682C7A /* PingLogTests.swift */; };
 		71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */; };
 		79502AD55AA57B826B28A9C3 /* BubbleCaptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2032FA19D11B0E2BF32A4F /* BubbleCaptionTests.swift */; };
+		7B30B9D47F5BA47094D0F5CB /* SpotVicinity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2174E7F02B909D70550DB68 /* SpotVicinity.swift */; };
 		7F57BEB332C6B6FF9D6AD9DF /* UserName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDD40282483BFE2BDFF2AC5 /* UserName.swift */; };
 		8092B45711965BFF1027A2AB /* OnboardingTutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */; };
 		81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
@@ -76,6 +78,7 @@
 		F0530B026C0ECE982F213FEB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C8D82F71D0698CFE660B31 /* Assets.xcassets */; };
 		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
 		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
+		F50F0766230DB7ABC0E6904F /* SpotVicinityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */; };
 		F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B03D220EE99E30C33F9CEE /* ActivityView.swift */; };
 		F8DDDC3765602F9048497F1A /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
 		FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */; };
@@ -128,6 +131,7 @@
 		126396012D826EDE687B9221 /* LocationCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationCache.swift; sourceTree = "<group>"; };
 		1C050212D1A3E782EE270E56 /* TweenPin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenPin.swift; sourceTree = "<group>"; };
 		1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotDetailCard.swift; sourceTree = "<group>"; };
+		23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotVicinityTests.swift; sourceTree = "<group>"; };
 		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
 		45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRosterTests.swift; sourceTree = "<group>"; };
@@ -176,6 +180,7 @@
 		E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraftTests.swift; sourceTree = "<group>"; };
 		ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorial.swift; sourceTree = "<group>"; };
 		EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		F2174E7F02B909D70550DB68 /* SpotVicinity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotVicinity.swift; sourceTree = "<group>"; };
 		F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleterTests.swift; sourceTree = "<group>"; };
 		FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometryTests.swift; sourceTree = "<group>"; };
 		FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -222,6 +227,7 @@
 				F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */,
 				6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */,
 				8C4AE34164C6ECD1128C471A /* SpotETADisplayTests.swift */,
+				23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */,
 				0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */,
 			);
 			path = TweenAppTests;
@@ -255,6 +261,7 @@
 				74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */,
 				AC600F17A953B060A499D6A2 /* RosterMerge.swift */,
 				4DABE7630D89B338603DE226 /* SpotETADisplay.swift */,
+				F2174E7F02B909D70550DB68 /* SpotVicinity.swift */,
 				9E33C768FCCDA10A6EEF5142 /* Tokens.swift */,
 				DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */,
 				1C050212D1A3E782EE270E56 /* TweenPin.swift */,
@@ -458,6 +465,7 @@
 				0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */,
 				26D0F1921C6E7761820B46BB /* RosterMerge.swift in Sources */,
 				59AA78C516B0B3446449BCCA /* SpotETADisplay.swift in Sources */,
+				4BA9FA520D58D8E1F58BC9A1 /* SpotVicinity.swift in Sources */,
 				A4E56F1F497ECD586C2F82C3 /* Tokens.swift in Sources */,
 				5C6155D6B1F94DEB6F6A21A2 /* TweenFriend.swift in Sources */,
 				ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */,
@@ -503,6 +511,7 @@
 				84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */,
 				FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */,
 				976882A8C236113EC99EDAA7 /* SpotETADisplay.swift in Sources */,
+				7B30B9D47F5BA47094D0F5CB /* SpotVicinity.swift in Sources */,
 				5368911C228CEC0438E76638 /* Tokens.swift in Sources */,
 				9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */,
 				71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */,
@@ -531,6 +540,7 @@
 				DC7DA94CACA043FA99BCBA4B /* SearchCompleterTests.swift in Sources */,
 				44DD443AB9AFC37B914530A9 /* SearchResultMergerTests.swift in Sources */,
 				511EFAD003280373599B7F48 /* SpotETADisplayTests.swift in Sources */,
+				F50F0766230DB7ABC0E6904F /* SpotVicinityTests.swift in Sources */,
 				276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

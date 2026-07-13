@@ -2325,6 +2325,18 @@ struct OnboardingView: View {
             await runSearch(trimmed: "coffee", reframeMap: true)
             return
         }
+        // -DEMO_CATEGORY_STUDY: seeds two points then taps the Study chip —
+        // screenshot hook proving category chips run the POI-category engine
+        // (libraries/cafés BETWEEN the points, not a dead text search).
+        if CommandLine.arguments.contains("-DEMO_CATEGORY_STUDY") {
+            let sanJose = CLLocationCoordinate2D(latitude: 37.3382, longitude: -121.8863)
+            LocationCache.save(sanJose, isActive: true)
+            savedCoordinate = sanJose
+            manualParticipants = [Participant.manual(label: "Adams Center",
+                coordinate: CLLocationCoordinate2D(latitude: 37.28, longitude: -121.95))]
+            selectCategory(.study)
+            return
+        }
         // -DEMO_SOLO_AFTER_LEAVE: regression for the "ranking wiped on refresh"
         // device bug. Seeds a LEFT-meetup tombstone in the active conversation,
         // then a solo A→B search (self + one added place). The leave tombstone
@@ -3162,6 +3174,31 @@ struct OnboardingView: View {
         return SearchResultMerger.deduped(local)
     }
 
+    /// Resolves a category CHIP the way Apple Maps' own category buttons do: an
+    /// `MKLocalPointsOfInterestRequest` for the chip's POI categories, strictly
+    /// confined to the meetup region — no text relevance to drift off toward a
+    /// commercial corridor, and no dependence on the text engine understanding
+    /// a phrase like "Study Spots" (device feedback: the Study chip was dead).
+    /// Sparse areas fall back to the text engine with a term it DOES know,
+    /// still filtered to the chip's categories.
+    private func resolveCategory(_ preset: CategoryPreset, region: MKCoordinateRegion) async -> [MKMapItem] {
+        let request = MKLocalPointsOfInterestRequest(coordinateRegion: region)
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
+        let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+        if !items.isEmpty { return SearchResultMerger.deduped(items) }
+
+        let textRequest = MKLocalSearch.Request()
+        textRequest.naturalLanguageQuery = preset.mapKitQuery
+        textRequest.region = region
+        textRequest.resultTypes = .pointOfInterest
+        textRequest.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
+        if #available(iOS 18.0, *) {
+            textRequest.regionPriority = .required
+        }
+        let fallback = (try? await MKLocalSearch(request: textRequest).start().mapItems) ?? []
+        return SearchResultMerger.deduped(fallback)
+    }
+
     /// The participant set the local fairness ranking compares — you, every live
     /// peer/participant, AND every manually-added point (solo A→B / added
     /// non-app-users). Nil when there's nobody to compare against (need ≥2
@@ -3222,8 +3259,11 @@ struct OnboardingView: View {
         let cap = participants.count >= 3
             ? FairnessRanker.recommendedCap(for: participants.count)
             : Self.rankCap
+        // Same hard between-people cut as runSearch — adding/removing a point
+        // reshapes the corridor, so re-filter against the NEW participant set.
+        let candidates = SpotVicinity.filter(searchResults, participants: participants, minimumCount: 3)
         let ranked = await FairnessRanker.rank(
-            candidates: searchResults, participants: participants, cap: cap)
+            candidates: candidates, participants: participants, cap: cap)
         // A newer search/re-rank may have superseded this one mid-flight.
         guard !Task.isCancelled else { return }
         rankedSpots = ranked
@@ -3249,7 +3289,16 @@ struct OnboardingView: View {
             return
         }
 
-        let items = await resolvePlace(query: trimmed, region: searchRegion)
+        // A chip tap is a CATEGORY browse, not a text search — route it through
+        // the POI-category engine (how Apple Maps' own category buttons work).
+        // "Study Spots" means nothing to the text engine, which is why the
+        // Study chip found nothing (device feedback).
+        let items: [MKMapItem]
+        if let preset = selectedCategory, trimmed == preset.searchQuery {
+            items = await resolveCategory(preset, region: searchRegion)
+        } else {
+            items = await resolvePlace(query: trimmed, region: searchRegion)
+        }
         guard !Task.isCancelled else { return }
 
         rankedSpots = []
@@ -3269,8 +3318,14 @@ struct OnboardingView: View {
             let cap = participants.count >= 3
                 ? FairnessRanker.recommendedCap(for: participants.count)
                 : Self.rankCap
+            // Hard between-people cut BEFORE ranking (device feedback: spots
+            // must actually sit between the group, not in whatever commercial
+            // corridor MapKit's relevance drifted to). When the cut leaves
+            // nothing rankable — a typed search for one specific far place —
+            // rankedSpots stays empty and the raw results still display.
+            let candidates = SpotVicinity.filter(items, participants: participants, minimumCount: 3)
             let ranked = await FairnessRanker.rank(
-                candidates: items, participants: participants, cap: cap)
+                candidates: candidates, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
             rankedSpots = ranked
             if reframeMap {
@@ -3674,12 +3729,35 @@ struct OnboardingView: View {
         }
     }
 
+    /// Hands off to Google Maps: app scheme first (opens the app directly when
+    /// installed), Google's universal `/maps/dir/` link otherwise (opens the
+    /// app via universal link, or the web version — never a dead end).
+    private func openGoogleMapsExternally(name: String, coordinate: CLLocationCoordinate2D) {
+        showToast("Opening Google Maps…")
+        guard let appURL = MapLinks.googleMapsURL(name: name, coordinate: coordinate) else { return }
+        UIApplication.shared.open(appURL) { opened in
+            guard !opened,
+                  let webURL = MapLinks.googleMapsWebURL(name: name, coordinate: coordinate) else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.open(webURL)
+            }
+        }
+    }
+
     private func handleIncomingURL(_ url: URL) {
         if url.scheme == "tween", url.host == "search" {
             // Expand-then-focus per docs/ui-research.md §7 — SwiftUI drops the
             // first responder if the sheet is still animating between detents
             // when `searchFocused = true` fires.
             expandThenFocusSearch()
+            return
+        }
+        // Google Maps handoff from the Messages extension (which cannot open
+        // other apps itself — extensionContext.open only launches THIS app).
+        // Pure trampoline: bounce straight out to Google Maps and touch no
+        // meetup state, so Tween is only a hop, not a destination.
+        if let handoff = MapLinks.decodeHandoff(url) {
+            openGoogleMapsExternally(name: handoff.name, coordinate: handoff.coordinate)
             return
         }
 

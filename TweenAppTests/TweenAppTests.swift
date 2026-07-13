@@ -220,10 +220,40 @@ final class TweenAppTests: XCTestCase {
         XCTAssertTrue(appleURL.absoluteString.contains("q=Blue%20Bottle%20Coffee"))
         XCTAssertTrue(appleURL.absoluteString.contains("ll=37.7825,-122.4099"))
 
+        // Google app scheme: DIRECTIONS to the spot (matches the button's
+        // promise + the Apple Maps path), not a plain search.
         let googleURL = try XCTUnwrap(MapLinks.googleMapsURL(name: "Blue Bottle Coffee", coordinate: coordinate))
         XCTAssertEqual(googleURL.scheme, "comgooglemaps")
-        XCTAssertTrue(googleURL.absoluteString.contains("q=Blue%20Bottle%20Coffee"))
-        XCTAssertTrue(googleURL.absoluteString.contains("center=37.7825,-122.4099"))
+        XCTAssertTrue(googleURL.absoluteString.contains("daddr=37.7825,-122.4099"))
+        XCTAssertTrue(googleURL.absoluteString.contains("directionsmode=driving"))
+
+        // Web/universal fallback: Google's official Maps URLs form — opens the
+        // app when installed, the web version otherwise. Never a dead end.
+        let webURL = try XCTUnwrap(MapLinks.googleMapsWebURL(name: "Blue Bottle Coffee", coordinate: coordinate))
+        XCTAssertEqual(webURL.scheme, "https")
+        XCTAssertEqual(webURL.host, "www.google.com")
+        XCTAssertTrue(webURL.absoluteString.contains("api=1"))
+        XCTAssertTrue(webURL.absoluteString.contains("destination=37.7825,-122.4099"))
+    }
+
+    func testGoogleMapsHandoffRoundTrip() throws {
+        // The extension can't open other apps (extensionContext.open launches
+        // the containing app no matter the URL — the "opens in Tween" bug), so
+        // it opens tween://maps and the HOST decodes + relaunches into Google
+        // Maps. The handoff must round-trip name + coordinate exactly.
+        let coordinate = CLLocationCoordinate2D(latitude: 38.9586, longitude: -77.4291)
+        let handoff = try XCTUnwrap(MapLinks.googleMapsHandoffURL(name: "Cafe Hyderabad", coordinate: coordinate))
+        XCTAssertEqual(handoff.scheme, "tween")
+        XCTAssertEqual(handoff.host, "maps")
+
+        let decoded = try XCTUnwrap(MapLinks.decodeHandoff(handoff))
+        XCTAssertEqual(decoded.name, "Cafe Hyderabad")
+        XCTAssertEqual(decoded.coordinate.latitude, coordinate.latitude, accuracy: 0.000001)
+        XCTAssertEqual(decoded.coordinate.longitude, coordinate.longitude, accuracy: 0.000001)
+
+        // Non-handoff tween:// URLs must not decode as one (they carry meetup
+        // state and route elsewhere in handleIncomingURL).
+        XCTAssertNil(MapLinks.decodeHandoff(URL(string: "tween://search")!))
     }
 
     // 7. LocationCache returns nil on a clean suite.

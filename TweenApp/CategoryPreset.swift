@@ -1,9 +1,15 @@
 import Foundation
+import MapKit
 
 /// A one-tap search shortcut for a common meetup category.
 ///
-/// Each case maps to the natural-language query handed to `MKLocalSearch` and an
-/// SF Symbol shown in its capsule chip.
+/// Chips are CATEGORY browses, not text searches: Apple Maps' own category
+/// buttons run on `MKPointOfInterestCategory` filters, and MapKit's text
+/// engine has no concept for phrases like "Study Spots" (the Study chip
+/// returned nothing — device feedback). Each case therefore carries the POI
+/// categories the chip means; `searchQuery` remains the label shown in the
+/// search field, and `mapKitQuery` is a term the text engine DOES understand,
+/// used only as the sparse-area fallback.
 enum CategoryPreset: String, CaseIterable, Identifiable {
     case coffee
     case food
@@ -16,7 +22,7 @@ enum CategoryPreset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// The natural-language term passed to `MKLocalSearch`.
+    /// Shown in the search field while the chip is active (display only).
     var searchQuery: String {
         switch self {
         case .coffee:  return "Coffee"
@@ -27,6 +33,35 @@ enum CategoryPreset: String, CaseIterable, Identifiable {
         case .dessert: return "Dessert"
         case .drinks:  return "Bars"
         case .parks:   return "Parks"
+        }
+    }
+
+    /// What this chip MEANS in MapKit's POI taxonomy — the primary engine.
+    var poiCategories: [MKPointOfInterestCategory] {
+        switch self {
+        case .coffee:  return [.cafe, .bakery]
+        case .food:    return [.restaurant]
+        case .gas:     return [.gasStation]
+        case .study:   return [.library, .cafe, .university]
+        case .groceries: return [.foodMarket]
+        case .dessert: return [.bakery, .cafe]
+        case .drinks:  return [.nightlife, .brewery, .winery]
+        case .parks:   return [.park, .nationalPark]
+        }
+    }
+
+    /// Fallback term for the TEXT engine when the POI request comes back empty
+    /// (sparse areas) — a concept MapKit actually knows, unlike "Study Spots".
+    var mapKitQuery: String {
+        switch self {
+        case .coffee:  return "coffee shop"
+        case .food:    return "restaurant"
+        case .gas:     return "gas station"
+        case .study:   return "library"
+        case .groceries: return "grocery store"
+        case .dessert: return "dessert"
+        case .drinks:  return "bar"
+        case .parks:   return "park"
         }
     }
 
