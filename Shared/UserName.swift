@@ -63,8 +63,4 @@ enum UserName {
         guard !trimmed.isEmpty else { return }
         defaults?.set(trimmed, forKey: storageKey)
     }
-
-    static func clear() {
-        defaults?.removeObject(forKey: storageKey)
-    }
 }

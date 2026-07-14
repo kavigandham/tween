@@ -677,7 +677,7 @@ struct CompactView: View {
 /// Formats a drive-time duration as a compact human string: "<1 min", "8 min",
 /// or "1h 5m". The ONLY ETA formatter — both targets use it, so the same drive
 /// can never read "9 min" in the extension and "10 min" in the app. Rounds to
-/// the nearest minute (matching ETAChip's arithmetic) rather than truncating.
+/// the nearest minute rather than truncating.
 func formatETA(_ seconds: TimeInterval) -> String {
     let minutes = Int((seconds / 60).rounded())
     if minutes < 1 { return "<1 min" }

@@ -192,28 +192,6 @@ struct SpotETAChip: View {
     }
 }
 
-/// Compact fairness-tinted pill for tight trailing slots (result-list rows).
-/// Shows both names/times for a pair, a "N people · spread" summary at 3+.
-struct SpotETASummaryPill: View {
-    let spot: RankedSpot
-    var bestWorstETA: TimeInterval? = nil
-
-    var body: some View {
-        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: bestWorstETA)
-        Text(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
-            .font(Tokens.Typography.captionBold.monospacedDigit())
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.horizontal, Tokens.Spacing.s3)
-            .padding(.vertical, Tokens.Spacing.s2)
-            .background(tint.opacity(0.18), in: Capsule())
-            .foregroundStyle(tint)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Drive times")
-            .accessibilityValue(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
-    }
-}
-
 /// The drive-balance track: each participant's avatar placed by their drive
 /// time along a spread bar. Rendered for 3+ participants where the flat chip
 /// strip alone doesn't convey how lopsided the trip is.

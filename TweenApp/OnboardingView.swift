@@ -4146,12 +4146,6 @@ struct OnboardingView: View {
         }
     }
 
-    /// Average of two coordinates.
-    static func midpoint(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: (a.latitude + b.latitude) / 2,
-                               longitude: (a.longitude + b.longitude) / 2)
-    }
-
     /// Frames the given coordinates with 20% padding on the span. A single point
     /// (or a degenerate cluster) falls back to a comfortable city-level zoom.
     ///

@@ -83,29 +83,6 @@ enum BubbleImageRenderer {
         }
     }
 
-    /// Legacy 2-person entry point. Existing internal callers (and any caller
-    /// not yet migrated) can keep passing (selfCoord, peerCoord); we synthesise
-    /// a 2-element participants array and dispatch to the canonical path.
-    @available(*, deprecated, message: "Pass participants: [Participant] instead.")
-    static func makeImage(
-        state: TweenState,
-        selfCoord: CLLocationCoordinate2D?,
-        peerCoord: CLLocationCoordinate2D?
-    ) async -> UIImage {
-        var participants: [Participant] = []
-        if let selfCoord {
-            participants.append(Participant(id: "self", name: "You", coordinate: selfCoord))
-        }
-        if let peerCoord {
-            participants.append(Participant(id: "peer", name: "Friend", coordinate: peerCoord))
-        } else if state.kind == .participant {
-            // Legacy: when no explicit peer is supplied and the bubble itself
-            // represents a participant, the main coord is that participant.
-            participants.append(Participant(id: "peer", name: "Friend", coordinate: state.coordinate))
-        }
-        return await makeImage(state: state, participants: participants, localName: "You")
-    }
-
     // MARK: - Composition
 
     /// Draws the snapshot, an optional dashed connector for the 2-person case,

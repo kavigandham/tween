@@ -71,19 +71,6 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    /// Requests a single fix only if already authorized; otherwise stays idle.
-    /// Useful in the extension where we never want to trigger a prompt.
-    func requestOnceIfAuthorized() {
-        switch manager.authorizationStatus {
-        case .authorizedWhenInUse, .authorizedAlways:
-            status = .requesting
-            requestFix()
-        case .denied, .restricted:
-            status = .denied
-        default:
-            status = .idle
-        }
-    }
 
     private func requestFix() {
         manager.requestLocation()

@@ -1480,21 +1480,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// collapsed to a single evolving bubble rather than a stack of new ones.
     @discardableResult
     private func sendBubbleNow(for state: TweenState) async -> Bool {
-        await deliverBubble(for: state, mode: .send)
+        await deliverBubble(for: state)
     }
 
     @discardableResult
-    private func insertBubble(for state: TweenState, dismissAfterInsert: Bool = false) async -> Bool {
-        await deliverBubble(for: state, mode: .insert(dismissAfterInsert: dismissAfterInsert))
-    }
-
-    private enum BubbleDeliveryMode {
-        case send
-        case insert(dismissAfterInsert: Bool)
-    }
-
-    @discardableResult
-    private func deliverBubble(for state: TweenState, mode: BubbleDeliveryMode) async -> Bool {
+    private func deliverBubble(for state: TweenState) async -> Bool {
         guard let conversation = activeConversation else { return false }
         // Key every canonical write below to the conversation this bubble is
         // being sent in, captured NOW — NOT the `conversationKey` ivar, which a
@@ -1530,30 +1520,21 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard !Task.isCancelled else { return false }
         do {
             var stagedInsert = false
-            switch mode {
-            case .send:
-                do {
-                    try await conversation.send(message)
-                    logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
-                } catch {
-                    // Messages gates direct send on a recent user tap + a visible
-                    // extension (one send per detected interaction, WWDC17 Direct
-                    // Send API). Our sends run seconds after the tap (location
-                    // fix, snapshot render), so a rejection here is expected —
-                    // stage the bubble in the input field instead so delivery
-                    // never dead-ends. If insert also throws, the outer catch
-                    // reports the failure as before.
-                    logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
-                    try await conversation.insert(message)
-                    sendStatusMessage = Self.stagedDeliveryStatus
-                    stagedInsert = true
-                }
-            case .insert(let dismissAfterInsert):
+            do {
+                try await conversation.send(message)
+                logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+            } catch {
+                // Messages gates direct send on a recent user tap + a visible
+                // extension (one send per detected interaction, WWDC17 Direct
+                // Send API). Our sends run seconds after the tap (location
+                // fix, snapshot render), so a rejection here is expected —
+                // stage the bubble in the input field instead so delivery
+                // never dead-ends. If insert also throws, the outer catch
+                // reports the failure as before.
+                logger.error("Direct send rejected; staging via insert: \(String(describing: error), privacy: .public)")
                 try await conversation.insert(message)
-                logger.debug("Inserted outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
-                if dismissAfterInsert {
-                    dismiss()
-                }
+                sendStatusMessage = Self.stagedDeliveryStatus
+                stagedInsert = true
             }
             // A staged LEAVE or AGREE hasn't happened yet — the user can
             // still delete the bubble instead of sending it. Defer the

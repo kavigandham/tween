@@ -53,7 +53,7 @@ struct RankedSpot: Identifiable {
 
     // MARK: - Legacy 2-person accessors
     //
-    // Existing UI (ETAChip, SpotDetailCard, the bubble renderer) still reads
+    // Existing UI (SpotDetailCard, the bubble renderer) still reads
     // etaFromA/etaFromB/worseETA/fairnessGap. They keep working in the
     // 2-person case via computed accessors so this slice doesn't ripple into
     // every UI file. Slice 5 migrates those callers to iterate `etas` and we
@@ -95,7 +95,7 @@ enum FairnessRanker {
     private static let fallbackSpeed: Double = 13.4 // m/s
 
     /// Total per-spot route calls cap. Keeps extension memory bounded:
-    /// 2 ppl × 5 candidates = 10 routes; 5 ppl × 4 candidates = 20 routes.
+    /// 2 ppl × 10 candidates = 20 routes; 5 ppl × 4 candidates = 20 routes.
     private static let maxTotalRouteCalls = 20
     /// Max penalty added for candidates at the edge of the participant spread.
     /// This keeps "fair" from drifting sideways away from the actual midpoint.
