@@ -318,9 +318,9 @@ struct SpotDetailCard: View {
         let webURL = mapItem?.url
         return HStack(spacing: Tokens.Spacing.s2) {
             actionTile(icon: "car.fill", label: driveLabel) {
-                if let mapItem { openDirectionsInline(mapItem) } else if let url = appleMapsURL { openURL(url) }
+                openInPreferredMaps()
             }
-            .accessibilityHint("Opens driving directions to \(name)")
+            .accessibilityHint("Opens driving directions to \(name) in your maps app")
             if let phoneURL {
                 actionTile(icon: "phone.fill", label: "Call") { openURL(phoneURL) }
                     .accessibilityHint("Calls \(name)")
@@ -437,13 +437,13 @@ struct SpotDetailCard: View {
                 .accessibilityHint("Drops \(name) into your conversation")
 
                 Button {
-                    if let url = appleMapsURL { openURL(url) }
+                    openInPreferredMaps()
                 } label: {
                     Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         .lineLimit(1)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))
-                .accessibilityHint("Opens driving directions to \(name)")
+                .accessibilityHint("Opens driving directions to \(name) in your maps app")
             }
             .sensoryFeedback(.impact, trigger: sendTick)
         }
@@ -519,18 +519,25 @@ struct SpotDetailCard: View {
 
     // MARK: - Deep links
 
+    /// THE directions dispatcher for this card — every Directions control
+    /// routes here so a new button can't fork behavior again (post-push audit:
+    /// two sibling controls bypassed the maps preference, and the Apple branch
+    /// opened a search PIN while Google opened DIRECTIONS). Apple keeps place
+    /// identity via the map item when one exists; both branches open driving
+    /// directions.
     private func openInPreferredMaps() {
         switch MapsPreference.current {
         case .apple:
-            if let url = appleMapsURL { openURL(url) }
+            if let mapItem {
+                openDirectionsInline(mapItem)
+            } else {
+                let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+                item.name = name
+                openDirectionsInline(item)
+            }
         case .google:
             openGoogleMaps()
         }
-    }
-
-    /// `http://maps.apple.com/?ll=LAT,LON&q=NAME` — opens the native Maps app.
-    private var appleMapsURL: URL? {
-        MapLinks.appleMapsURL(name: name, coordinate: coordinate)
     }
 
     /// App scheme first; when Google Maps isn't installed the scheme is

@@ -144,7 +144,14 @@ enum ConversationMeetupStore {
                || snapshot.agreedState != nil {
             return true
         }
-        return loadDraft(key: key) != nil
+        // Drafts age out on the SAME window — an un-aged draft check let one
+        // stale never-sent draft suppress the host's cold-launch cache reset
+        // forever (post-push audit): the extension's TTL sweep only clears
+        // drafts alongside a snapshot, so an orphaned draft never expired.
+        if let draft = loadDraft(key: key) {
+            return Date().timeIntervalSince(draft.timestamp) <= ttl
+        }
+        return false
     }
 
     private static var defaults: UserDefaults? {

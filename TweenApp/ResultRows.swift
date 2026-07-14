@@ -193,7 +193,7 @@ struct ResultCard: View {
                     Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                 }
                 .buttonStyle(.resultAction(.subtle))
-                .accessibilityHint("Opens \(item.name ?? "this place") in Apple Maps")
+                .accessibilityHint("Opens \(item.name ?? "this place") in your maps app")
 
                 if let phone = item.phoneNumber, !phone.isEmpty {
                     Button {
