@@ -62,11 +62,6 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// causes) and `.claude/skills/imessage-extension.md`.
     private var fallbackView: UIView?
 
-    /// Set when a memory warning fires while expanded: it tells `ExpandedView` to
-    /// shed its live `MKMapView` and fall back to the static snapshot, our last line
-    /// of defense against the ~120 MB extension jetsam ceiling. Reset on collapse.
-    private var mapDegraded = false
-
     /// Default place query for the extension's fair-spot search. There's no
     /// category UI here, so we bias toward common, universal meetup spots.
     private static let defaultQuery = "cafe restaurant food"
@@ -178,9 +173,6 @@ final class MessagesViewController: MSMessagesAppViewController {
             // conversation (deliverBubble captures the key), so state stays correct.
             sendTask?.cancel()
             isSending = false
-            // A memory-degraded static map is per-conversation — don't carry the
-            // fallback into the next chat's fresh render.
-            mapDegraded = false
             // Sessions are per-conversation; never reuse one across chats.
             lastKnownSession = nil
         }
@@ -262,9 +254,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             rankingTask?.cancel()
             isRanking = false
-            // Collapsing already frees the map (CompactView has none); clear the
-            // degrade flag so the next expansion gets the live map back.
-            mapDegraded = false
         }
         presentUI(for: presentationStyle)
     }
@@ -361,16 +350,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         // The cancelled task can't run its own reset — without this,
         // reactivating mid-rank shows a stuck "Finding fair spots...".
         isRanking = false
-    }
-
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-        // We're near the extension's memory ceiling. Shed the live MKMapView by
-        // re-rendering ExpandedView with the static snapshot fallback. No-op if we
-        // already degraded or aren't showing the map.
-        guard presentationStyle == .expanded, !mapDegraded else { return }
-        mapDegraded = true
-        presentUI(for: presentationStyle)
     }
 
     // MARK: - Decoding
@@ -677,7 +656,6 @@ final class MessagesViewController: MSMessagesAppViewController {
                     totalSeats: totalConversationParticipants,
                     isRanking: isRanking,
                     isOnline: networkMonitor.isOnline,
-                    useStaticMap: mapDegraded,
                     draft: draft,
                     localParticipantID: localParticipantID(),
                     recentlySentSpotName: recentlySentSpotName,
@@ -1117,7 +1095,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         rankedSpots = []
         draft = nil
         OutgoingDraftStore.clear()
-        mapDegraded = false
         recentlySentSpotName = nil
         // Drop the decoded meetup too — CompactView's thumbnail and
         // ExpandedView's peer pins render from `received.participants`,

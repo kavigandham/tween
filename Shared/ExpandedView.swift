@@ -3,23 +3,20 @@ import UIKit
 import MapKit
 import CoreLocation
 
-// NOTE: ExpandedView uses an interactive SwiftUI `Map`, which IS an `MKMapView`
-// under the hood — there is no lighter variant. This is a *deliberate* exception
-// to CLAUDE.md HARD CONSTRAINT #1 ("MKMapSnapshotter only") for this view only,
-// because expanded browsing needs pan/zoom. The ~120 MB extension ceiling is real,
-// so the footprint is held down by: flat elevation (no 3D meshes), no material
-// blur or pulse on annotations, a capped camera zoom, and a memory-warning
-// fallback (`useStaticMap`) that swaps in the cheap `TweenMapSnapshotView`.
-// CompactView and BubbleImageRenderer still use MKMapSnapshotter unconditionally.
+// NOTE: ExpandedView renders its map with `TweenMapSnapshotView`
+// (MKMapSnapshotter) — never `MKMapView` — per CLAUDE.md HARD CONSTRAINT #1.
+// An interactive pan/zoom Map once lived here behind a feature flag that was
+// never enabled; it was removed 2026-07-14 (git history preserves it) so the
+// extension is snapshotter-only everywhere, the safest footprint under the
+// ~120 MB ceiling.
 //
 /// Full-screen presentation for the Messages extension.
 ///
-/// Shows an interactive SwiftUI `Map` framing both friends, the fair midpoint,
-/// and every ranked spot (each tagged with both drive times), above a scrollable
-/// list of those spots. Tapping a pin highlights its row and vice-versa; the
-/// primary call to action adapts to whether you've shared your location yet and,
-/// once you have, sends the spot you pick. An offline banner replaces the live
-/// ranking when there's no network.
+/// Shows a snapshot map framing both friends and every ranked spot, above a
+/// scrollable list of those spots. Tapping a pin highlights its row and
+/// vice-versa; the primary call to action adapts to whether you've shared your
+/// location yet and, once you have, sends the spot you pick. An offline banner
+/// replaces the live ranking when there's no network.
 struct ExpandedView: View {
     let received: TweenState?
     let selfCoord: CLLocationCoordinate2D?
@@ -32,10 +29,6 @@ struct ExpandedView: View {
     var isRanking: Bool = false
     /// Additive to the spec's parameter list so the offline banner has a source.
     var isOnline: Bool = true
-    /// When true, the live `Map` is replaced by the static `MKMapSnapshotter`-backed
-    /// `TweenMapSnapshotView`. The extension flips this on a memory warning to shed
-    /// the `MKMapView` before the process is jettisoned. Defaults to the live map.
-    var useStaticMap: Bool = false
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
     var localParticipantID: String? = nil
@@ -61,10 +54,6 @@ struct ExpandedView: View {
     var statusIsError: Bool = false
 
     @State private var selectedSpotID: RankedSpot.ID?
-    /// Drives the interactive map's camera. `.automatic` frames every annotation
-    /// (self, peer, midpoint, spots) with padding; selecting a row switches it to
-    /// a region centered on that spot. A user pan/zoom hands control back to them.
-    @State private var mapPosition: MapCameraPosition = .automatic
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
 
@@ -695,18 +684,14 @@ struct ExpandedView: View {
     @ViewBuilder
     private var mapSection: some View {
         if hasMapContent {
-            if useStaticMap || usesStaticMapForCurrentState {
-                // Memory-pressure fallback: the cheap snapshot path, no MKMapView.
-                TweenMapSnapshotView(
-                    markers: staticMarkers,
-                    cornerRadius: 0,
-                    focusCoordinate: snapshotFocus,
-                    // The map now has its own region above the panel, so only a
-                    // gentle lift keeps the spot off dead-center (room for the pill).
-                    focusYOffsetRatio: snapshotFocus != nil ? 0.1 : 0)
-            } else {
-                interactiveMap
-            }
+            // Snapshotter-only (constraint #1): the cheap static path, no MKMapView.
+            TweenMapSnapshotView(
+                markers: staticMarkers,
+                cornerRadius: 0,
+                focusCoordinate: snapshotFocus,
+                // The map has its own region above the panel, so only a
+                // gentle lift keeps the spot off dead-center (room for the pill).
+                focusYOffsetRatio: snapshotFocus != nil ? 0.1 : 0)
         } else {
             ZStack {
                 Rectangle().fill(Tokens.Palette.surfaceSecondary)
@@ -721,16 +706,8 @@ struct ExpandedView: View {
         }
     }
 
-    /// All coordinates currently "in" the meetup (self + every other
-    /// participant), used to compute the centroid pin and frame the camera.
-    private var allMeetupCoords: [CLLocationCoordinate2D] {
-        var coords = otherParticipants.map(\.coordinate)
-        if let selfCoord { coords.append(selfCoord) }
-        return coords
-    }
-
-    /// Markers for the static fallback snapshot: people, any proposed place, and
-    /// ranked spots using the shared pin role system.
+    /// Markers for the snapshot: people, any proposed place, and ranked spots
+    /// using the shared pin role system.
     private var staticMarkers: [MapMarker] {
         var result: [MapMarker] = []
         if let selfCoord {
@@ -742,8 +719,7 @@ struct ExpandedView: View {
             result.append(MapMarker(coordinate: participant.coordinate, role: participant.needsRide ? .rideNeeded : .friend))
         }
         // No centroid/midpoint marker (audit F3): the geographic middle isn't a
-        // place anyone meets, and on the small extension map it just adds
-        // clutter. The centroid still frames the camera via allMeetupCoords.
+        // place anyone meets, and on the small extension map it just adds clutter.
         // Exactly ONE gold "the spot" pin. When a proposed place and/or a draft
         // is on the map, the ranked candidates all render as plain results —
         // three identical gold pins gave the user no way to tell which one was
@@ -762,108 +738,6 @@ struct ExpandedView: View {
             }
         }
         return result
-    }
-
-    private var interactiveMap: some View {
-        Map(position: $mapPosition, bounds: cameraBounds) {
-            // Your location pin
-            if let selfCoord {
-                let myId = localParticipantID ?? myName
-                let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
-                Annotation("You", coordinate: selfCoord) {
-                    TweenPin(role: isUserIn ? .selfActive : .selfDot,
-                             needsRide: localNeedsRide, animated: false)
-                }
-            }
-
-            // Every other participant who's "in" — one pin each, labelled
-            // with their name (which is what other people see on their map
-            // when their device is the local "self").
-            ForEach(otherParticipants) { participant in
-                Annotation(participant.name, coordinate: participant.coordinate) {
-                    TweenPin(role: .friend,
-                             initials: TweenPin.initials(for: participant.name),
-                             needsRide: participant.needsRide,
-                             animated: false)
-                }
-            }
-
-            // Centroid marker removed (audit F3): no midpoint pin. The
-            // centroid still frames the camera, it just isn't drawn.
-
-            if let receivedPlaceCoord {
-                Annotation(received?.text ?? "Meetup spot", coordinate: receivedPlaceCoord) {
-                    TweenPin(role: .fairSpot, animated: false)
-                }
-            }
-
-            // A spot the host app staged for hand-off
-            if let draft {
-                Annotation(draft.spotName, coordinate: draft.coordinate) {
-                    TweenPin(role: .fairSpot, animated: false)
-                }
-            }
-
-            // All ranked spot pins, each with an A/B drive-time chip
-            ForEach(rankedSpots) { spot in
-                if let item = spot.item {
-                    Annotation(item.name ?? "Spot", coordinate: item.placemark.coordinate) {
-                        spotPin(spot)
-                    }
-                }
-            }
-        }
-        // Flat, not .realistic: 3D terrain/building meshes are a large memory + GPU
-        // cost we can't afford in the extension, and a meetup map doesn't need them.
-        .mapStyle(.standard(elevation: .flat))
-        .mapControls {
-            MapCompass()
-            MapScaleView()
-        }
-        .accessibilityLabel("Interactive map of you, your friend, and meetup spots")
-    }
-
-    /// Caps how far out the camera can zoom so it can't pull in a continent's worth
-    /// of tiles, while still letting users zoom in to street level.
-    private var cameraBounds: MapCameraBounds {
-        MapCameraBounds(minimumDistance: 400, maximumDistance: 200_000)
-    }
-
-    private var usesStaticMapForCurrentState: Bool {
-        true
-    }
-
-    /// A ranked-spot map pin: a drive-time chip floating above a category
-    /// glyph. For ≤4 participants we show "Alice 8 · Bob 12"; for 5+ we drop
-    /// names and just list the minutes to keep the chip readable.
-    private func spotPin(_ spot: RankedSpot) -> some View {
-        let isSelected = selectedSpotID == spot.id
-        let isBestFair = rankedSpots.first?.id == spot.id
-        let role: TweenPin.Role = isBestFair ? .fairSpot : .result
-        return VStack(spacing: 2) {
-            Text(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Tokens.Palette.textPrimary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                // Solid fill rather than .ultraThinMaterial: a per-annotation GPU blur
-                // layer ×N is memory we can't spare in the extension.
-                .background(Tokens.Palette.surface)
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Tokens.Palette.surfaceSecondary, lineWidth: 0.5))
-
-            Image(systemName: "fork.knife")
-                .font(.system(size: isSelected ? 16 : 14))
-                .foregroundStyle(.white)
-                .padding(isSelected ? 9 : 8)
-                .background(isSelected ? Tokens.Palette.brand : role.fill)
-                .clipShape(Circle())
-                .shadow(radius: 2)
-        }
-        // Tapping a pin highlights its row in the list below (which scrolls to it).
-        .onTapGesture { select(spot, animateMap: false) }
-        .accessibilityLabel("\(spot.item?.name ?? "Spot"), \(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))")
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: Spot list
@@ -1039,17 +913,11 @@ struct ExpandedView: View {
             : "Try Browse spots to pick a place manually."
     }
 
-    /// Single point of truth for selection. Always updates `selectedSpotID`
-    /// (which scrolls the list and re-styles the pin); optionally flies the map
-    /// camera to the spot when the selection came from a list tap.
-    private func select(_ spot: RankedSpot, animateMap: Bool) {
+    /// Single point of truth for selection. Updates `selectedSpotID`, which
+    /// scrolls the list, re-styles the pin, and re-focuses the snapshot (the
+    /// snapshot's focusCoordinate follows the selected spot).
+    private func select(_ spot: RankedSpot, animateMap: Bool = false) {
         selectedSpotID = spot.id
-        guard animateMap, let coordinate = spot.item?.placemark.coordinate else { return }
-        withAnimation(Tokens.Motion.spring) {
-            mapPosition = .region(MKCoordinateRegion(
-                center: coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)))
-        }
     }
 
     // MARK: CTA
