@@ -22,6 +22,7 @@
 		276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */; };
 		27ADDB38803E418AEC2FE285 /* ExpandedView+Invitation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83F9C4EF65F50F284A1000E0 /* ExpandedView+Invitation.swift */; };
 		2B685EA78D2235084F728C7A /* ConversationMeetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */; };
+		2B9E58CBDF91D387B2026C68 /* MessagesViewController+Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */; };
 		2CABE4970402650FE4F62332 /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC52AECB9B816328EF102D1 /* MapLinks.swift */; };
 		3607C423A0ED457F9747A0DE /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */; };
 		38EBE426E101BAF907787082 /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
@@ -78,10 +79,12 @@
 		A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
 		ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
 		AE0CA6C4068224E66E7D32DA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0803F937E9C2F7FB7498C185 /* OnboardingView.swift */; };
+		B217F218E072447B9B9685AD /* MessagesViewController+Ranking.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAE1BB3ACB55AD7341FAD13 /* MessagesViewController+Ranking.swift */; };
 		B45F30A447B00151E8614A21 /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		BDA6476E9BC0E7B85F0B263A /* ExpandedView+Map.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A5EA9F6F1D2BEAF57E7E60 /* ExpandedView+Map.swift */; };
 		C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
 		C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
+		C7D9EFBE6DBB30E9039D9FC2 /* MessagesViewController+Delivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */; };
 		C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
 		C99724C777E8BD20CE80E3D0 /* RosterMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903D56EC7E4EC861015BC630 /* RosterMergeTests.swift */; };
 		CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */; };
@@ -98,6 +101,7 @@
 		F0033D16E761466DDFD9FF94 /* ExpandedView+SpotCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CD8B6A6ED843B821B266E3 /* ExpandedView+SpotCards.swift */; };
 		F0530B026C0ECE982F213FEB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C8D82F71D0698CFE660B31 /* Assets.xcassets */; };
 		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
+		F20B9C51C1C91611033F60A6 /* MessagesViewController+Sending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F8536F2549D8B50B27DD29 /* MessagesViewController+Sending.swift */; };
 		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
 		F3BDB1E91DC1A1393169A682 /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FD34C21C893A47710A971 /* UserProfile.swift */; };
 		F50F0766230DB7ABC0E6904F /* SpotVicinityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */; };
@@ -168,6 +172,7 @@
 		4DABE7630D89B338603DE226 /* SpotETADisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotETADisplay.swift; sourceTree = "<group>"; };
 		4DC52AECB9B816328EF102D1 /* MapLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinks.swift; sourceTree = "<group>"; };
 		4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPreset.swift; sourceTree = "<group>"; };
+		541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Decoding.swift"; sourceTree = "<group>"; };
 		5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
 		5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRenderer.swift; sourceTree = "<group>"; };
 		5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualLocationTests.swift; sourceTree = "<group>"; };
@@ -182,6 +187,7 @@
 		74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLog.swift; sourceTree = "<group>"; };
 		7900C8435D6EC0638415B8B9 /* CompactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactView.swift; sourceTree = "<group>"; };
 		7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		80F8536F2549D8B50B27DD29 /* MessagesViewController+Sending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Sending.swift"; sourceTree = "<group>"; };
 		83C7747C92C12454D8BCD60B /* TweenApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TweenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83F9C4EF65F50F284A1000E0 /* ExpandedView+Invitation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpandedView+Invitation.swift"; sourceTree = "<group>"; };
 		86D6C9526CD3DFF1310570DD /* MapsPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsPreference.swift; sourceTree = "<group>"; };
@@ -216,8 +222,10 @@
 		E2B247391C7D7142F3F01BCD /* ExpandedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedView.swift; sourceTree = "<group>"; };
 		ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorial.swift; sourceTree = "<group>"; };
 		EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		EEAE1BB3ACB55AD7341FAD13 /* MessagesViewController+Ranking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Ranking.swift"; sourceTree = "<group>"; };
 		F2174E7F02B909D70550DB68 /* SpotVicinity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotVicinity.swift; sourceTree = "<group>"; };
 		F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleterTests.swift; sourceTree = "<group>"; };
+		F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Delivery.swift"; sourceTree = "<group>"; };
 		FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometryTests.swift; sourceTree = "<group>"; };
 		FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -276,6 +284,10 @@
 				5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */,
 				C19537D9A01F8873CE576BA6 /* Info.plist */,
 				5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */,
+				541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */,
+				F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */,
+				EEAE1BB3ACB55AD7341FAD13 /* MessagesViewController+Ranking.swift */,
+				80F8536F2549D8B50B27DD29 /* MessagesViewController+Sending.swift */,
 				7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */,
 			);
 			path = TweenMessages;
@@ -514,6 +526,10 @@
 				EFA00EAD5278E8299C9A7189 /* MapGeometry.swift in Sources */,
 				2CABE4970402650FE4F62332 /* MapLinks.swift in Sources */,
 				B45F30A447B00151E8614A21 /* MapsPreference.swift in Sources */,
+				2B9E58CBDF91D387B2026C68 /* MessagesViewController+Decoding.swift in Sources */,
+				C7D9EFBE6DBB30E9039D9FC2 /* MessagesViewController+Delivery.swift in Sources */,
+				B217F218E072447B9B9685AD /* MessagesViewController+Ranking.swift in Sources */,
+				F20B9C51C1C91611033F60A6 /* MessagesViewController+Sending.swift in Sources */,
 				FB82FF593DDAF2AD30DE8730 /* MessagesViewController.swift in Sources */,
 				62F1F0447441F1F398ED7ED9 /* NetworkMonitor.swift in Sources */,
 				C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */,
