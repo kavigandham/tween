@@ -1,5 +1,40 @@
 # STRUCTURE AUDIT — Tween — 2026-07-13 (HEAD 6853735)
 
+> **Progress (2026-07-13 evening):** the zero-risk phase is DONE — dead code deleted (`84292c1`), TweenViews split into 4 files (`50ff203`), misplaced types relocated (`c02c649`), plus the 6853735 audit fixes (`0bd87ed`). Largest file is now OnboardingView at 4,139; TweenViews is gone (ExpandedView.swift 1,306 is the biggest Shared file). The RISK PHASE plan below (§Risk work) is the concrete blueprint for what remains.
+
+## RISK WORK — how to reformat the two remaining god files (blueprint)
+
+The Swift ground rules that shape everything here:
+- **Extensions in other files cannot see `private` members** → any member referenced across the new file boundary demotes to internal (module-scoped; the extension target's module has 2 files, the app's ~15 — contained exposure).
+- **Extensions cannot add stored properties** → every `@State`/`let` stays in the core struct/class declaration. Only methods and computed properties move. This is why the splits are LOW-risk mechanically but non-zero: the diff touches hundreds of `private` keywords, and a typo'd demotion produces a compile error, not silent breakage — the compiler is the safety net.
+- **Nested types CAN be declared in extensions in other files** (`extension OnboardingView { enum ActiveSheet {...} }`) — the sheet router enums can move.
+
+### R1 — MessagesViewController.swift (1,672) → 5 files — LOW risk, do first
+Cut along the existing MARKs into `extension MessagesViewController` files: `+Decoding` (~285: decodeAndCache, effectiveReceived, shouldAccept plumbing), `+Ranking` (~150), `+Sending` (~450: handleImIn/Out, sendChosenSpot/AgreedPlace/Counter/Draft), `+Delivery` (~180: deliverBubble, recordCanonicalSnapshot, staged-send backstop, maps opening); core keeps State/Lifecycle/Hosting (~600).
+**The real win:** while moving `+Decoding`, extract the PURE decision kernels into `Shared/` enums — `AgreementResolution.effectiveState(decoded:stored:localLeft:sameSpot:)` and the snapshot-hint formatter — because the #1 coverage gap is that NO test can reach extension logic, and these kernels (sticky-agreement rule, tombstone gates) are the most audit-bitten logic in the app. Pure functions in Shared = unit-testable from TweenAppTests with zero test-host work.
+Verification: full suite + `-HARNESS` UI tests after each file move; one extension smoke test in Messages on device at the end (send/agree/leave once).
+
+### R2 — OnboardingView.swift (4,139) → ~8 files — MEDIUM risk, one extension file per commit
+Move order (safest first, each its own commit + suite run):
+1. `OnboardingView+Framing.swift` (~300) — pure camera math, few cross-refs.
+2. `OnboardingView+DeepLinks.swift` (~220) — handleIncomingURL + openGoogleMapsExternally.
+3. `OnboardingView+HandOff.swift` (~240) — sendToChat/compose. Depends on state + framing.
+4. `OnboardingView+Sync.swift` (~260) — refreshFromAppGroup/pollPeer. Highest cross-ref density; do after the patterns are proven.
+5. `OnboardingView+Search.swift` (~400) — runSearch/resolvePlace/resolveCategory/canSearch.
+6. `OnboardingView+FriendsPanel.swift` (~1,070) — the friends/ride UI + logic; biggest but most self-contained.
+Core keeps: the ~100 stored `@State` properties, `body`, the sheet router, bottom-sheet UI, DEBUG seeds (~1,600 → later shrinkable via R3).
+Directory grouping in the same commits: `TweenApp/Search/`, `TweenApp/Friends/`, `TweenApp/Sheets/` — project.yml globs recurse, zero config.
+
+### R3 — Phase B: `SearchController` extraction — HIGH risk, HIGH reward, do LAST and alone
+Today every regression class this app has fought (poll-clobbers-search, rerank races, stuck spinners) exists because search state (`searchText/searchResults/rankedSpots/searchTask/isSearchLoading/searchState`) lives beside meetup state in one struct, and 15+ call sites can touch both. The fix is ownership, not location: an `@Observable final class SearchController` owning that state + `runSearch/rerankCurrentResults/resolvePlace/resolveCategory/clearSearch`, injected into OnboardingView as one `@State private var search = SearchController()`.
+- The poll physically CANNOT clear `rankedSpots` anymore — `refreshFromAppGroup` doesn't hold the reference; it calls an explicit, documented `search.meetupDidTearDown()` on the one transition that legitimately resets ranking. The `shouldResetRankingOnLeave` bug class dies structurally.
+- Risks: `@State` → observable-class migration changes invalidation timing (SwiftUI re-render granularity), the cancellable-task ownership moves, and DEMO seeds/harness args that reach into search state all need rewiring. This is the one step needing the full device-feedback regression pass (search → rank → add point → leave → search again) on top of the suite.
+- Do NOT start R3 until R2 lands and a TestFlight cycle passes on it.
+
+### R4 — the interactive-map decision (blocks ~200-line deletion in ExpandedView.swift)
+`usesStaticMapForCurrentState` is hardcoded `true`, so the sanctioned pan/zoom Map is unreachable. Two honest options: **(a) delete** — snapshotter-only everywhere, CLAUDE.md constraint 1's exception paragraph gets removed, ~200 lines + the `mapDegraded` fallback machinery go; **(b) resurrect** — flip the flag to a real condition, then on-device memory profiling is MANDATORY (the ~120 MB ceiling is the app's hardest constraint and simulator numbers don't count). Recommendation: (a) delete now — nobody has missed it, users pan the HOST app's map, and git preserves the code if pan/zoom ever becomes a priority. Needs your call.
+
+
 Scope: file layout, file lengths, and a concrete split plan. Correctness findings live in `report_audit.md`; this report is structure only.
 
 ## The numbers
