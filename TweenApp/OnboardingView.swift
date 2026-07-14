@@ -335,6 +335,7 @@ struct OnboardingView: View {
         case spot(SpotSelection)
         case addPoint
         case whereIllBe
+        case settings
 
         var id: String {
             switch self {
@@ -345,6 +346,7 @@ struct OnboardingView: View {
             case .spot(let s):       return "spot-\(s.id)"
             case .addPoint:          return "addPoint"
             case .whereIllBe:        return "whereIllBe"
+            case .settings:          return "settings"
             }
         }
     }
@@ -773,6 +775,8 @@ struct OnboardingView: View {
                                       region: searchRegion,
                                       resolvePlace: resolvePlace,
                                       onAdd: setManualSelf)
+                    case .settings:
+                        SettingsSheet()
                     }
                 }
                 // Alerts triggered from inside the sheet must present FROM the
@@ -1027,11 +1031,26 @@ struct OnboardingView: View {
     private var topTrailingControls: some View {
         VStack(alignment: .trailing, spacing: Tokens.Spacing.s2) {
             infoButton
+            settingsButton
             mapStyleButton
             resetMapButton
         }
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
+    }
+
+    /// Floating control for the Settings sheet (maps-app preference).
+    private var settingsButton: some View {
+        Button { activeSheet = .settings } label: {
+            Image(systemName: "gearshape.fill")
+                .font(Tokens.Typography.title2)
+                .foregroundStyle(Tokens.Palette.brand)
+                .frame(width: floatingControlSize, height: floatingControlSize)
+                .modifier(TweenGlassControl(shape: Circle()))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
+        .accessibilityHint("Choose which maps app opens directions")
     }
 
 
@@ -2331,6 +2350,12 @@ struct OnboardingView: View {
             await runSearch(trimmed: "coffee", reframeMap: true)
             return
         }
+        // -DEMO_SETTINGS: opens the Settings sheet (maps-app preference) for
+        // screenshots.
+        if CommandLine.arguments.contains("-DEMO_SETTINGS") {
+            activeSheet = .settings
+            return
+        }
         // -DEMO_CATEGORY_STUDY: seeds two points then taps the Study chip —
         // screenshot hook proving category chips run the POI-category engine
         // (libraries/cafés BETWEEN the points, not a dead text search).
@@ -2880,11 +2905,18 @@ struct OnboardingView: View {
         return participants
     }
 
-    /// Opens Apple Maps with driving directions to the chosen spot.
+    /// Opens driving directions to the chosen spot in the user's preferred
+    /// maps app (Settings → Apple/Google).
     private func openDirections(to item: MKMapItem) {
-        item.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
-        ])
+        switch MapsPreference.current {
+        case .apple:
+            item.openInMaps(launchOptions: [
+                MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+            ])
+        case .google:
+            openGoogleMapsExternally(name: item.name ?? "Spot",
+                                     coordinate: item.placemark.coordinate)
+        }
     }
 
     private func dismissTutorial() {

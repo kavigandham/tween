@@ -731,8 +731,10 @@ struct ExpandedView: View {
     var onSendDraft: () -> Void = {}
     var onOpenFullApp: () -> Void = {}
     /// Fired by the MEETUP SET view's map-app buttons.
-    var onOpenAppleMaps: (TweenState) -> Void = { _ in }
-    var onOpenGoogleMaps: (TweenState) -> Void = { _ in }
+    /// Opens driving directions in the user's PREFERRED maps app (Settings →
+    /// Apple/Google) — one button, one callback; the controller resolves the
+    /// preference at tap time.
+    var onOpenInMaps: (TweenState) -> Void = { _ in }
     var isSending: Bool = false
     var statusMessage: String?
     /// Whether `statusMessage` reports a failure (warning banner) or routine
@@ -1581,28 +1583,18 @@ struct ExpandedView: View {
                     Spacer(minLength: 0)
                 }
 
-                VStack(spacing: Tokens.Spacing.s2) {
-                    directionRow(
-                        title: "Apple Maps",
-                        subtitle: "Open driving directions",
-                        systemImage: "map",
-                        foreground: .white,
-                        background: Tokens.Palette.brand
-                    ) {
-                        sendTick += 1
-                        onOpenAppleMaps(state)
-                    }
-
-                    directionRow(
-                        title: "Google Maps",
-                        subtitle: "Open in Google Maps",
-                        systemImage: "globe",
-                        foreground: Tokens.Palette.brand,
-                        background: Tokens.Palette.brandLight
-                    ) {
-                        sendTick += 1
-                        onOpenGoogleMaps(state)
-                    }
+                // One button, the user's maps app (Settings → Apple/Google) —
+                // the old Apple/Google pair made every user read two options
+                // to find theirs.
+                directionRow(
+                    title: "Open in Maps",
+                    subtitle: "Driving directions to \(state.text)",
+                    systemImage: "arrow.triangle.turn.up.right.diamond.fill",
+                    foreground: .white,
+                    background: Tokens.Palette.brand
+                ) {
+                    sendTick += 1
+                    onOpenInMaps(state)
                 }
 
                 HStack(spacing: Tokens.Spacing.s2) {
@@ -1959,27 +1951,16 @@ struct ExpandedView: View {
     }
 
     private func directionButtons(for state: TweenState) -> some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            Button {
-                sendTick += 1
-                onOpenAppleMaps(state)
-            } label: {
-                Label("Apple Maps", systemImage: "map")
-                    .lineLimit(1)
-            }
-            .buttonStyle(.tweenPrimary())
-            .accessibilityHint("Opens driving directions to \(state.text) in Apple Maps")
-
-            Button {
-                sendTick += 1
-                onOpenGoogleMaps(state)
-            } label: {
-                Label("Google Maps", systemImage: "globe")
-                    .lineLimit(1)
-            }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .accessibilityHint("Opens driving directions to \(state.text) in Google Maps")
+        Button {
+            sendTick += 1
+            onOpenInMaps(state)
+        } label: {
+            Label("Open in Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.tweenPrimary())
+        .accessibilityHint("Opens driving directions to \(state.text) in your maps app")
     }
 
     private var openFullAppButton: some View {

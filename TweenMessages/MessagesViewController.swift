@@ -693,8 +693,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
-                    onOpenAppleMaps: { [weak self] state in self?.openAppleMaps(for: state) },
-                    onOpenGoogleMaps: { [weak self] state in self?.openGoogleMaps(for: state) },
+                    onOpenInMaps: { [weak self] state in self?.openInPreferredMaps(for: state) },
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
                     statusIsError: sendStatusIsError
@@ -1661,6 +1660,15 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func openFullAppSearch() {
         guard let url = URL(string: "tween://search") else { return }
         extensionContext?.open(url, completionHandler: nil)
+    }
+
+    /// The single "Open in Maps" button — resolves the user's preference
+    /// (host app Settings → Apple/Google, App Group-shared) at tap time.
+    private func openInPreferredMaps(for state: TweenState) {
+        switch MapsPreference.current {
+        case .apple:  openAppleMaps(for: state)
+        case .google: openGoogleMaps(for: state)
+        }
     }
 
     private func openAppleMaps(for state: TweenState) {

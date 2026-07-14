@@ -56,7 +56,11 @@ final class TweenAppUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Meetup Set View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["It's a plan"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Apple Maps"].waitForExistence(timeout: 5))
+        // ONE preference-driven maps button now (Settings → Apple/Google),
+        // not the old Apple/Google pair.
+        XCTAssertTrue(app.staticTexts["Open in Maps"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Apple Maps"].exists)
+        XCTAssertFalse(app.staticTexts["Google Maps"].exists)
         XCTAssertFalse(app.staticTexts["Open directions or keep browsing."].exists)
     }
 

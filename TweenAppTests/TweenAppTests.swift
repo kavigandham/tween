@@ -264,6 +264,24 @@ final class TweenAppTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(MapLinks.decodeHandoff(fancy)).name, "Boba & Chill 🧋")
     }
 
+    func testMapsPreferenceDefaultsToAppleAndRoundTrips() {
+        // Fresh install (setUp scrubbed the suite): Apple Maps — on every
+        // device, zero setup.
+        XCTAssertEqual(MapsPreference.current, .apple)
+
+        // The Settings pick round-trips through the App Group so the
+        // extension's "Open in Maps" honors it too.
+        MapsPreference.current = .google
+        XCTAssertEqual(MapsPreference.current, .google)
+        MapsPreference.current = .apple
+        XCTAssertEqual(MapsPreference.current, .apple)
+
+        // Garbage on disk (downgrade from a future provider) falls back to
+        // Apple instead of crashing or dead-ending the button.
+        UserDefaults(suiteName: LocationCache.appGroup)?.set("waze", forKey: "tween.pref.mapsApp")
+        XCTAssertEqual(MapsPreference.current, .apple)
+    }
+
     func testCategoryPresetsCarryRealCategories() {
         // Chips are POI-category browses (Apple Maps' own category buttons) —
         // every preset must map to at least one category and a text-engine

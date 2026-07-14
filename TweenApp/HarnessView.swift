@@ -84,8 +84,7 @@ struct HarnessView: View {
                             onImOut: {},
                             onSelectSpot: { _ in },
                             onOpenFullApp: {},
-                            onOpenAppleMaps: { _ in },
-                            onOpenGoogleMaps: { _ in }
+                            onOpenInMaps: { _ in }
                         )
                         .frame(height: 620)
                         .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))

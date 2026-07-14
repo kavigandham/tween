@@ -49,7 +49,7 @@ struct OnboardingTutorialView: View {
             id: "directions",
             eyebrow: "Step 4",
             title: "Go, or tap I'm out",
-            body: "Open Apple Maps or Google Maps for directions. If plans change, I'm out clears your side everywhere.",
+            body: "Open in Maps launches directions in Apple or Google Maps — pick yours in Settings. If plans change, I'm out clears your side everywhere.",
             accent: Tokens.Palette.pinFriend,
             visual: .directions
         )
@@ -327,10 +327,9 @@ private struct TutorialVisualCard: View {
 
     private var directionsVisual: some View {
         VStack(spacing: Tokens.Spacing.s4) {
-            HStack(spacing: Tokens.Spacing.s3) {
-                DirectionChip(title: "Apple Maps", systemImage: "map", isSelected: demoDirections)
-                DirectionChip(title: "Google Maps", systemImage: "globe", isSelected: demoDirections)
-            }
+            DirectionChip(title: "Open in Maps",
+                          systemImage: "arrow.triangle.turn.up.right.diamond.fill",
+                          isSelected: demoDirections)
             Button {
                 withAnimation(Tokens.Motion.spring) { demoDirections.toggle() }
             } label: {

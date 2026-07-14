@@ -505,26 +505,28 @@ struct SpotDetailCard: View {
     }
 
     private var secondaryButtons: some View {
-        HStack(spacing: Tokens.Spacing.s3) {
-            Button {
-                if let url = appleMapsURL { openURL(url) }
-            } label: {
-                Label("Apple Maps", systemImage: "map")
-            }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .accessibilityHint("Opens \(name) in Apple Maps")
-
-            Button {
-                openGoogleMaps()
-            } label: {
-                Label("Google Maps", systemImage: "globe")
-            }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .accessibilityHint("Opens \(name) in Google Maps")
+        // One button, the user's maps app (Settings → Apple/Google) — replaces
+        // the old Apple/Google side-by-side pair.
+        Button {
+            openInPreferredMaps()
+        } label: {
+            Label("Open in Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.tweenPrimary(.subtle))
+        .accessibilityHint("Opens \(name) in your maps app")
     }
 
     // MARK: - Deep links
+
+    private func openInPreferredMaps() {
+        switch MapsPreference.current {
+        case .apple:
+            if let url = appleMapsURL { openURL(url) }
+        case .google:
+            openGoogleMaps()
+        }
+    }
 
     /// `http://maps.apple.com/?ll=LAT,LON&q=NAME` — opens the native Maps app.
     private var appleMapsURL: URL? {
