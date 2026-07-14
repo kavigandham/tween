@@ -3,6 +3,11 @@ import UIKit
 import MapKit
 import CoreLocation
 
+/// A static map image rendered with `MKMapSnapshotter` — never `MKMapView`, to
+/// respect the extension's tight memory ceiling. Markers are composited onto the
+/// snapshot with Core Graphics. A gray placeholder shows while the snapshot is
+/// in flight, and the rendered image is cached in `@State` so scrolling or a
+/// re-layout doesn't re-snapshot the same region.
 struct TweenMapSnapshotView: View {
     let markers: [MapMarker]
     var cornerRadius: CGFloat = Tokens.Radius.card

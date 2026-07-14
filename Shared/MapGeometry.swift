@@ -70,13 +70,6 @@ enum MapGeometry {
     }
 }
 
-/// A static map image rendered with `MKMapSnapshotter` — never `MKMapView`, to
-/// respect the extension's tight memory ceiling. Markers are composited onto the
-/// snapshot with Core Graphics. A gray placeholder shows while the snapshot is
-/// in flight, and the rendered image is cached in `@State` so scrolling or a
-/// re-layout doesn't re-snapshot the same region.
-
-
 /// Formats a drive-time duration as a compact human string: "<1 min", "8 min",
 /// or "1h 5m". The ONLY ETA formatter — both targets use it, so the same drive
 /// can never read "9 min" in the extension and "10 min" in the app. Rounds to
