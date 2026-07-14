@@ -32,6 +32,7 @@
 		434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */; };
 		44DD443AB9AFC37B914530A9 /* SearchResultMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AC63B21755AD2F103BD5A7A /* SearchResultMergerTests.swift */; };
 		488D3DDCB1FFAD9709030BCA /* ExpandedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B247391C7D7142F3F01BCD /* ExpandedView.swift */; };
+		4950890A2E71EDC93C9F344F /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FD34C21C893A47710A971 /* UserProfile.swift */; };
 		49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */; };
 		4BA9FA520D58D8E1F58BC9A1 /* SpotVicinity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2174E7F02B909D70550DB68 /* SpotVicinity.swift */; };
 		4C2EE05AF8FAD67D7C30BB50 /* TweenMapSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6453EB45FFFC50F0A8CD11FF /* TweenMapSnapshotView.swift */; };
@@ -59,7 +60,9 @@
 		83043CC695A5C485E3AA03EC /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECF02EB2138B0F7429E735F /* SearchCompleter.swift */; };
 		879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = A618C73F525063A2FDDFE457 /* BubbleCaption.swift */; };
+		89112A445FB115BCC05D216D /* SearchResultMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3202FC302D0B895B639FB7 /* SearchResultMerger.swift */; };
 		8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
+		905A80F4A3CCE4E94EE42598 /* AddPointSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7BBDE94751DEE456F83083 /* AddPointSheet.swift */; };
 		96830D38CD716283B271C963 /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
 		976882A8C236113EC99EDAA7 /* SpotETADisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DABE7630D89B338603DE226 /* SpotETADisplay.swift */; };
 		9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */; };
@@ -78,6 +81,7 @@
 		CA4F2F37AB64600F06D0C9B4 /* TweenAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FED3A87DD9848279EB884A5 /* TweenAppUITests.swift */; };
 		CDAE0B931818FE63823D2C54 /* TweenMapSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6453EB45FFFC50F0A8CD11FF /* TweenMapSnapshotView.swift */; };
 		D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */; };
+		D583AF64FDCE96CDEF5974D7 /* TweenSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E735993C98521BE56CE8753 /* TweenSurfaces.swift */; };
 		D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */; };
 		D79733978CAEF222C8F834A6 /* MapGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD43B944D80A6936C7A19AB /* MapGeometry.swift */; };
 		DC7DA94CACA043FA99BCBA4B /* SearchCompleterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */; };
@@ -87,9 +91,11 @@
 		F0530B026C0ECE982F213FEB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C8D82F71D0698CFE660B31 /* Assets.xcassets */; };
 		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
 		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
+		F3BDB1E91DC1A1393169A682 /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FD34C21C893A47710A971 /* UserProfile.swift */; };
 		F50F0766230DB7ABC0E6904F /* SpotVicinityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */; };
 		F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B03D220EE99E30C33F9CEE /* ActivityView.swift */; };
 		F8DDDC3765602F9048497F1A /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
+		F9ED4CEC3DFDD8098C419774 /* SearchResultMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3202FC302D0B895B639FB7 /* SearchResultMerger.swift */; };
 		FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */; };
 		FB82FF593DDAF2AD30DE8730 /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */; };
 /* End PBXBuildFile section */
@@ -140,7 +146,10 @@
 		126396012D826EDE687B9221 /* LocationCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationCache.swift; sourceTree = "<group>"; };
 		1C050212D1A3E782EE270E56 /* TweenPin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenPin.swift; sourceTree = "<group>"; };
 		1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotDetailCard.swift; sourceTree = "<group>"; };
+		1E735993C98521BE56CE8753 /* TweenSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenSurfaces.swift; sourceTree = "<group>"; };
 		23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotVicinityTests.swift; sourceTree = "<group>"; };
+		2A7BBDE94751DEE456F83083 /* AddPointSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddPointSheet.swift; sourceTree = "<group>"; };
+		2C3202FC302D0B895B639FB7 /* SearchResultMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultMerger.swift; sourceTree = "<group>"; };
 		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
 		45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRosterTests.swift; sourceTree = "<group>"; };
@@ -183,6 +192,7 @@
 		B8BE1CA37340EBAE9491F6A0 /* TweenMessages.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TweenMessages.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C19537D9A01F8873CE576BA6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C546097077ED186216682C7A /* PingLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingLogTests.swift; sourceTree = "<group>"; };
+		CA8FD34C21C893A47710A971 /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
 		CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TweenAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
 		D3C440EB69DC883032023978 /* NameIntegrityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameIntegrityTests.swift; sourceTree = "<group>"; };
@@ -278,6 +288,7 @@
 				DEA256CAEB5D69FB5441F7C3 /* Participant.swift */,
 				74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */,
 				AC600F17A953B060A499D6A2 /* RosterMerge.swift */,
+				2C3202FC302D0B895B639FB7 /* SearchResultMerger.swift */,
 				4DABE7630D89B338603DE226 /* SpotETADisplay.swift */,
 				F2174E7F02B909D70550DB68 /* SpotVicinity.swift */,
 				9E33C768FCCDA10A6EEF5142 /* Tokens.swift */,
@@ -286,6 +297,7 @@
 				1C050212D1A3E782EE270E56 /* TweenPin.swift */,
 				0511AABEF75C39947CC371A4 /* TweenState.swift */,
 				5EDD40282483BFE2BDFF2AC5 /* UserName.swift */,
+				CA8FD34C21C893A47710A971 /* UserProfile.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -294,6 +306,7 @@
 			isa = PBXGroup;
 			children = (
 				62B03D220EE99E30C33F9CEE /* ActivityView.swift */,
+				2A7BBDE94751DEE456F83083 /* AddPointSheet.swift */,
 				73C8D82F71D0698CFE660B31 /* Assets.xcassets */,
 				4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */,
 				31774B86CC587B67A1B6CB6A /* ContentView.swift */,
@@ -308,6 +321,7 @@
 				464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */,
 				1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */,
 				CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */,
+				1E735993C98521BE56CE8753 /* TweenSurfaces.swift */,
 			);
 			path = TweenApp;
 			sourceTree = "<group>";
@@ -487,6 +501,7 @@
 				A24BDC9CEAC5DEC4C6C65C67 /* Participant.swift in Sources */,
 				0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */,
 				26D0F1921C6E7761820B46BB /* RosterMerge.swift in Sources */,
+				F9ED4CEC3DFDD8098C419774 /* SearchResultMerger.swift in Sources */,
 				59AA78C516B0B3446449BCCA /* SpotETADisplay.swift in Sources */,
 				4BA9FA520D58D8E1F58BC9A1 /* SpotVicinity.swift in Sources */,
 				A4E56F1F497ECD586C2F82C3 /* Tokens.swift in Sources */,
@@ -495,6 +510,7 @@
 				ADC646CD15C2E67D5431A07B /* TweenPin.swift in Sources */,
 				38EBE426E101BAF907787082 /* TweenState.swift in Sources */,
 				7F57BEB332C6B6FF9D6AD9DF /* UserName.swift in Sources */,
+				F3BDB1E91DC1A1393169A682 /* UserProfile.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -511,6 +527,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F81ED5087E3BED1EB9E89B36 /* ActivityView.swift in Sources */,
+				905A80F4A3CCE4E94EE42598 /* AddPointSheet.swift in Sources */,
 				879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */,
 				A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */,
 				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
@@ -536,6 +553,7 @@
 				D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */,
 				A6E23BF83DCAF97EE27417D6 /* RosterMerge.swift in Sources */,
 				84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */,
+				89112A445FB115BCC05D216D /* SearchResultMerger.swift in Sources */,
 				3607C423A0ED457F9747A0DE /* SettingsSheet.swift in Sources */,
 				FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */,
 				976882A8C236113EC99EDAA7 /* SpotETADisplay.swift in Sources */,
@@ -546,7 +564,9 @@
 				CDAE0B931818FE63823D2C54 /* TweenMapSnapshotView.swift in Sources */,
 				38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */,
 				F8DDDC3765602F9048497F1A /* TweenState.swift in Sources */,
+				D583AF64FDCE96CDEF5974D7 /* TweenSurfaces.swift in Sources */,
 				0F64262C9F3F9FD67E86F667 /* UserName.swift in Sources */,
+				4950890A2E71EDC93C9F344F /* UserProfile.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
