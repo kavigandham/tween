@@ -926,6 +926,11 @@ final class MessagesViewController: MSMessagesAppViewController {
         // two .invite bubbles (post-push audit).
         guard !isSending else { return }
         sendTask?.cancel()
+        // The chat the user tapped "I'm in" IN, captured before any await —
+        // a conversation switch racing the send must not re-point the commit
+        // below at the new chat's key (deliverBubble captures its own
+        // deliveryKey the same way; post-push verify).
+        let sendKey = conversationKey
         sendTask = Task { @MainActor in
             isSending = true
             sendStatusMessage = "Sharing your location..."
@@ -982,14 +987,20 @@ final class MessagesViewController: MSMessagesAppViewController {
                 // deliverBubble already wrote the conversation-scoped roster via
                 // recordCanonicalSnapshot.
                 LocationCache.setActive(true)
-                self.currentParticipants = participants
                 // Tombstone FIRST: LocationCache's global-mirror writes are
                 // dammed while it's set (audit at 69a3886) — joining clears
-                // it, then the roster write goes through.
-                if let conversationKey = self.conversationKey {
-                    ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
+                // it, then the roster write goes through. Keyed to the chat
+                // the send belongs to, not the live ivar.
+                if let sendKey {
+                    ConversationMeetupStore.setLocalUserLeft(false, key: sendKey)
                 }
-                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                // In-memory roster + the global mirror describe the CURRENT
+                // chat — adopt them only if we're still in the chat this send
+                // started in (a switch already reset them for the new one).
+                if self.conversationKey == sendKey {
+                    self.currentParticipants = participants
+                    LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                }
             }
             isSending = false
             if didSend {

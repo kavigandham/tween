@@ -2671,9 +2671,12 @@ struct OnboardingView: View {
         withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight) }
     }
 
-    /// Frames the camera to fit every visible result pin (Map mode).
+    /// Frames the camera to fit the top result pins (Map mode). Capped like
+    /// frameSearchResults: displayedItems now carries vicinity-cut leftovers
+    /// below the ranked spots, and fitting a far unranked hit would zoom the
+    /// camera out to state scale after every ranked search (post-push verify).
     private func frameResults() {
-        let coords = displayedItems.map(\.placemark.coordinate)
+        let coords = displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate)
         guard !coords.isEmpty else { return }
         withAnimation(Tokens.Motion.gentle) { position = Self.cameraPosition(for: coords, padding: 1.35) }
     }
@@ -2726,7 +2729,9 @@ struct OnboardingView: View {
     /// map, so this framing is what the user sees the moment they drag down or
     /// tap a result card.
     private func frameResultsWithParticipants() {
-        var coords = displayedItems.map(\.placemark.coordinate)
+        // Same rankCap prefix as the other framers — far unranked leftovers
+        // stay in the LIST but must not drive the camera (post-push verify).
+        var coords = displayedItems.prefix(Self.rankCap).map(\.placemark.coordinate)
         if let me = savedCoordinate { coords.append(me) }
         if let peer = peerCoordinate { coords.append(peer) }
         coords.append(contentsOf: manualParticipants.map(\.coordinate))

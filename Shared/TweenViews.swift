@@ -408,6 +408,10 @@ struct CompactView: View {
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
                     .buttonStyle(.tweenPrimary(.destructive))
+                    // handleImOut drops taps while a send is in flight (the
+                    // double-fire guard) — reflect that instead of looking
+                    // tappable and doing nothing (post-push verify).
+                    .disabled(isSending)
                     .accessibilityHint("Stops sharing you as active for this meetup")
                 } else {
                     Button(action: onExpand) {
@@ -476,6 +480,7 @@ struct CompactView: View {
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
                     .buttonStyle(.tweenPrimary(.destructive))
+                    .disabled(isSending)
                     .accessibilityHint("Stops sharing you as active for this meetup")
                 }
             }
@@ -1612,6 +1617,7 @@ struct ExpandedView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.tweenPrimary(.destructive))
+                        .disabled(isSending)
                         .accessibilityHint("Stops sharing you as active for this meetup")
                     } else {
                         Button(action: onImIn) {
