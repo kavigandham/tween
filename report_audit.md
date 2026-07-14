@@ -1,5 +1,7 @@
 # AUDIT REPORT — Tween — 2026-07-13 (full repo at 1aa4712, post-push; fixes landed in the follow-up commit)
 
+> **Addendum (fb3c384):** an adversarial verify of the fix commit `b0f5907` found no MAJORs; its three findings are **FIXED** in `fb3c384`: (1) the displayedItems union let far unranked leftovers drive the final search camera — `frameResults`/`frameResultsWithParticipants` now `prefix(rankCap)` like the other two framers (leftovers stay in the list, not the frame); (2) the three I'm out buttons now carry `.disabled(isSending)` so the new re-entrancy guard doesn't silently swallow taps; (3) `handleImIn`'s delivered-commit now keys the tombstone clear to a `sendKey` captured before the first await and gates in-memory roster adoption on still being in that chat (deliverBubble's deliveryKey pattern). The same pattern for `commitDeliveredLeave`/`commitDeliveredAgree` (adjacent pre-existing, narrow race) is spun off as a dedicated follow-up task. Verified: 174 tests green, corridor framing re-checked in the simulator. No new audit spawned for `fb3c384` per the fixes-only-push precedent — the audit/verify chain for this change-set is closed.
+
 Extra scrutiny on `1aa4712` (SpotVicinity between-people filter, POI category chips, Google Maps trampoline). Zero CRITICAL. The three MAJORs + two MINORs below are **FIXED** in the commit following this report; the rest is triaged.
 
 ## COMMIT 1aa4712 SCRUTINY — verified clean
