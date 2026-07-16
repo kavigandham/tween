@@ -99,7 +99,6 @@ extension OnboardingView {
         }
     }
 
-
     /// Frames the given coordinates with 20% padding on the span. A single point
     /// (or a degenerate cluster) falls back to a comfortable city-level zoom.
     ///

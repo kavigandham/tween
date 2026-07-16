@@ -181,7 +181,7 @@ extension ExpandedView {
     /// Single point of truth for selection. Updates `selectedSpotID`, which
     /// scrolls the list, re-styles the pin, and re-focuses the snapshot (the
     /// snapshot's focusCoordinate follows the selected spot).
-    func select(_ spot: RankedSpot, animateMap: Bool = false) {
+    func select(_ spot: RankedSpot) {
         selectedSpotID = spot.id
     }
 

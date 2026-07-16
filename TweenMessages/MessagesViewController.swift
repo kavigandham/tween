@@ -47,6 +47,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     var sendStatusMessage: String?
     var recentlySentSpotName: String?
     var conversationKey: String?
+    var selectedSearchCategory: MessagesSearchCategory = .food
 
     let locationProvider = LocationProvider()
     let networkMonitor = NetworkMonitor()
@@ -61,10 +62,6 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Messages-host blank strip. See `docs/ui-research.md` §3 (blank-render
     /// causes) and `.claude/skills/imessage-extension.md`.
     var fallbackView: UIView?
-
-    /// Default place query for the extension's fair-spot search. There's no
-    /// category UI here, so we bias toward common, universal meetup spots.
-    static let defaultQuery = "cafe restaurant food"
 
     /// Status copy set by `deliverBubble` when direct send was rejected and
     /// the bubble was staged in the input field instead. `handleImIn` compares
@@ -164,6 +161,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             currentParticipants = []
             sendStatusMessage = nil
             recentlySentSpotName = nil
+            selectedSearchCategory = .food
             isRanking = false
             rankingTask?.cancel()
             // An in-flight send belongs to the chat it started in — abandon it so
@@ -385,6 +383,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
                     onSendDraft: { [weak self] in self?.sendDraft() },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
+                    selectedSearchCategory: selectedSearchCategory,
+                    onSelectSearchCategory: { [weak self] category in self?.selectSearchCategory(category) },
                     onOpenInMaps: { [weak self] state in self?.openInPreferredMaps(for: state) },
                     isSending: isSending,
                     statusMessage: sendStatusMessage,

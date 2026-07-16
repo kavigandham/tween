@@ -3,6 +3,51 @@ import UIKit
 import MapKit
 import CoreLocation
 
+enum MessagesSearchCategory: String, CaseIterable, Identifiable, Equatable {
+    case coffee
+    case food
+    case gas
+    case study
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .coffee: return "Coffee"
+        case .food: return "Food"
+        case .gas: return "Gas"
+        case .study: return "Study"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .coffee: return "cup.and.saucer.fill"
+        case .food: return "fork.knife"
+        case .gas: return "fuelpump.fill"
+        case .study: return "book.fill"
+        }
+    }
+
+    var mapKitQuery: String {
+        switch self {
+        case .coffee: return "coffee shop"
+        case .food: return "restaurant"
+        case .gas: return "gas station"
+        case .study: return "library"
+        }
+    }
+
+    var poiCategories: [MKPointOfInterestCategory] {
+        switch self {
+        case .coffee: return [.cafe, .bakery]
+        case .food: return [.restaurant]
+        case .gas: return [.gasStation]
+        case .study: return [.library, .cafe, .university]
+        }
+    }
+}
+
 // NOTE: ExpandedView renders its map with `TweenMapSnapshotView`
 // (MKMapSnapshotter) — never `MKMapView` — per CLAUDE.md HARD CONSTRAINT #1.
 // An interactive pan/zoom Map once lived here behind a feature flag that was
@@ -41,6 +86,8 @@ struct ExpandedView: View {
     var onAgreePlace: (TweenState) -> Void = { _ in }
     var onSendDraft: () -> Void = {}
     var onOpenFullApp: () -> Void = {}
+    var selectedSearchCategory: MessagesSearchCategory = .food
+    var onSelectSearchCategory: (MessagesSearchCategory) -> Void = { _ in }
     /// Fired by the MEETUP SET view's map-app buttons.
     /// Opens driving directions in the user's PREFERRED maps app (Settings →
     /// Apple/Google) — one button, one callback; the controller resolves the
@@ -266,6 +313,10 @@ struct ExpandedView: View {
 
             rosterStrip
 
+            if shouldShowCategoryRail {
+                categoryRail
+            }
+
             if rankedSpots.isEmpty {
                 panelEmptyState
             } else {
@@ -355,6 +406,42 @@ struct ExpandedView: View {
         .accessibilityLabel("Who's in")
     }
 
+    var categoryRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Tokens.Spacing.s2) {
+                ForEach(MessagesSearchCategory.allCases) { category in
+                    let selected = category == selectedSearchCategory
+                    Button {
+                        onSelectSearchCategory(category)
+                    } label: {
+                        Label(category.title, systemImage: category.icon)
+                            .font(Tokens.Typography.captionBold)
+                            .lineLimit(1)
+                            .padding(.horizontal, Tokens.Spacing.s3)
+                            .frame(minHeight: 36)
+                            .background(selected ? Tokens.Palette.brand : Tokens.Palette.surface,
+                                        in: Capsule())
+                            .foregroundStyle(selected ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSending)
+                    .accessibilityHint("Finds fair \(category.title.lowercased()) spots")
+                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+        .frame(height: 38)
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(3)
+        .sensoryFeedback(.selection, trigger: selectedSearchCategory)
+    }
+
+    var shouldShowCategoryRail: Bool {
+        guard received?.kind != .place else { return false }
+        return isUserIn || hasEnoughPeopleForSpots || isRanking || !rankedSpots.isEmpty
+    }
+
     func rosterDot(name: String, isSelf: Bool) -> some View {
         HStack(spacing: Tokens.Spacing.s1) {
             Text(isSelf ? "You" : SpotETADisplay.initials(for: name))
@@ -424,7 +511,7 @@ struct ExpandedView: View {
                             if let spot = selectedSpot {
                                 onSelectSpot(spot)
                             } else if let first = rankedSpots.first {
-                                select(first, animateMap: true)
+                                select(first)
                             }
                         } label: {
                             Label(selectedSpot == nil ? "Find fair spots" : "Send change",
@@ -542,7 +629,7 @@ struct ExpandedView: View {
                 if let spot = selectedSpot {
                     onSelectSpot(spot)
                 } else if let first = rankedSpots.first {
-                    select(first, animateMap: true)
+                    select(first)
                 }
             } label: {
                 Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")

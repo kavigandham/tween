@@ -107,10 +107,10 @@ struct TweenPin: View {
     /// at 42fdc68). The legacy `.rideNeeded` role keeps working: it renders
     /// the avatar family with the badge forced on.
     var needsRide: Bool = false
-    /// When false, animated effects are suppressed. The extension's live
-    /// `Map` passes `false` so a continuously animating glyph doesn't keep
-    /// `MKMapView`'s render loop hot (memory/GPU pressure under the ~120 MB
-    /// ceiling).
+    /// When false, animated effects are suppressed — pass `false` anywhere a
+    /// continuously animating glyph would keep a render loop hot (the host
+    /// app's live map is the only live-map user; the extension is
+    /// snapshotter-only).
     var animated: Bool = true
 
     /// "Hassan Ahmed" → "HA"; single names give one letter. Shared so the

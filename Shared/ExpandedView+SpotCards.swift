@@ -50,7 +50,7 @@ extension ExpandedView {
         }
         .animation(reduceMotion ? nil : Tokens.Motion.snappy, value: isSelected)
         .contentShape(Rectangle())
-        .onTapGesture { select(spot, animateMap: true) }
+        .onTapGesture { select(spot) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))")
         .accessibilityHint("Selects this spot to send")

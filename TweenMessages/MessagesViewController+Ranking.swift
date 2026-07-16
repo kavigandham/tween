@@ -45,7 +45,7 @@ extension MessagesViewController {
                 center: center,
                 span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span))
             let pool = await Self.searchCandidates(
-                query: Self.defaultQuery,
+                category: self.selectedSearchCategory,
                 region: region,
                 minimumCount: Self.searchPoolSize,
                 timeoutNanoseconds: Self.searchTimeoutNanoseconds)
@@ -73,31 +73,75 @@ extension MessagesViewController {
         }
     }
 
-    static func searchCandidates(query: String,
-                                         region: MKCoordinateRegion,
-                                         minimumCount: Int,
-                                         timeoutNanoseconds: UInt64) async -> [MKMapItem] {
-        let local = await searchItems(query: query,
-                                      region: region,
-                                      regionRequired: true,
-                                      timeoutNanoseconds: timeoutNanoseconds)
-        if #available(iOS 18.0, *), local.count < minimumCount {
-            let fallback = await searchItems(query: query,
+    func selectSearchCategory(_ category: MessagesSearchCategory) {
+        guard selectedSearchCategory != category else { return }
+        selectedSearchCategory = category
+        rankedSpots = []
+        kickOffRanking()
+    }
+
+    static func searchCandidates(category: MessagesSearchCategory,
+                                 region: MKCoordinateRegion,
+                                 minimumCount: Int,
+                                 timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+        let local = await searchPOIItems(category: category,
+                                         region: region,
+                                         timeoutNanoseconds: timeoutNanoseconds)
+        if local.count >= minimumCount {
+            return SearchResultMerger.deduped(local)
+        }
+
+        let localText = await searchItems(query: category.mapKitQuery,
+                                          category: category,
+                                          region: region,
+                                          regionRequired: true,
+                                          timeoutNanoseconds: timeoutNanoseconds)
+        if #available(iOS 18.0, *), localText.count < minimumCount {
+            let fallback = await searchItems(query: category.mapKitQuery,
+                                             category: category,
                                              region: region,
                                              regionRequired: false,
                                              timeoutNanoseconds: timeoutNanoseconds)
-            return SearchResultMerger.merge(local: local, fallback: fallback, minimumCount: minimumCount)
+            let localMerged = SearchResultMerger.merge(local: local, fallback: localText, minimumCount: minimumCount)
+            return SearchResultMerger.merge(local: localMerged, fallback: fallback, minimumCount: minimumCount)
         }
-        return SearchResultMerger.deduped(local)
+        return SearchResultMerger.merge(local: local, fallback: localText, minimumCount: minimumCount)
+    }
+
+    static func searchPOIItems(category: MessagesSearchCategory,
+                               region: MKCoordinateRegion,
+                               timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+        let halfSpanMeters = max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000 / 2
+        let radius = min(max(halfSpanMeters, 1_000), MKLocalPointsOfInterestRequest.maxRadius)
+        let request = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: category.poiCategories)
+
+        let response = await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
+            group.addTask {
+                try? await MKLocalSearch(request: request).start()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return nil
+            }
+
+            let response = await group.next() ?? nil
+            group.cancelAll()
+            return response
+        }
+        return response?.mapItems ?? []
     }
 
     static func searchItems(query: String,
-                                    region: MKCoordinateRegion,
-                                    regionRequired: Bool,
-                                    timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+                            category: MessagesSearchCategory,
+                            region: MKCoordinateRegion,
+                            regionRequired: Bool,
+                            timeoutNanoseconds: UInt64) async -> [MKMapItem] {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.region = region
+        request.resultTypes = .pointOfInterest
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: category.poiCategories)
         if regionRequired, #available(iOS 18.0, *) {
             request.regionPriority = .required
         }
