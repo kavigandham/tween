@@ -438,7 +438,6 @@ struct ExpandedView: View {
     }
 
     var shouldShowCategoryRail: Bool {
-        guard received?.kind != .place else { return false }
         return isUserIn || hasEnoughPeopleForSpots || isRanking || !rankedSpots.isEmpty
     }
 

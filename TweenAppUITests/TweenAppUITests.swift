@@ -23,6 +23,10 @@ final class TweenAppUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Proposal With Draft View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Hangry Joe's Hot Chicken"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Coffee"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Food"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Gas"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Study"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Agree"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Send McDonald's instead"].waitForExistence(timeout: 5))
