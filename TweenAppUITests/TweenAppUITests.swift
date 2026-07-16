@@ -32,6 +32,22 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Send McDonald's instead"].waitForExistence(timeout: 5))
     }
 
+    func testOwnProposalKeepsCategoriesAndDoesNotOfferAgree() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HARNESS", "-HARNESS_OWN_PROPOSAL"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Own Proposal View"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["You chose"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Barnes & Noble"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Coffee"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Food"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Gas"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Study"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Agree"].exists)
+    }
+
     func testSoloUserDoesNotShowEndlessFindingState() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-HARNESS", "-HARNESS_SOLO_WAITING"]

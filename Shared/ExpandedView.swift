@@ -483,7 +483,6 @@ struct ExpandedView: View {
                 // to agree get the same Agree / Change controls as a proposal;
                 // people who already agreed get a wait state without blocking
                 // the rest of the spot flow.
-                let myName = UserProfile.displayName ?? UserName.fallback
                 let needsMyAgreement = !received.isProposer(participantID: localParticipantID, name: myName)
                     && !received.hasAgreed(participantID: localParticipantID, name: myName)
                 if needsMyAgreement {
@@ -492,39 +491,14 @@ struct ExpandedView: View {
                         draftAlternateButton
                     }
                 } else {
-                    let missing = received.missingAgreementNames(excluding: localParticipantID, name: myName)
-                    HStack(spacing: Tokens.Spacing.s2) {
-                        Label(missing.isEmpty
-                                ? "Waiting for your friend"
-                                : "Waiting for \(missing.joined(separator: ", "))",
-                              systemImage: "hourglass")
-                            .lineLimit(1)
-                            .font(Tokens.Typography.subheadline.weight(.semibold))
-                            .foregroundStyle(Tokens.Palette.textSecondary)
-                            .padding(.horizontal, Tokens.Spacing.s3)
-                            .frame(minHeight: Tokens.Layout.minTapTarget)
-                            .background(Tokens.Palette.surfaceSecondary, in: Capsule())
-
-                        Button {
-                            sendTick += 1
-                            if let spot = selectedSpot {
-                                onSelectSpot(spot)
-                            } else if let first = rankedSpots.first {
-                                select(first)
-                            }
-                        } label: {
-                            Label(selectedSpot == nil ? "Find fair spots" : "Send change",
-                                  systemImage: selectedSpot == nil ? "mappin.and.ellipse" : "paperplane.fill")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.tweenPrimary())
-                        .disabled(rankedSpots.isEmpty || isSending)
-                        .accessibilityHint(selectedSpot == nil ? "Shows fair options for the people who are in" : "Sends the selected spot")
-                    }
+                    waitingChangeRow(for: received)
                 }
             } else if let received, received.kind == .place {
                 if received.isFullyAgreed {
                     directionButtons(for: received)
+                } else if received.isProposer(participantID: localParticipantID, name: myName)
+                            || received.hasAgreed(participantID: localParticipantID, name: myName) {
+                    waitingChangeRow(for: received)
                 } else {
                     VStack(spacing: Tokens.Spacing.s2) {
                         agreeChangeRow(for: received)
@@ -606,6 +580,39 @@ struct ExpandedView: View {
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)
+    }
+
+    func waitingChangeRow(for received: TweenState) -> some View {
+        let missing = received.missingAgreementNames(excluding: localParticipantID, name: myName)
+        return HStack(spacing: Tokens.Spacing.s2) {
+            Label(missing.isEmpty
+                    ? "Waiting for replies"
+                    : "Waiting for \(missing.joined(separator: ", "))",
+                  systemImage: "hourglass")
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .padding(.horizontal, Tokens.Spacing.s3)
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                .background(Tokens.Palette.surfaceSecondary, in: Capsule())
+
+            Button {
+                sendTick += 1
+                if let spot = selectedSpot {
+                    onSelectSpot(spot)
+                } else if let first = rankedSpots.first {
+                    select(first)
+                }
+            } label: {
+                Label(selectedSpot == nil ? "Change" : "Send change",
+                      systemImage: selectedSpot == nil ? "arrow.triangle.2.circlepath" : "paperplane.fill")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .disabled(rankedSpots.isEmpty || isSending)
+            .accessibilityHint(selectedSpot == nil ? "Selects another fair spot" : "Sends the selected alternative")
+        }
     }
 
     func agreeChangeRow(for received: TweenState) -> some View {

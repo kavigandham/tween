@@ -262,6 +262,14 @@ extension MessagesViewController {
     /// and appends this user's identity to the agreement list; the receiver decides if
     /// that's enough for full consensus via `state.isFullyAgreed`.
     func sendAgreedPlace(_ proposed: TweenState) {
+        let myName = Self.localParticipantName()
+        let myId = localParticipantID()
+        guard !proposed.isProposer(participantID: myId, name: myName),
+              !proposed.hasAgreed(participantID: myId, name: myName) else {
+            received = effectiveReceived(decoded: proposed)
+            presentUI(for: presentationStyle)
+            return
+        }
         // Re-entrancy guard: without it the Agree button stayed enabled for
         // the whole location-fix + send window, and a second tap past the
         // point of no return emitted a second .agree bubble (audit).
@@ -297,7 +305,6 @@ extension MessagesViewController {
                 senderCoordinate = nil
             }
 
-            let myName = Self.localParticipantName()
             // Build the forward participants list. The proposed bubble's
             // participants are authoritative; refresh my entry's coord.
             var participants = proposed.participants.isEmpty
@@ -322,7 +329,6 @@ extension MessagesViewController {
             // agreer. agreedIDs drive real consensus; this is display-only.
             agreed.removeAll { $0.caseInsensitiveCompare(myName) == .orderedSame }
             agreed.append(myName)
-            let myId = self.localParticipantID()
             // Legacy proposals (no senderID) stay in the NAME namespace end to
             // end. The old fallback stamped the AGREER's id as proposer, which
             // excluded the wrong person from consensus (T7) — and appending a

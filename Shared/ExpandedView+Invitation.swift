@@ -11,12 +11,13 @@ extension ExpandedView {
         guard let received else {
             return isUserIn ? "You're in" : "Tween"
         }
-        let name = received.senderName ?? "Your friend"
+        let isMine = received.isProposer(participantID: localParticipantID, name: myName)
+        let name = isMine ? "You" : (received.senderName ?? "Your friend")
         switch received.messageType {
         case .invite: return "Invite"
         case .leave: return "\(name) left"
-        case .propose: return "\(name) chose"
-        case .counter: return "\(name) suggests"
+        case .propose: return isMine ? "You chose" : "\(name) chose"
+        case .counter: return isMine ? "You suggested" : "\(name) suggests"
         case .agree where received.isFullyAgreed: return "Meetup set"
         case .agree: return "Agreement"
         }

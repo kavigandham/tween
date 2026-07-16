@@ -99,11 +99,31 @@ struct HarnessView: View {
                             rankedSpots: DebugLaunchSeed.rankedSpots,
                             isUserIn: true,
                             draft: DebugLaunchSeed.draft,
+                            localParticipantID: DebugLaunchSeed.localParticipantID,
                             onImIn: {},
                             onImOut: {},
                             onSelectSpot: { _ in },
                             onAgreePlace: { _ in },
                             onSendDraft: {},
+                            onOpenFullApp: {}
+                        )
+                        .frame(height: 760)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+                }
+
+                if focus.includes(.ownProposal) {
+                    section("Own Proposal View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.ownProposal,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: DebugLaunchSeed.rankedSpots,
+                            isUserIn: true,
+                            localParticipantID: DebugLaunchSeed.localParticipantID,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onAgreePlace: { _ in },
                             onOpenFullApp: {}
                         )
                         .frame(height: 760)
@@ -169,6 +189,7 @@ enum HarnessFocus: Equatable {
     case invite
     case meetup
     case proposalDraft
+    case ownProposal
     case soloWaiting
     case twoReadyNoResults
 
@@ -176,6 +197,7 @@ enum HarnessFocus: Equatable {
         if CommandLine.arguments.contains("-HARNESS_INVITE") { return .invite }
         if CommandLine.arguments.contains("-HARNESS_MEETUP") { return .meetup }
         if CommandLine.arguments.contains("-HARNESS_PROPOSAL_DRAFT") { return .proposalDraft }
+        if CommandLine.arguments.contains("-HARNESS_OWN_PROPOSAL") { return .ownProposal }
         if CommandLine.arguments.contains("-HARNESS_SOLO_WAITING") { return .soloWaiting }
         if CommandLine.arguments.contains("-HARNESS_TWO_READY_NO_RESULTS") { return .twoReadyNoResults }
         return .all
@@ -189,6 +211,7 @@ enum HarnessFocus: Equatable {
 /// Hardcoded fixtures that drive the harness. Kept separate from the view so the
 /// seed is easy to reuse and obviously test-only. DEBUG builds only.
 enum DebugLaunchSeed {
+    static let localParticipantID = "local-user"
     /// Downtown San Francisco — stands in for the friend's shared spot.
     static let friendCoordinate = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
     /// San Jose — stands in for our own shared location.
@@ -235,13 +258,30 @@ enum DebugLaunchSeed {
         latitude: 32.0810,
         longitude: -81.1007,
         senderName: "Hassan",
+        senderID: "remote-hassan",
         kind: .place,
         senderCoordinate: friendCoordinate,
         action: .invite,
         messageType: .propose,
         participants: [
-            Participant(id: "Hassan", name: "Hassan", coordinate: friendCoordinate),
-            Participant(id: "Kavi", name: "Kavi Gandham", coordinate: selfCoordinate)
+            Participant(id: "remote-hassan", name: "Hassan", coordinate: friendCoordinate),
+            Participant(id: localParticipantID, name: "Kavi Gandham", coordinate: selfCoordinate)
+        ]
+    )
+
+    static let ownProposal = TweenState(
+        text: "Barnes & Noble",
+        latitude: 39.0438,
+        longitude: -77.4874,
+        senderName: "Hassan",
+        senderID: localParticipantID,
+        kind: .place,
+        senderCoordinate: selfCoordinate,
+        action: .invite,
+        messageType: .propose,
+        participants: [
+            Participant(id: localParticipantID, name: "Hassan", coordinate: selfCoordinate),
+            Participant(id: "remote-ashraf", name: "Ashraf Ullah", coordinate: friendCoordinate)
         ]
     )
 
