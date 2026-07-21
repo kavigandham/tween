@@ -283,17 +283,24 @@ extension OnboardingView {
             rankedSpots = []
             return
         }
+        // Fill every visible row/pin immediately. Real routes replace these
+        // estimates below, but the UI never has a timing-free gap.
+        rankedSpots = FairnessRanker.estimatedRankings(
+            candidates: searchResults, participants: participants)
         let cap = participants.count >= 3
             ? FairnessRanker.recommendedCap(for: participants.count)
             : Self.rankCap
         // Same hard between-people cut as runSearch — adding/removing a point
         // reshapes the corridor, so re-filter against the NEW participant set.
         let candidates = SpotVicinity.filter(searchResults, participants: participants, minimumCount: 3)
-        let ranked = await FairnessRanker.rank(
+        let routed = await FairnessRanker.rank(
             candidates: candidates, participants: participants, cap: cap)
         // A newer search/re-rank may have superseded this one mid-flight.
         guard !Task.isCancelled else { return }
-        rankedSpots = ranked
+        rankedSpots = FairnessRanker.completeRankings(
+            routed: routed,
+            allCandidates: searchResults,
+            participants: participants)
     }
 
     /// Straight-line distance from you to a manual point, for the route chips.
@@ -342,21 +349,29 @@ extension OnboardingView {
         // The old code gated on a peer coordinate, which is why the app did
         // nothing useful alone (device feedback).
         if !items.isEmpty, let participants = searchRankingParticipants {
+            // Publish a complete estimated set before awaiting MapKit. This
+            // keeps participant times present from the first rendered row and
+            // gives a fast pin tap the same timing model as a list tap.
+            rankedSpots = FairnessRanker.estimatedRankings(
+                candidates: items, participants: participants)
             let cap = participants.count >= 3
                 ? FairnessRanker.recommendedCap(for: participants.count)
                 : Self.rankCap
             // Hard between-people cut BEFORE ranking (device feedback: spots
             // must actually sit between the group, not in whatever commercial
             // corridor MapKit's relevance drifted to). The cut trims the RANKED
-            // pool only — anything it drops (a typed search's one specific far
-            // place) stays visible as an unranked row via displayedItems, and
-            // a wholly-far pool passes through unfiltered rather than emptying
-            // the list (SpotVicinity relaxes ×1.5/×2.5, then gives up).
+            // pool only. Anything it drops (a typed search's one specific far
+            // place) keeps a straight-line ETA estimate; a wholly-far pool
+            // passes through unfiltered rather than emptying the list
+            // (SpotVicinity relaxes ×1.5/×2.5, then gives up).
             let candidates = SpotVicinity.filter(items, participants: participants, minimumCount: 3)
-            let ranked = await FairnessRanker.rank(
+            let routed = await FairnessRanker.rank(
                 candidates: candidates, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
-            rankedSpots = ranked
+            rankedSpots = FairnessRanker.completeRankings(
+                routed: routed,
+                allCandidates: items,
+                participants: participants)
             if reframeMap {
                 frameSearchResults()
             }

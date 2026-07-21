@@ -3,9 +3,9 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         content
-            // Brand teal flows to every system control (segmented picker,
-            // selection, ContentUnavailableView) that reads the tint.
-            .tint(Tokens.Palette.brand)
+            // The product-wide navy tint keeps native controls aligned with
+            // Tween's action hierarchy. Map pins keep their semantic colours.
+            .tint(Tokens.Palette.accent)
     }
 
     @ViewBuilder

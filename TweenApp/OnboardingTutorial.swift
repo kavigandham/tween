@@ -42,7 +42,7 @@ struct OnboardingTutorialView: View {
             eyebrow: "Step 3",
             title: "Send it to chat",
             body: "Share the spot back into iMessage. The app and extension keep the same meetup state.",
-            accent: Tokens.Palette.brand,
+            accent: Tokens.Palette.accent,
             visual: .messages
         ),
         TutorialSlide(
@@ -95,29 +95,28 @@ struct OnboardingTutorialView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: Tokens.Spacing.s3) {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text("Tween guide")
                     .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.brand)
+                    .foregroundStyle(Tokens.Palette.accent)
                     .textCase(.uppercase)
                 Text("How to meet halfway")
                     .font(Tokens.Typography.title2.weight(.bold))
                     .foregroundStyle(Tokens.Palette.textPrimary)
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button(action: onDone) {
-                Text("Skip")
+                Image(systemName: "xmark")
                     .font(Tokens.Typography.headline)
                     .foregroundStyle(Tokens.Palette.textPrimary)
-                    .padding(.horizontal, Tokens.Spacing.s4)
-                    .frame(minHeight: Tokens.Layout.minTapTarget)
-                    .background(Tokens.Palette.surfaceSecondary, in: Capsule())
+                    .frame(width: Tokens.Layout.minTapTarget, height: Tokens.Layout.minTapTarget)
+                    .background(Tokens.Palette.surfaceSecondary, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Skip guide")
+            .accessibilityLabel("Close guide")
         }
         .padding(.horizontal, Tokens.Spacing.s5)
     }
@@ -438,7 +437,7 @@ private struct DirectionChip: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
+        .foregroundStyle(isSelected ? .white : Tokens.Palette.accent)
         .frame(maxWidth: .infinity, minHeight: 92)
         .background(isSelected ? Tokens.Palette.brand : Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
     }

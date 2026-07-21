@@ -178,7 +178,7 @@ struct CompactView: View {
                 .fill(Tokens.Palette.brandLight)
             Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                 .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.brand)
+                .foregroundStyle(Tokens.Palette.accent)
         }
         .frame(width: 42, height: 42)
     }
@@ -218,7 +218,7 @@ struct CompactView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(rosterCount) people in")
         } else if rosterCount > 1 {
-            rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.brand)
+            rosterPill("\(rosterCount) in", systemImage: "person.2.fill", color: Tokens.Palette.accent)
         }
     }
 
@@ -285,7 +285,7 @@ struct CompactView: View {
             Text(isUserIn ? "You are in" : "Waiting on you")
         }
         .font(Tokens.Typography.captionBold)
-        .foregroundStyle(isUserIn ? Tokens.Palette.success : Tokens.Palette.brand)
+        .foregroundStyle(isUserIn ? Tokens.Palette.success : Tokens.Palette.accent)
         .padding(.horizontal, Tokens.Spacing.s2)
         .frame(minHeight: 26)
         .background((isUserIn ? Tokens.Palette.success : Tokens.Palette.brand).opacity(0.12), in: Capsule())
@@ -368,4 +368,3 @@ struct CompactView: View {
     )
     .frame(height: 120)
 }
-

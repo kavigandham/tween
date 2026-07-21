@@ -97,7 +97,6 @@ struct OnboardingView: View {
     @State var monitor = NetworkMonitor()
     @State var position: MapCameraPosition
     @State var mapDisplayStyle: MapDisplayStyle = .standard
-    @State var isMapStylePickerExpanded = false
     @State var resetNextTapReturnsToUser = false
     /// Opens at the half detent (search bar + chips + "I'm in" + the
     /// Search/Friends toggle), Apple-Maps style. Drag down to the search-only
@@ -129,8 +128,8 @@ struct OnboardingView: View {
     /// `docs/ui-research.md` §11. `Tokens.Layout.minTapTarget` (44 pt) is the
     /// HIG floor at the default text size; at XXL Dynamic Type this grows so
     /// users with larger system text still hit the target easily. Applied to
-    /// `resetMapButton` and `infoButton`, and the pattern other icon-button
-    /// call sites should follow.
+    /// The two controls in `topMapToolbar` use this shared hit target, and the
+    /// pattern applies to other icon-button call sites.
     @ScaledMetric var floatingControlSize: CGFloat = Tokens.Layout.minTapTarget
     /// Friends-circle diameter, scaled relative to the caption type its
     /// initials render in — a fixed 44pt let AX-size initials overflow it.
@@ -526,6 +525,10 @@ struct OnboardingView: View {
         }
         .ignoresSafeArea()
         .mapStyle(mapDisplayStyle.mapStyle)
+        // SwiftUI's automatic compass otherwise occupies the same top-right
+        // plane as Tween's controls and can appear stranded there. Orientation
+        // and recentering now live in the deliberate map toolbar below.
+        .mapControlVisibility(.hidden)
     }
 
     var body: some View {
@@ -535,7 +538,7 @@ struct OnboardingView: View {
         // every attempt at a status-bar treatment read as a weird band.
         ZStack {
             mapLayer
-            topTrailingControls
+            topMapToolbar
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             viewModeToggle
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -638,8 +641,8 @@ struct OnboardingView: View {
                                 .navigationTitle("Friends")
                                 .navigationBarTitleDisplayMode(.inline)
                                 .toolbar {
-                                    ToolbarItem(placement: .confirmationAction) {
-                                        Button("Done") { activeSheet = nil }
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("Close") { activeSheet = nil }
                                     }
                                 }
                                 // Presented from THIS sheet: the trigger is a

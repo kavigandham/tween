@@ -148,7 +148,7 @@ extension ExpandedView {
         HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: emptySpotListIcon)
                 .font(.system(size: 22))
-                .foregroundStyle(Tokens.Palette.brand)
+                .foregroundStyle(Tokens.Palette.accent)
                 .frame(width: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(emptySpotListTitle)

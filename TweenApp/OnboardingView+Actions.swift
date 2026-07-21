@@ -96,6 +96,13 @@ extension OnboardingView {
             LocationCache.save(sanJose, isActive: true)
             savedCoordinate = sanJose
             await runSearch(trimmed: "coffee", reframeMap: true)
+            // Combine with -DEMO_SPOT_SHEET to exercise the exact user path:
+            // a real, identifier-backed MapKit place opened from a ranked map
+            // pin, with Tween's participant times above Apple's rich detail.
+            if CommandLine.arguments.contains("-DEMO_SPOT_SHEET"),
+               let item = displayedItems.first {
+                activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+            }
             return
         }
         // -DEMO_SETTINGS: opens the Settings sheet (maps-app preference) for
@@ -248,8 +255,6 @@ extension OnboardingView {
     func commitLeaveLocally(remaining: [Participant], revision: Int?) {
         withAnimation(Tokens.Motion.spring) { isUserIn = false }
         localNeedsRide = false
-        let myName = UserProfile.displayName ?? UserName.fallback
-        let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         noteOutgoingRevision(revision)
         if let key = ConversationMeetupStore.lastActiveConversationKey {
             // The rejoin roster (D4) lives in the SCOPED snapshot only.

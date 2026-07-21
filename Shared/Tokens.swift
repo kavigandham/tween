@@ -27,21 +27,25 @@ enum Tokens {
         /// to read as a field over the sheet blur.
         static let inputFill = Color(uiColor: .systemGray5)
 
-        // Brand — deep teal #008C8C, brightened in dark mode for contrast.
+        // Brand — a restrained midnight navy. Teal remains available to the
+        // map as a functional result-pin colour; it no longer competes with
+        // navigation, selection, and primary actions throughout the product.
         static let brand = dynamicColor(
-            light: UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1),   // #008C8C
-            dark:  UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1))    // #29C7C7
-        /// Foreground for content sitting ON a brand fill (audit W20).
-        /// White on the light-mode teal is ~4.1:1 (passes for the semibold
-        /// CTA text sizes); white on the BRIGHT dark-mode teal was ~2.1:1 —
-        /// a WCAG failure — so dark mode uses a near-black teal (~7:1),
-        /// the same trick Apple uses on its bright green/yellow fills.
+            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),  // #123252
+            dark:  UIColor(red: 0.176, green: 0.380, blue: 0.557, alpha: 1))   // #2D618E
+        /// Interactive text, icons, selection marks, and native tint. Dark mode
+        /// lifts the lightness so small affordances remain legible on glass;
+        /// filled primary controls continue to use the deeper `brand` navy.
+        static let accent = dynamicColor(
+            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),  // #123252
+            dark:  UIColor(red: 0.396, green: 0.710, blue: 0.918, alpha: 1))   // #65B5EA
+        /// Foreground for content sitting on the navy action fill.
         static let onBrand = dynamicColor(
             light: UIColor.white,
-            dark:  UIColor(red: 0.00, green: 0.208, blue: 0.208, alpha: 1))    // #003535
+            dark:  UIColor.white)
         static let brandLight = dynamicColor(
-            light: UIColor(red: 0.878, green: 0.953, blue: 0.953, alpha: 1),   // #E0F3F3
-            dark:  UIColor(red: 0.082, green: 0.176, blue: 0.204, alpha: 1))   // #152D34
+            light: UIColor(red: 0.918, green: 0.945, blue: 0.969, alpha: 1),  // #EAF1F7
+            dark:  UIColor(red: 0.090, green: 0.145, blue: 0.208, alpha: 1))   // #172535
         static let neutralAction = dynamicColor(
             light: UIColor(red: 0.925, green: 0.941, blue: 0.957, alpha: 1),   // #ECF0F4
             dark:  UIColor(red: 0.122, green: 0.137, blue: 0.165, alpha: 1))   // #1F232A
@@ -88,8 +92,8 @@ enum Tokens {
             static let pinResult = UIColor.systemTeal
             static let brand = UIColor { traits in
                 traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.16, green: 0.780, blue: 0.780, alpha: 1)       // #29C7C7
-                : UIColor(red: 0.00, green: 0.549, blue: 0.549, alpha: 1)       // #008C8C
+                ? UIColor(red: 0.176, green: 0.380, blue: 0.557, alpha: 1)      // #2D618E
+                : UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1)      // #123252
             }
         }
     }
@@ -161,10 +165,28 @@ enum Tokens {
     // MARK: - Motion
 
     enum Motion {
-        static let quick = Animation.easeInOut(duration: 0.16)
-        static let snappy = Animation.easeInOut(duration: 0.40)
-        static let spring = Animation.spring(duration: 0.48, bounce: 0.12)
-        static let gentle = Animation.easeInOut(duration: 0.66)
+        /// Resolve at the call site so changing Reduce Motion in Settings takes
+        /// effect without relaunching Tween. A near-instant fade preserves the
+        /// state change while removing spatial travel and spring motion.
+        private static var reduced: Animation { .linear(duration: 0.01) }
+
+        static var quick: Animation {
+            UIAccessibility.isReduceMotionEnabled ? reduced : .easeOut(duration: 0.12)
+        }
+
+        static var snappy: Animation {
+            UIAccessibility.isReduceMotionEnabled ? reduced : .easeOut(duration: 0.28)
+        }
+
+        static var spring: Animation {
+            UIAccessibility.isReduceMotionEnabled
+                ? reduced
+                : .spring(duration: 0.36, bounce: 0.08)
+        }
+
+        static var gentle: Animation {
+            UIAccessibility.isReduceMotionEnabled ? reduced : .easeInOut(duration: 0.45)
+        }
     }
 
     // MARK: - Elevation
@@ -209,9 +231,9 @@ extension View {
 
     /// Scales the view down slightly while pressed for tactile feedback.
     /// Uses the QUICK curve: press feedback must land on touch-down, and the
-    /// 0.4 s snappy curve made buttons feel like they responded on release.
+    /// broader navigation curve made buttons feel like they responded on release.
     func tweenPressFeedback(isPressed: Bool) -> some View {
-        self.scaleEffect(isPressed ? 0.96 : 1)
+        self.scaleEffect(isPressed ? 0.98 : 1)
             .animation(Tokens.Motion.quick, value: isPressed)
     }
 }
@@ -219,7 +241,7 @@ extension View {
 // MARK: - Button styles
 
 /// The house button style. `.prominent` is a filled brand rounded-rect for
-/// primary CTAs; `.subtle` is a brand-tinted one for secondary actions. Both
+/// primary CTAs; `.subtle` is a neutral one for secondary actions. Both
 /// press down with `tweenPressFeedback`. Shape matches the filled
 /// rounded-rectangle buttons Apple's own place card renders ("Get
 /// Directions" / "Open in Apple Maps") — the look every Tween button now
@@ -249,7 +271,7 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
     private var foreground: Color {
         switch variant {
         case .prominent: return Tokens.Palette.onBrand
-        case .subtle:    return Tokens.Palette.brand
+        case .subtle:    return Tokens.Palette.accent
         case .neutral:   return Tokens.Palette.textPrimary
         case .destructive: return Tokens.Palette.destructive
         }
@@ -258,7 +280,7 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
     private var background: AnyShapeStyle {
         switch variant {
         case .prominent: return AnyShapeStyle(Tokens.Palette.brand)
-        case .subtle:    return AnyShapeStyle(Tokens.Palette.brandLight)
+        case .subtle:    return AnyShapeStyle(Tokens.Palette.neutralAction)
         case .neutral:   return AnyShapeStyle(Tokens.Palette.neutralAction)
         case .destructive: return AnyShapeStyle(Tokens.Palette.destructiveLight)
         }

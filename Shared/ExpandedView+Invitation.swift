@@ -77,7 +77,7 @@ extension ExpandedView {
                 VStack(spacing: Tokens.Spacing.s2) {
                     Image(systemName: "person.2.fill")
                         .font(Tokens.Typography.title2)
-                        .foregroundStyle(Tokens.Palette.brand)
+                        .foregroundStyle(Tokens.Palette.accent)
                         .frame(width: 48, height: 48)
                         .background(Tokens.Palette.brandLight, in: Circle())
 

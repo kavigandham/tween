@@ -24,7 +24,7 @@ struct SettingsSheet: View {
                                 if mapsApp == app {
                                     Image(systemName: "checkmark")
                                         .fontWeight(.semibold)
-                                        .foregroundStyle(Tokens.Palette.brand)
+                                        .foregroundStyle(Tokens.Palette.accent)
                                 }
                             }
                         }
@@ -39,8 +39,8 @@ struct SettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") { dismiss() }
                 }
             }
         }

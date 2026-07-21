@@ -169,7 +169,7 @@ struct ResultCard: View {
                 if let distanceString {
                     Text(distanceString)
                         .font(Tokens.Typography.callout)
-                        .foregroundStyle(Tokens.Palette.brand)
+                        .foregroundStyle(Tokens.Palette.accent)
                 }
                 if let address = item.placemark.title, !address.isEmpty {
                     Text(address)
@@ -239,9 +239,9 @@ struct ResultCard: View {
 
 /// Compact action buttons for result cards. The global Tween primary style is
 /// intentionally broad for full-width CTAs; search rows need denser controls.
-/// Same filled rounded-rect language as `TweenPrimaryButtonStyle` (the Apple
-/// place-card "Get Directions" look), scaled down — a capsule here diverged
-/// from every other button after the house restyle.
+/// Same rounded-rect language as `TweenPrimaryButtonStyle`, scaled down for a
+/// compact action row. The primary action is navy; supporting actions are
+/// deliberately neutral so the row has one clear destination.
 struct ResultActionButtonStyle: ButtonStyle {
     enum Variant {
         case prominent
@@ -255,7 +255,7 @@ struct ResultActionButtonStyle: ButtonStyle {
             .font(Tokens.Typography.subheadline.weight(.semibold))
             .lineLimit(1)
             .padding(.horizontal, Tokens.Spacing.s3)
-            .padding(.vertical, Tokens.Spacing.s2)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
             .background(background,
                         in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
             .foregroundStyle(foreground)
@@ -265,14 +265,14 @@ struct ResultActionButtonStyle: ButtonStyle {
     private var foreground: Color {
         switch variant {
         case .prominent: return Tokens.Palette.onBrand
-        case .subtle:    return Tokens.Palette.brand
+        case .subtle:    return Tokens.Palette.accent
         }
     }
 
     private var background: AnyShapeStyle {
         switch variant {
         case .prominent: return AnyShapeStyle(Tokens.Palette.brand)
-        case .subtle:    return AnyShapeStyle(Tokens.Palette.brandLight)
+        case .subtle:    return AnyShapeStyle(Tokens.Palette.neutralAction)
         }
     }
 }
@@ -302,4 +302,3 @@ extension MKPointOfInterestCategory {
         }
     }
 }
-

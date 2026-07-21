@@ -129,109 +129,75 @@ extension OnboardingView {
         }
     }
 
-    var topTrailingControls: some View {
-        VStack(alignment: .trailing, spacing: Tokens.Spacing.s2) {
-            infoButton
-            settingsButton
-            mapStyleButton
+    /// The map's compact utility cluster. Recenter stays one tap away; lower-
+    /// frequency controls live in a labelled menu instead of four equally
+    /// prominent buttons competing down the screen edge.
+    var topMapToolbar: some View {
+        HStack(spacing: 0) {
             resetMapButton
+
+            Divider()
+                .frame(height: Tokens.Spacing.s6)
+
+            mapOptionsButton
         }
+        .padding(Tokens.Spacing.s1)
+        .modifier(TweenGlassControl(shape: Capsule()))
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    /// Floating control for the Settings sheet (maps-app preference).
-    var settingsButton: some View {
-        Button { activeSheet = .settings } label: {
-            Image(systemName: "gearshape.fill")
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: floatingControlSize, height: floatingControlSize)
-                .modifier(TweenGlassControl(shape: Circle()))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Settings")
-        .accessibilityHint("Choose which maps app opens directions")
-    }
-
-
-    var mapStyleButton: some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            if isMapStylePickerExpanded {
-                HStack(spacing: Tokens.Spacing.s2) {
-                    ForEach(MapDisplayStyle.allCases) { style in
-                        Button {
-                            withAnimation(Tokens.Motion.snappy) {
-                                mapDisplayStyle = style
-                                isMapStylePickerExpanded = false
-                            }
-                        } label: {
-                            mapControlIcon(style.icon, isSelected: style == mapDisplayStyle)
+    var mapOptionsButton: some View {
+        Menu {
+            Section("Map style") {
+                ForEach(MapDisplayStyle.allCases) { style in
+                    Button {
+                        withAnimation(Tokens.Motion.snappy) {
+                            mapDisplayStyle = style
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(style.title)
+                    } label: {
+                        Label(style.title,
+                              systemImage: style == mapDisplayStyle ? "checkmark" : style.icon)
                     }
                 }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
 
-            Button {
-                withAnimation(Tokens.Motion.snappy) {
-                    isMapStylePickerExpanded.toggle()
-                }
-            } label: {
-                mapControlIcon(mapDisplayStyle.icon)
+            Divider()
+
+            Button { activeSheet = .settings } label: {
+                Label("Settings", systemImage: "gearshape")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Map style")
-            .accessibilityValue(mapDisplayStyle.title)
-            .accessibilityHint("Shows map style choices")
+
+            // Dismiss another selection sheet before presenting the guide;
+            // SwiftUI allows one secondary presentation on this hierarchy.
+            Button { activeSheet = nil; showTutorial = true } label: {
+                Label("Tween guide", systemImage: "info.circle")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .frame(width: floatingControlSize, height: floatingControlSize)
+                .contentShape(Rectangle())
         }
-        .animation(Tokens.Motion.snappy, value: isMapStylePickerExpanded)
+        .accessibilityLabel("Map options")
+        .accessibilityValue(mapDisplayStyle.title)
+        .accessibilityHint("Shows map style, settings, and help")
     }
-
-    func mapControlIcon(_ systemName: String, isSelected: Bool = false) -> some View {
-        Image(systemName: systemName)
-            .font(Tokens.Typography.callout)
-            .foregroundStyle(isSelected ? .white : Tokens.Palette.brand)
-            .frame(width: floatingControlSize, height: floatingControlSize)
-            .modifier(TweenGlassControl(
-                shape: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous),
-                isSelected: isSelected))
-    }
-
 
     var resetMapButton: some View {
         Button {
             resetMapCamera()
         } label: {
             Image(systemName: "location.viewfinder")
-                .font(Tokens.Typography.callout)
-                .foregroundStyle(Tokens.Palette.brand)
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.textPrimary)
                 .frame(width: floatingControlSize, height: floatingControlSize)
-                .modifier(TweenGlassControl(
-                    shape: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Reset map")
+        .accessibilityLabel("Recenter map")
         .accessibilityHint("First shows visible places, then returns to your location")
-    }
-
-    /// Floating control to re-show the first-run walkthrough.
-    var infoButton: some View {
-        // Dismiss any open place sheet first: `.fullScreenCover` and
-        // `.sheet(item:)` share this hierarchy, and SwiftUI presents only one —
-        // so tapping Help while a sheet is up would otherwise silently no-op.
-        Button { activeSheet = nil; showTutorial = true } label: {
-            Image(systemName: "info.circle.fill")
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.brand)
-                .frame(width: floatingControlSize, height: floatingControlSize)
-                .modifier(TweenGlassControl(shape: Circle()))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Help")
-        .accessibilityHint("Shows the welcome walkthrough")
     }
 
     /// Floating List/Map switch over the map, shown only when there are results

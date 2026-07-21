@@ -168,6 +168,39 @@ final class FairnessRankerTests: XCTestCase {
         XCTAssertEqual(FairnessRanker.recommendedCap(for: 50), 3)
     }
 
+    func testCompleteRankingsAddsEstimatedTimesForEveryCandidate() {
+        let participants = [
+            Participant(id: "A", name: "Hassan", latitude: 38.90, longitude: -77.35),
+            Participant(id: "B", name: "Freddie", latitude: 38.85, longitude: -77.30)
+        ]
+        let first = mapItem(name: "First", latitude: 38.88, longitude: -77.33)
+        let second = mapItem(name: "Second", latitude: 38.87, longitude: -77.32)
+        let third = mapItem(name: "Third", latitude: 38.86, longitude: -77.31)
+        let routedFirst = RankedSpot(
+            item: first,
+            etas: [
+                ParticipantETA(id: "A", name: "Hassan", eta: 600, fromRoute: true),
+                ParticipantETA(id: "B", name: "Freddie", eta: 540, fromRoute: true)
+            ],
+            confidence: 1.0)
+
+        let complete = FairnessRanker.completeRankings(
+            routed: [routedFirst],
+            allCandidates: [first, second, third],
+            participants: participants)
+
+        XCTAssertEqual(complete.count, 3)
+        for item in [first, second, third] {
+            let match = complete.first { $0.item == item }
+            XCTAssertNotNil(match)
+            XCTAssertEqual(match?.etas.map(\.name), ["Hassan", "Freddie"])
+            XCTAssertTrue(match?.etas.allSatisfy { $0.eta > 0 } == true)
+        }
+        XCTAssertTrue(complete.first(where: { $0.item == first })?.etas.allSatisfy(\.fromRoute) == true)
+        XCTAssertTrue(complete.first(where: { $0.item == second })?.etas.allSatisfy { !$0.fromRoute } == true)
+        XCTAssertTrue(complete.first(where: { $0.item == third })?.etas.allSatisfy { !$0.fromRoute } == true)
+    }
+
     // MARK: - Midpoint bias
 
     func testRankedScorePrefersMidpointWhenRoutesTie() {

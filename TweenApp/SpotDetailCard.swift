@@ -272,9 +272,12 @@ struct SpotDetailCard: View {
                     Button {
                         dismiss()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(Tokens.Typography.title2)
-                            .foregroundStyle(Tokens.Palette.textSecondary)
+                        Image(systemName: "xmark")
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textPrimary)
+                            .frame(width: Tokens.Layout.minTapTarget,
+                                   height: Tokens.Layout.minTapTarget)
+                            .background(Tokens.Palette.neutralAction, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close")
@@ -364,7 +367,7 @@ struct SpotDetailCard: View {
             .background(
                 primary ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.neutralAction),
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-            .foregroundStyle(primary ? Tokens.Palette.onBrand : Tokens.Palette.brand)
+            .foregroundStyle(primary ? Tokens.Palette.onBrand : Tokens.Palette.accent)
         }
         .buttonStyle(.plain)
     }

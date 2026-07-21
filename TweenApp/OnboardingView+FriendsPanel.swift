@@ -93,7 +93,7 @@ extension OnboardingView {
         HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: "person.text.rectangle")
                 .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.brand)
+                .foregroundStyle(Tokens.Palette.accent)
                 .frame(width: 36, height: 36)
                 .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
@@ -145,7 +145,7 @@ extension OnboardingView {
                      ? "\(activeParticipantsForDisplay.count) in"
                      : "\(activeParticipantsForDisplay.count) in · \(pendingInvitePersonCount) pending")
                     .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.brand)
+                    .foregroundStyle(Tokens.Palette.accent)
             }
 
             if activeParticipantsForDisplay.isEmpty, pendingInvitesForDisplay.isEmpty {
@@ -281,7 +281,7 @@ extension OnboardingView {
             HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
                 Image(systemName: localNeedsRide ? "figure.wave" : "car.fill")
                     .font(Tokens.Typography.headline)
-                    .foregroundStyle(localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand)
+                    .foregroundStyle(localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.accent)
                     .frame(width: 40, height: 40)
                     .background((localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
                                 in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
@@ -342,7 +342,7 @@ extension OnboardingView {
         return HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: participant.needsRide ? "figure.wave" : "car.fill")
                 .font(Tokens.Typography.headline)
-                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand)
+                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.accent)
                 .frame(width: 36, height: 36)
                 .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
                             in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
@@ -530,7 +530,7 @@ extension OnboardingView {
             Button { activeSheet = .whereIllBe } label: {
                 Text("or share where you'll be")
                     .font(Tokens.Typography.footnote.weight(.medium))
-                    .foregroundStyle(Tokens.Palette.brand)
+                    .foregroundStyle(Tokens.Palette.accent)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Join with an address you're heading to instead of your current location")
@@ -569,7 +569,7 @@ extension OnboardingView {
     func routePointChip(_ point: Participant) -> some View {
         HStack(spacing: Tokens.Spacing.s2) {
             Image(systemName: "mappin.circle.fill")
-                .foregroundStyle(Tokens.Palette.brand)
+                .foregroundStyle(Tokens.Palette.accent)
             Text(point.name)
                 .font(Tokens.Typography.footnote.weight(.medium))
                 .foregroundStyle(Tokens.Palette.textPrimary)
@@ -616,7 +616,7 @@ extension OnboardingView {
                         HStack(spacing: Tokens.Spacing.s3) {
                             Image(systemName: shortcut.systemImage)
                                 .font(Tokens.Typography.headline)
-                                .foregroundStyle(Tokens.Palette.brand)
+                                .foregroundStyle(Tokens.Palette.accent)
                                 .frame(width: 36, height: 36)
                                 .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
 
@@ -693,10 +693,9 @@ extension OnboardingView {
 
     /// The map items currently shown in the list — ranked when both coordinates
     /// are known, otherwise the raw search hits. Source of truth for map markers.
-    /// Hits the vicinity cut (or the rank cap) trimmed from the RANKED pool stay
-    /// visible as unranked rows below it — a typed search for one specific far
-    /// place must never vanish from the list just because it isn't a fair
-    /// "between" candidate (post-push audit of 1aa4712).
+    /// Route-backed and estimated results share one complete ranking, so every
+    /// row and its matching pin can show participant times. The raw-hit suffix
+    /// remains a defensive fallback for any future partial ranking source.
     var displayedItems: [MKMapItem] {
         guard !rankedSpots.isEmpty else { return searchResults }
         let ranked = rankedSpots.compactMap(\.item)
@@ -709,10 +708,18 @@ extension OnboardingView {
         return item
     }
 
-    /// The ranked entry for a given map item, when one exists (so the card can
-    /// show an ETA chip).
+    /// The timing model for a visible place. Normally the completed ranking
+    /// already contains every result; the on-demand estimate closes the small
+    /// transient gap where a user can tap a pin before route-backed rankings
+    /// finish. List rows and rich MapKit detail sheets both call this boundary,
+    /// so neither can silently lose participant times.
     func rankedMatch(for item: MKMapItem) -> RankedSpot? {
-        rankedSpots.first { $0.item == item }
+        if let ranked = rankedSpots.first(where: { $0.item == item }) {
+            return ranked
+        }
+        guard let participants = searchRankingParticipants else { return nil }
+        return FairnessRanker.estimatedRankings(
+            candidates: [item], participants: participants).first
     }
 
     /// Pin role for a result:

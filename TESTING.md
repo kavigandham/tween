@@ -75,7 +75,7 @@ appears. To re-test the first-run experience, delete the app and reinstall.
 
 ## Phase 07 — Design polish, animations, accessibility
 - [ ] All colors/spacing/typography come from `Tokens` — no stray hard-coded
-      hex values; brand teal (#008C8C) tints system controls.
+      hex values; brand navy (#123252 light / #2D618E dark) tints system controls.
 - [ ] Pins for self-active and midpoint **pulse**; selection/send fire haptics.
 - [ ] VoiceOver: every pin, spot chip, and CTA has a sensible label and hint;
       pin roles are distinguishable by **glyph**, not color alone.

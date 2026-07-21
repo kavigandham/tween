@@ -52,7 +52,7 @@ struct FriendRow: View {
         HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: "person.crop.circle.fill")
                 .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.brand)
+                .foregroundStyle(Tokens.Palette.accent)
                 .frame(width: Tokens.Spacing.s7)
             VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                 Text(friend.name)
@@ -138,7 +138,7 @@ struct ContactSearchView: View {
             .navigationTitle("Add Friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
                 }
             }
@@ -162,7 +162,7 @@ struct ContactSearchView: View {
                             .frame(width: 40, height: 40)
                         Text(Self.initials(contact))
                             .font(Tokens.Typography.callout)
-                            .foregroundStyle(Tokens.Palette.brand)
+                            .foregroundStyle(Tokens.Palette.accent)
                     }
                     VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                         Text(name).font(Tokens.Typography.headline)

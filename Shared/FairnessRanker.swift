@@ -109,6 +109,42 @@ enum FairnessRanker {
         return max(3, maxTotalRouteCalls / participantCount)
     }
 
+    /// Produces an immediate, network-free ETA for every visible candidate.
+    /// The host uses this while its capped set of real MapKit routes resolves,
+    /// so a result never appears without participant times just because it fell
+    /// below the routing cap (or because the user tapped its pin quickly).
+    static func estimatedRankings(
+        candidates: [MKMapItem],
+        participants: [Participant]
+    ) -> [RankedSpot] {
+        guard !participants.isEmpty else { return [] }
+        return candidates
+            .map { estimatedSpot($0, participants: participants) }
+            .sorted {
+                rankedScore($0, participants: participants)
+                    < rankedScore($1, participants: participants)
+            }
+    }
+
+    /// Replaces the matching estimates with route-backed rankings, while
+    /// retaining an estimated ranking for every other candidate. Route calls
+    /// stay bounded by `cap`; time coverage does not.
+    static func completeRankings(
+        routed: [RankedSpot],
+        allCandidates: [MKMapItem],
+        participants: [Participant]
+    ) -> [RankedSpot] {
+        guard !participants.isEmpty else { return routed }
+        let completed = allCandidates.map { item in
+            routed.first(where: { $0.item == item })
+                ?? estimatedSpot(item, participants: participants)
+        }
+        return completed.sorted {
+            rankedScore($0, participants: participants)
+                < rankedScore($1, participants: participants)
+        }
+    }
+
     /// Ranks `candidates` (first `cap` only) by fairness across all
     /// participants. Each leg is resolved concurrently; failures fall back to
     /// a straight-line estimate at half confidence. Returned sorted by `score`
@@ -234,10 +270,33 @@ enum FairnessRanker {
         }
 
         let from = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-        let dest = item.placemark.coordinate
-        let to = CLLocation(latitude: dest.latitude, longitude: dest.longitude)
-        let meters = from.distance(from: to)
-        return (meters / fallbackSpeed, false)
+        return (estimatedETA(from: from, to: item), false)
+    }
+
+    /// Builds a complete low-confidence spot without making a directions
+    /// request. Used only for visible candidates outside the route-call budget;
+    /// any route-backed result replaces it through `completeRankings`.
+    private static func estimatedSpot(
+        _ item: MKMapItem,
+        participants: [Participant]
+    ) -> RankedSpot {
+        let etas = participants.map { participant in
+            let origin = CLLocation(latitude: participant.latitude, longitude: participant.longitude)
+            return ParticipantETA(
+                id: participant.id,
+                name: participant.name,
+                eta: estimatedETA(from: origin, to: item),
+                fromRoute: false)
+        }
+        return RankedSpot(item: item, etas: etas, confidence: 0.5)
+    }
+
+    private static func estimatedETA(from origin: CLLocation, to item: MKMapItem) -> TimeInterval {
+        let destination = item.placemark.coordinate
+        let destinationLocation = CLLocation(
+            latitude: destination.latitude,
+            longitude: destination.longitude)
+        return origin.distance(from: destinationLocation) / fallbackSpeed
     }
 
     /// Ceiling on a single route calculation before we fall back to the
