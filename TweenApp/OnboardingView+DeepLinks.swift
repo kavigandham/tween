@@ -170,7 +170,7 @@ extension OnboardingView {
                     agreedNames: state.agreedNames,
                     agreedIDs: state.agreedIDs,
                     isCounter: state.messageType == .counter))
-            activeSheet = .spot(selection)
+            presentSpot(selection)
             // Frame the map so the user can see the proposed spot in context.
             withAnimation(Tokens.Motion.gentle) {
                 position = Self.placeCameraPosition(for: state.coordinate)
@@ -183,6 +183,7 @@ extension OnboardingView {
                     ConversationMeetupStore.saveAgreed(state, key: activeConversationKey)
                 }
                 agreedMeetup = state
+                recentSpots = SpotLibrary.recordRecent(storedSpot(for: selection(for: state)))
                 selectedResult = nil
                 // URL-presented proposal sheets carry no selection, so the
                 // deselect above can't close them — dismiss explicitly or

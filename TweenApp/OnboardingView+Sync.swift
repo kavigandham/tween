@@ -245,10 +245,10 @@ extension OnboardingView {
         if pendingProposal != cachedProposal {
             pendingProposal = cachedProposal
             didChange = true
-            // Same peek nudge as the agreed path: the proposal card floats
-            // over the map just above the collapsed sheet, so a half-open
-            // sheet would hide it. Gated like every background-driven write
-            // so a poll/notification tick can't yank controls mid-drag.
+            // Same peek nudge as the agreed path: the collapsed sheet header
+            // now names the proposal and expands into its response controls.
+            // Gated like every background-driven write so a poll/notification
+            // tick can't yank controls mid-drag.
             if cachedProposal != nil, !suppressPollDetentWrites {
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }

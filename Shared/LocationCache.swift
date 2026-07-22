@@ -304,3 +304,146 @@ enum LocationCache {
         return try? JSONDecoder().decode(CachedCoord.self, from: data)
     }
 }
+
+// MARK: - Place library
+
+/// A lightweight, Codable snapshot of a MapKit place. `MKMapItem` itself is
+/// not Codable, so Recents and Favorites persist the customer-facing metadata
+/// needed to rebuild an immediate detail card without waiting on the network.
+struct StoredSpot: Codable, Equatable, Identifiable {
+    let name: String
+    let address: String?
+    let latitude: Double
+    let longitude: Double
+    let phoneNumber: String?
+    let websiteURLString: String?
+    let lastUsedAt: Date
+
+    var id: String {
+        let normalizedName = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        return String(format: "%@|%.5f|%.5f", normalizedName, latitude, longitude)
+    }
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    func used(at date: Date) -> StoredSpot {
+        StoredSpot(
+            name: name,
+            address: address,
+            latitude: latitude,
+            longitude: longitude,
+            phoneNumber: phoneNumber,
+            websiteURLString: websiteURLString,
+            lastUsedAt: date)
+    }
+}
+
+/// Persistent Recents and Favorites shared by the host app and its Messages
+/// extension. Writes replace one complete JSON value, matching LocationCache's
+/// cross-process atomicity guarantees.
+enum SpotLibrary {
+    private static let recentKey = "tween.places.recents"
+    private static let favoritesKey = "tween.places.favorites"
+    static let recentLimit = 20
+    static let favoritesLimit = 50
+
+    private static var defaults: UserDefaults? {
+        UserDefaults(suiteName: LocationCache.appGroup)
+    }
+
+    static func loadRecents() -> [StoredSpot] {
+        load(key: recentKey)
+    }
+
+    static func loadFavorites() -> [StoredSpot] {
+        load(key: favoritesKey)
+    }
+
+    /// Adds a place to the front of Recents, or promotes an existing place.
+    /// The newest snapshot wins so a later MapKit result can enrich an older
+    /// coordinate-only meetup with an address, phone number, or website.
+    @discardableResult
+    static func recordRecent(_ spot: StoredSpot, at date: Date = Date()) -> [StoredSpot] {
+        let loaded = loadRecents()
+        let existing = loaded.first { $0.id == spot.id }
+        let merged = StoredSpot(
+            name: spot.name,
+            address: nonEmpty(spot.address) ?? existing?.address,
+            latitude: spot.latitude,
+            longitude: spot.longitude,
+            phoneNumber: nonEmpty(spot.phoneNumber) ?? existing?.phoneNumber,
+            websiteURLString: nonEmpty(spot.websiteURLString) ?? existing?.websiteURLString,
+            lastUsedAt: date)
+        var spots = loaded.filter { $0.id != spot.id }
+        spots.insert(merged, at: 0)
+        spots = Array(spots.prefix(recentLimit))
+        save(spots, key: recentKey)
+        return spots
+    }
+
+    /// Toggles a place in Favorites and returns the complete updated list.
+    /// Favorites are ordered by the most recent save, like Apple Maps.
+    @discardableResult
+    static func toggleFavorite(_ spot: StoredSpot, at date: Date = Date()) -> [StoredSpot] {
+        var spots = loadFavorites()
+        if spots.contains(where: { $0.id == spot.id }) {
+            spots.removeAll { $0.id == spot.id }
+        } else {
+            spots.removeAll { $0.id == spot.id }
+            spots.insert(spot.used(at: date), at: 0)
+            spots = Array(spots.prefix(favoritesLimit))
+        }
+        save(spots, key: favoritesKey)
+        return spots
+    }
+
+    static func isFavorite(_ spot: StoredSpot) -> Bool {
+        loadFavorites().contains { $0.id == spot.id }
+    }
+
+    /// Finds the richest saved snapshot for a coordinate-backed meetup.
+    /// Favor exact place identity first, then tolerate a tiny coordinate drift
+    /// from URL serialization while still requiring the same normalized name.
+    static func matching(name: String, coordinate: CLLocationCoordinate2D) -> StoredSpot? {
+        let probe = StoredSpot(
+            name: name,
+            address: nil,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            phoneNumber: nil,
+            websiteURLString: nil,
+            lastUsedAt: .distantPast)
+        let candidates = loadFavorites() + loadRecents()
+        if let exact = candidates.first(where: { $0.id == probe.id }) {
+            return exact
+        }
+        return candidates.first {
+            $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                && abs($0.latitude - coordinate.latitude) < 0.0002
+                && abs($0.longitude - coordinate.longitude) < 0.0002
+        }
+    }
+
+    private static func load(key: String) -> [StoredSpot] {
+        guard let data = defaults?.data(forKey: key),
+              let spots = try? JSONDecoder().decode([StoredSpot].self, from: data)
+        else { return [] }
+        return spots.sorted { $0.lastUsedAt > $1.lastUsedAt }
+    }
+
+    private static func save(_ spots: [StoredSpot], key: String) {
+        guard let data = try? JSONEncoder().encode(spots) else { return }
+        defaults?.set(data, forKey: key)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}

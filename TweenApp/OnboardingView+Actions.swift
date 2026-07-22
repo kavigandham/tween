@@ -88,6 +88,11 @@ extension OnboardingView {
     /// (the coordinate-only demo pin can't exercise it).
     func openDemoSpotSheetIfRequested() async {
         #if DEBUG
+        if CommandLine.arguments.contains("-DEMO_SPOT_LIBRARY_DETAIL"),
+           let meetup = agreedMeetup {
+            presentAgreedMeetup(meetup)
+            return
+        }
         // -DEMO_ROUTE_AB seeded one added point at init; also seed a self
         // location (in the cache, so the poll keeps it) and run a real search so
         // the solo A→B ranking (fair spots between the two) renders.
@@ -101,7 +106,7 @@ extension OnboardingView {
             // pin, with Tween's participant times above Apple's rich detail.
             if CommandLine.arguments.contains("-DEMO_SPOT_SHEET"),
                let item = displayedItems.first {
-                activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+                presentSpot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
             }
             return
         }
@@ -158,7 +163,7 @@ extension OnboardingView {
                     ParticipantETA(id: "sam", name: "Sam", eta: 960, fromRoute: true)
                   ], confidence: 1.0)
                 : nil
-            activeSheet = .spot(SpotSelection(item: item, ranked: ranked))
+            presentSpot(SpotSelection(item: item, ranked: ranked))
             return
         }
         guard CommandLine.arguments.contains("-DEMO_SPOT_SHEET") else { return }
@@ -168,7 +173,7 @@ extension OnboardingView {
             center: savedCoordinate ?? Self.defaultCenter,
             span: MKCoordinateSpan(latitudeDelta: 0.3, longitudeDelta: 0.3))
         guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else { return }
-        activeSheet = .spot(SpotSelection(item: item, ranked: nil))
+        presentSpot(SpotSelection(item: item, ranked: nil))
         #endif
     }
 

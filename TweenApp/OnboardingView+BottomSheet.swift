@@ -24,7 +24,7 @@ extension OnboardingView {
             // detent settles. (A tapped result no longer swaps this
             // surface for an intermediate card: selection goes straight
             // to the full place sheet — one tap, like Apple Maps.)
-            searchBar
+            collapsedMeetupHeader
                 .frame(height: Tokens.Layout.sheetPeekHeight)
 
             // Everything else is revealed once the sheet lifts off peek.

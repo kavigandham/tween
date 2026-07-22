@@ -143,6 +143,9 @@ struct SpotDetailCard: View {
     /// (i.e. from a friend's "Send to friends" SMS). Switches the CTAs from
     /// "Send to chat" to "Agree" / "Change".
     var incoming: IncomingProposal? = nil
+    var isCurrentMeetup = false
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onSendToChat: () -> Void = {}
     var onAgree: () -> Void = {}
     var onChange: () -> Void = {}
@@ -286,6 +289,12 @@ struct SpotDetailCard: View {
 
             if let incoming { incomingHeadline(incoming) }
 
+            if isCurrentMeetup {
+                Label("Current meetup", systemImage: "checkmark.circle.fill")
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.success)
+            }
+
             if let ranked {
                 // Every person's own drive time (device feedback), plus a
                 // plain-language line on how even this one spot is. Single spot,
@@ -305,12 +314,30 @@ struct SpotDetailCard: View {
                     primaryActions
                     actionTiles(includeSendToChat: false)
                 } else {
-                    actionTiles(includeSendToChat: true)
+                    actionTiles(includeSendToChat: !isCurrentMeetup)
                 }
             } else {
                 primaryActions
             }
+
+            favoriteButton
         }
+    }
+
+    private var favoriteButton: some View {
+        Button(action: onToggleFavorite) {
+            Label(
+                isFavorite ? "Saved to Favorites" : "Add to Favorites",
+                systemImage: isFavorite ? "star.fill" : "star")
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                .background(Tokens.Palette.brandLight, in: Capsule())
+                .foregroundStyle(Tokens.Palette.accent)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(isFavorite
+                           ? "Removes \(name) from Favorites"
+                           : "Saves \(name) to Favorites")
     }
 
     /// The Apple-Maps action row: equal-width tiles, icon over label. Call
@@ -426,6 +453,15 @@ struct SpotDetailCard: View {
                 .accessibilityHint("Opens search to pick a different spot")
             }
             .sensoryFeedback(.impact, trigger: sendTick)
+        } else if isCurrentMeetup {
+            Button {
+                openInPreferredMaps()
+            } label: {
+                Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.tweenPrimary())
+            .accessibilityHint("Opens driving directions to \(name) in your maps app")
         } else {
             HStack(spacing: Tokens.Spacing.s2) {
                 Button {

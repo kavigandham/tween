@@ -178,6 +178,77 @@ final class TweenAppTests: XCTestCase {
         XCTAssertFalse(LocationCache.isPeerActive)
     }
 
+    func testSpotLibraryRecentsAreRealPlacesAndPromoteWithoutDuplicates() throws {
+        let coordinate = CLLocationCoordinate2D(latitude: 38.9012, longitude: -77.2653)
+        let first = StoredSpot(
+            name: "Seray",
+            address: nil,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            phoneNumber: nil,
+            websiteURLString: nil,
+            lastUsedAt: Date(timeIntervalSince1970: 100))
+        let richer = StoredSpot(
+            name: "Seray",
+            address: "160 Maple Ave W, Vienna, VA",
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            phoneNumber: "+17032530000",
+            websiteURLString: "https://example.com/seray",
+            lastUsedAt: Date(timeIntervalSince1970: 200))
+
+        SpotLibrary.recordRecent(first, at: Date(timeIntervalSince1970: 100))
+        SpotLibrary.recordRecent(richer, at: Date(timeIntervalSince1970: 200))
+
+        let recents = SpotLibrary.loadRecents()
+        XCTAssertEqual(recents.count, 1)
+        XCTAssertEqual(recents.first?.name, "Seray")
+        XCTAssertEqual(recents.first?.address, "160 Maple Ave W, Vienna, VA")
+        XCTAssertEqual(recents.first?.phoneNumber, "+17032530000")
+
+        SpotLibrary.recordRecent(first, at: Date(timeIntervalSince1970: 300))
+        XCTAssertEqual(SpotLibrary.loadRecents().first?.address,
+                       "160 Maple Ave W, Vienna, VA",
+                       "A coordinate-only meetup must not erase richer saved metadata")
+    }
+
+    func testSpotLibraryFavoritesToggleAndPersist() {
+        let spot = StoredSpot(
+            name: "Caboose Brewing Company",
+            address: "520 Mill St NE, Vienna, VA",
+            latitude: 38.9088,
+            longitude: -77.2638,
+            phoneNumber: nil,
+            websiteURLString: nil,
+            lastUsedAt: Date())
+
+        XCTAssertFalse(SpotLibrary.isFavorite(spot))
+        XCTAssertEqual(SpotLibrary.toggleFavorite(spot).map(\.name), [spot.name])
+        XCTAssertTrue(SpotLibrary.isFavorite(spot))
+        XCTAssertEqual(SpotLibrary.loadFavorites().first?.address, spot.address)
+
+        XCTAssertTrue(SpotLibrary.toggleFavorite(spot).isEmpty)
+        XCTAssertFalse(SpotLibrary.isFavorite(spot))
+    }
+
+    func testSpotLibraryMatchesAgreedMeetupAfterCoordinateRoundTrip() throws {
+        let saved = StoredSpot(
+            name: "Gatehouse at the Navy Yard",
+            address: "202 M St SE, Washington, DC",
+            latitude: 38.876_50,
+            longitude: -77.004_70,
+            phoneNumber: nil,
+            websiteURLString: nil,
+            lastUsedAt: Date())
+        SpotLibrary.recordRecent(saved)
+
+        let matched = try XCTUnwrap(SpotLibrary.matching(
+            name: "gatehouse at the navy yard",
+            coordinate: CLLocationCoordinate2D(latitude: 38.876_58, longitude: -77.004_62)))
+
+        XCTAssertEqual(matched.address, saved.address)
+    }
+
     func testPinRolesUseRequestedColorSystem() {
         XCTAssertEqual(TweenPin.Role.selfDot.accessibilityName, "Your location")
         XCTAssertEqual(TweenPin.Role.friend.accessibilityName, "Your friend's location")

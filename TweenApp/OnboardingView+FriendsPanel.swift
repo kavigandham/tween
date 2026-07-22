@@ -481,6 +481,7 @@ extension OnboardingView {
             // stayed smooth).
             LazyVStack(spacing: Tokens.Spacing.s3) {
                 if searchState == .idle {
+                    meetupSections
                     presenceControls
                     discoverySections
                 } else if searchState == .results || isSearchLoading {
@@ -497,6 +498,109 @@ extension OnboardingView {
         // or its lower rows become unreachable on smaller devices
         // (post-push audit at 42fdc68).
         .scrollDisabled(searchState == .results && selectedSheetDetent != .fraction(0.90))
+    }
+
+    /// The collapsed sheet is still useful after a meetup exists: its fixed
+    /// header becomes a stable plan/suggestion row instead of leaving a card
+    /// detached above the sheet. Search remains one tap away on the right.
+    @ViewBuilder
+    var collapsedMeetupHeader: some View {
+        if isMinimalDetent, let proposal = pendingProposal {
+            meetupPeek(
+                eyebrow: "New suggestion",
+                name: proposal.text,
+                systemImage: "bubble.left.fill",
+                action: {
+                    withAnimation(Tokens.Motion.snappy) {
+                        selectedSheetDetent = .fraction(0.45)
+                    }
+                })
+        } else if isMinimalDetent, let meetup = agreedMeetup, meetup.kind == .place {
+            meetupPeek(
+                eyebrow: "Meeting at",
+                name: meetup.text,
+                systemImage: "checkmark.circle.fill",
+                action: { presentAgreedMeetup(meetup) })
+        } else {
+            searchBar
+        }
+    }
+
+    private func meetupPeek(
+        eyebrow: String,
+        name: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Button(action: action) {
+                HStack(spacing: Tokens.Spacing.s3) {
+                    Image(systemName: systemImage)
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .frame(width: 38, height: 38)
+                        .background(Tokens.Palette.neutralAction, in: Circle())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(eyebrow)
+                            .font(Tokens.Typography.captionBold)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .textCase(.uppercase)
+                        Text(name)
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textPrimary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up")
+                        .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.textTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(eyebrow == "New suggestion"
+                               ? "Expands the suggestion controls"
+                               : "Opens full place details")
+
+            Divider().frame(height: 36)
+
+            Button { expandThenFocusSearch() } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .frame(width: Tokens.Layout.minTapTarget,
+                           height: Tokens.Layout.minTapTarget)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Search for another spot")
+        }
+        .padding(.horizontal, Tokens.Spacing.s4)
+    }
+
+    /// Meetup state lives inside the scrollable sheet, not in a second
+    /// floating layer over the map. The current plan remains distinct from a
+    /// newer proposal so people can review both without losing the agreement.
+    @ViewBuilder
+    var meetupSections: some View {
+        if let meetup = agreedMeetup, meetup.kind == .place {
+            currentMeetupCard(for: meetup)
+        }
+        if let proposal = pendingProposal {
+            proposalCard(for: proposal)
+        }
+    }
+
+    func currentMeetupCard(for meetup: TweenState) -> some View {
+        let selection = selection(for: meetup)
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text("Current meetup")
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .textCase(.uppercase)
+            spotCardInner(selection: selection, isAgreedMeetup: true)
+        }
+        .padding(Tokens.Spacing.s4)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
     }
 
     @ViewBuilder
@@ -595,7 +699,16 @@ extension OnboardingView {
     var discoverySections: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
             quickSpotSection(title: "Suggested Spot", shortcuts: [Self.suggestedSpot])
-            quickSpotSection(title: "Recent Spots", shortcuts: Self.recentSpotShortcuts)
+            storedSpotSection(
+                title: "Favorites",
+                spots: favoriteSpots,
+                emptyText: "Save a place from its details to keep it here.",
+                emptyIcon: "star")
+            storedSpotSection(
+                title: "Recent Spots",
+                spots: recentSpots,
+                emptyText: "Places you look at will appear here.",
+                emptyIcon: "clock")
         }
         .padding(.top, Tokens.Spacing.s2)
     }
@@ -654,6 +767,76 @@ extension OnboardingView {
         }
     }
 
+    func storedSpotSection(
+        title: String,
+        spots: [StoredSpot],
+        emptyText: String,
+        emptyIcon: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text(title)
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .textCase(.uppercase)
+                .padding(.horizontal, Tokens.Spacing.s1)
+
+            VStack(spacing: 0) {
+                if spots.isEmpty {
+                    HStack(spacing: Tokens.Spacing.s3) {
+                        Image(systemName: emptyIcon)
+                            .font(Tokens.Typography.headline)
+                            .foregroundStyle(Tokens.Palette.textTertiary)
+                            .frame(width: 36, height: 36)
+                            .background(Tokens.Palette.neutralAction, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                        Text(emptyText)
+                            .font(Tokens.Typography.subheadline)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(Tokens.Spacing.s3)
+                } else {
+                    ForEach(Array(spots.prefix(5).enumerated()), id: \.element.id) { index, spot in
+                        Button { presentStoredSpot(spot) } label: {
+                            HStack(spacing: Tokens.Spacing.s3) {
+                                Image(systemName: title == "Favorites" ? "star.fill" : "clock.fill")
+                                    .font(Tokens.Typography.headline)
+                                    .foregroundStyle(title == "Favorites" ? Tokens.Palette.warning : Tokens.Palette.accent)
+                                    .frame(width: 36, height: 36)
+                                    .background(Tokens.Palette.neutralAction, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(spot.name)
+                                        .font(Tokens.Typography.headline)
+                                        .foregroundStyle(Tokens.Palette.textPrimary)
+                                        .lineLimit(1)
+                                    Text(spot.address.flatMap { $0.isEmpty ? nil : $0 } ?? "View place details")
+                                        .font(Tokens.Typography.caption)
+                                        .foregroundStyle(Tokens.Palette.textSecondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(Tokens.Typography.captionBold)
+                                    .foregroundStyle(Tokens.Palette.textTertiary)
+                            }
+                            .padding(Tokens.Spacing.s3)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens details for \(spot.name)")
+
+                        if index < min(spots.count, 5) - 1 {
+                            Divider().padding(.leading, 60)
+                        }
+                    }
+                }
+            }
+            .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        }
+    }
+
     @ViewBuilder
     var resultsList: some View {
         if displayedItems.isEmpty, isSearchLoading {
@@ -703,9 +886,96 @@ extension OnboardingView {
     }
 
     func mapItem(for state: TweenState) -> MKMapItem {
+        if let stored = SpotLibrary.matching(name: state.text, coordinate: state.coordinate) {
+            return mapItem(for: stored)
+        }
         let item = MKMapItem(placemark: MKPlacemark(coordinate: state.coordinate))
         item.name = state.text
         return item
+    }
+
+    func mapItem(for stored: StoredSpot) -> MKMapItem {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: stored.coordinate))
+        item.name = stored.name
+        item.phoneNumber = stored.phoneNumber
+        if let rawURL = stored.websiteURLString {
+            item.url = URL(string: rawURL)
+        }
+        return item
+    }
+
+    func storedSpot(for selection: SpotSelection, at date: Date = Date()) -> StoredSpot {
+        StoredSpot(
+            name: selection.name,
+            address: selection.address,
+            latitude: selection.coordinate.latitude,
+            longitude: selection.coordinate.longitude,
+            phoneNumber: selection.item.phoneNumber,
+            websiteURLString: selection.item.url?.absoluteString,
+            lastUsedAt: date)
+    }
+
+    func selection(for stored: StoredSpot) -> SpotSelection {
+        SpotSelection(
+            item: mapItem(for: stored),
+            ranked: nil,
+            addressOverride: stored.address)
+    }
+
+    func selection(for state: TweenState, asIncomingProposal: Bool = false) -> SpotSelection {
+        let stored = SpotLibrary.matching(name: state.text, coordinate: state.coordinate)
+        let item = stored.map { mapItem(for: $0) } ?? mapItem(for: state)
+        let incoming = asIncomingProposal
+            ? IncomingProposalContext(
+                senderName: state.senderName,
+                senderID: state.senderID,
+                participants: state.participants,
+                agreedNames: state.agreedNames,
+                agreedIDs: state.agreedIDs,
+                isCounter: state.messageType == .counter)
+            : nil
+        return SpotSelection(
+            item: item,
+            ranked: nil,
+            incoming: incoming,
+            addressOverride: stored?.address)
+    }
+
+    /// The single entry point for a place detail presentation. Every opened
+    /// place becomes a real Recent and retains enough metadata to reopen it.
+    func presentSpot(_ selection: SpotSelection) {
+        recentSpots = SpotLibrary.recordRecent(storedSpot(for: selection))
+        focusMap(on: selection.item)
+        activeSheet = .spot(selection)
+    }
+
+    func presentStoredSpot(_ stored: StoredSpot) {
+        presentSpot(selection(for: stored))
+    }
+
+    func presentAgreedMeetup(_ meetup: TweenState) {
+        presentSpot(selection(for: meetup))
+    }
+
+    func isFavorite(_ selection: SpotSelection) -> Bool {
+        favoriteSpots.contains { $0.id == storedSpot(for: selection).id }
+    }
+
+    func isCurrentMeetup(_ selection: SpotSelection) -> Bool {
+        guard let meetup = agreedMeetup, meetup.kind == .place else { return false }
+        return meetup.text.compare(
+            selection.name,
+            options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            && abs(meetup.coordinate.latitude - selection.coordinate.latitude) < 0.0002
+            && abs(meetup.coordinate.longitude - selection.coordinate.longitude) < 0.0002
+    }
+
+    func toggleFavorite(_ selection: SpotSelection) {
+        let spot = storedSpot(for: selection)
+        let wasFavorite = isFavorite(selection)
+        favoriteSpots = SpotLibrary.toggleFavorite(spot)
+        recentSpots = SpotLibrary.recordRecent(spot)
+        showToast(wasFavorite ? "Removed from Favorites" : "Saved to Favorites")
     }
 
     /// The timing model for a visible place. Normally the completed ranking
@@ -753,30 +1023,6 @@ extension OnboardingView {
             let lhsDistance = origin.distance(from: CLLocation(latitude: lhsCoord.latitude, longitude: lhsCoord.longitude))
             let rhsDistance = origin.distance(from: CLLocation(latitude: rhsCoord.latitude, longitude: rhsCoord.longitude))
             return lhsDistance < rhsDistance
-        }
-    }
-
-    /// Apple-Maps-style floating card for the selected pin: name, address, the
-    /// A/B distance label, and Send-to-chat / Directions actions. Tapping the body
-    /// expands to the full detail sheet; the close button (or tapping the empty
-    /// map) deselects.
-    @ViewBuilder
-    var compactCard: some View {
-        // A tapped search result opens the full place sheet directly (one
-        // tap — no intermediate card; device feedback). Only the
-        // agreed-meetup / incoming-proposal states float over the map, and
-        // only while no result is selected.
-        // Owner decision (audit W8): a set meetup and a newer suggestion
-        // render TOGETHER — a new proposal does not cancel the agreement.
-        VStack(spacing: Tokens.Spacing.s2) {
-            if selectedResult == nil {
-                if let agreedMeetup, agreedMeetup.kind == .place {
-                    compactCardContent(item: mapItem(for: agreedMeetup), ranked: nil, isAgreedMeetup: true)
-                }
-                if let pendingProposal {
-                    proposalCard(for: pendingProposal)
-                }
-            }
         }
     }
 
@@ -851,11 +1097,7 @@ extension OnboardingView {
             }
         }
         .padding(Tokens.Spacing.s4)
-        .background(Tokens.Palette.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .tweenElevation(.floating)
-        .padding(.horizontal)
-        .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s2)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
     }
 
     func agreementProgress(for proposal: TweenState) -> String {
@@ -871,7 +1113,7 @@ extension OnboardingView {
     }
 
     func agreeToPendingProposal(_ proposal: TweenState) {
-        let selection = SpotSelection(item: mapItem(for: proposal), ranked: nil)
+        let selection = selection(for: proposal)
         let incoming = IncomingProposalContext(
             senderName: proposal.senderName,
             senderID: proposal.senderID,
@@ -885,15 +1127,16 @@ extension OnboardingView {
     /// The inner card — title, address, A/B (or solo) distance, and the action
     /// buttons — wrapped in a floating glass card for the agreed-meetup /
     /// proposal states (`compactCardContent`).
-    func spotCardInner(item: MKMapItem, ranked: RankedSpot?, isAgreedMeetup: Bool) -> some View {
-        let selection = SpotSelection(item: item, ranked: ranked)
+    func spotCardInner(selection: SpotSelection, isAgreedMeetup: Bool) -> some View {
+        let item = selection.item
+        let ranked = selection.ranked
         return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             HStack(alignment: .top, spacing: Tokens.Spacing.s2) {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                     Text(item.name ?? "Place")
                         .font(Tokens.Typography.headline)
                         .lineLimit(1)
-                    if let address = item.placemark.cleanLine, !address.isEmpty,
+                    if let address = selection.address, !address.isEmpty,
                        address != item.name {
                         Text(address)
                             .font(Tokens.Typography.caption)
@@ -921,8 +1164,8 @@ extension OnboardingView {
                 ranked: ranked)
             HStack(spacing: Tokens.Spacing.s2) {
                 if isAgreedMeetup {
-                    Button(role: .destructive, action: leave) {
-                        Label("I'm out", systemImage: "location.slash")
+                    Button { presentSpot(selection) } label: {
+                        Label("Details", systemImage: "info.circle.fill")
                     }
                     .buttonStyle(.tweenPrimary(.subtle))
                 } else {
@@ -937,28 +1180,6 @@ extension OnboardingView {
                 .buttonStyle(isAgreedMeetup ? .tweenPrimary() : .tweenPrimary(.subtle))
             }
         }
-    }
-
-    /// The floating card for the agreed-meetup / incoming-proposal states: the
-    /// inner content on a glass surface (no longer an opaque black fill),
-    /// lifted just above the collapsed sheet.
-    func compactCardContent(item: MKMapItem, ranked: RankedSpot?, isAgreedMeetup: Bool) -> some View {
-        let selection = SpotSelection(item: item, ranked: ranked)
-        return spotCardInner(item: item, ranked: ranked, isAgreedMeetup: isAgreedMeetup)
-            .padding(Tokens.Spacing.s4)
-            .modifier(TweenCardSurface())
-            .padding(.horizontal)
-            // Float just above the collapsed sheet. Both this padding and the
-            // peek detent are measured from the bottom safe-area edge, so the
-            // gap is the same on every device.
-            .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s2)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard !isAgreedMeetup else { return }
-                activeSheet = .spot(selection)
-            }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .accessibilityHint(isAgreedMeetup ? "Current agreed meetup" : "Tap for full details, or send this spot to your chat")
     }
 
     var statusText: String {

@@ -47,11 +47,6 @@ struct OnboardingView: View {
         subtitle: "Suggested spot",
         query: "coffee",
         systemImage: "sparkles")
-    static let recentSpotShortcuts: [QuickSpotShortcut] = [
-        QuickSpotShortcut(title: "Lunch spots", subtitle: "Food nearby", query: "restaurants", systemImage: "fork.knife"),
-        QuickSpotShortcut(title: "Gas stations", subtitle: "Easy stop on the way", query: "gas", systemImage: "fuelpump.fill"),
-        QuickSpotShortcut(title: "Study spots", subtitle: "Quiet places to sit", query: "library cafe", systemImage: "book.fill")
-    ]
 
     @Environment(\.scenePhase) var scenePhase
 
@@ -163,6 +158,10 @@ struct OnboardingView: View {
     @State var searchViewMode: SearchViewMode = .list
     @State var selectedCategory: CategoryPreset?
     @State var searchTask: Task<Void, Never>?
+    /// Real, persistent place history. Unlike the old hard-coded "Recent
+    /// Spots" shortcuts, these are the places this person actually opened.
+    @State var recentSpots: [StoredSpot]
+    @State var favoriteSpots: [StoredSpot]
 
     // Friends / social
     @State var friendsPanelTab: FriendsPanelTab = .people
@@ -238,9 +237,12 @@ struct OnboardingView: View {
         let item: MKMapItem
         let ranked: RankedSpot?
         var incoming: IncomingProposalContext? = nil
+        /// Reconstructed Recents/Favorites retain their saved address even
+        /// though a coordinate-only MKPlacemark cannot expose one.
+        var addressOverride: String? = nil
 
         var name: String { item.name ?? "Spot" }
-        var address: String? { item.placemark.cleanLine }
+        var address: String? { addressOverride ?? item.placemark.cleanLine }
         var coordinate: CLLocationCoordinate2D { item.placemark.coordinate }
     }
 
@@ -371,6 +373,54 @@ struct OnboardingView: View {
             LocationCache.saveParticipantSnapshot(harnessParticipants, localName: "You")
         }
 
+        var demoAgreedMeetup: TweenState?
+        #if DEBUG
+        // Deterministic product screenshot hook for the complete place-library
+        // experience: a current meetup, saved places, and actual recents.
+        if CommandLine.arguments.contains("-DEMO_SPOT_LIBRARY") {
+            ConversationMeetupStore.lastActiveConversationKey = nil
+            let caboose = StoredSpot(
+                name: "Caboose Brewing Company",
+                address: "520 Mill St NE, Vienna, VA",
+                latitude: 38.9088,
+                longitude: -77.2638,
+                phoneNumber: "+17038652000",
+                websiteURLString: "https://caboosebrewing.com",
+                lastUsedAt: Date())
+            let seray = StoredSpot(
+                name: "Seray",
+                address: "160 Maple Ave W, Vienna, VA",
+                latitude: 38.9005,
+                longitude: -77.2686,
+                phoneNumber: "+17032530000",
+                websiteURLString: nil,
+                lastUsedAt: Date().addingTimeInterval(-300))
+            let dumpling = StoredSpot(
+                name: "Bing Bing Dumpling",
+                address: "210 Dominion Rd NE, Vienna, VA",
+                latitude: 38.9040,
+                longitude: -77.2622,
+                phoneNumber: nil,
+                websiteURLString: nil,
+                lastUsedAt: Date().addingTimeInterval(-600))
+            _ = SpotLibrary.recordRecent(dumpling, at: dumpling.lastUsedAt)
+            _ = SpotLibrary.recordRecent(seray, at: seray.lastUsedAt)
+            _ = SpotLibrary.recordRecent(caboose, at: caboose.lastUsedAt)
+            if !SpotLibrary.isFavorite(caboose) { _ = SpotLibrary.toggleFavorite(caboose) }
+            if !SpotLibrary.isFavorite(seray) { _ = SpotLibrary.toggleFavorite(seray) }
+
+            let meetup = TweenState(
+                text: caboose.name,
+                latitude: caboose.latitude,
+                longitude: caboose.longitude,
+                kind: .place,
+                action: .agree)
+            LocationCache.save(caboose.coordinate, isActive: true)
+            LocationCache.saveAgreedMeetup(meetup)
+            demoAgreedMeetup = meetup
+        }
+        #endif
+
         let cached = LocationCache.loadSelf()
         _savedCoordinate = State(initialValue: cached?.coordinate)
         _currentParticipants = State(initialValue: harnessParticipants)
@@ -399,6 +449,7 @@ struct OnboardingView: View {
         // them to preselect a spot for screenshot/UI-test verification.
         var demoSelection: MKMapItem?
         var initialDetent = Self.isHostTabHarness ? hostHarnessDetent : defaultDetent
+        if demoAgreedMeetup != nil { initialDetent = .fraction(0.90) }
         #if DEBUG
         // -DEMO_SPOT_CARD: preselects a synthesized spot (no place
         // identifier → fallback sheet layout) without a live search
@@ -439,7 +490,9 @@ struct OnboardingView: View {
         #endif
         _selectedResult = State(initialValue: demoSelection)
         _selectedSheetDetent = State(initialValue: initialDetent)
-        _agreedMeetup = State(initialValue: nil)
+        _agreedMeetup = State(initialValue: demoAgreedMeetup)
+        _recentSpots = State(initialValue: SpotLibrary.loadRecents())
+        _favoriteSpots = State(initialValue: SpotLibrary.loadFavorites())
         let initialCoords = Self.isHostTabHarness
             ? harnessParticipants.map(\.coordinate)
             : [cached?.coordinate ?? Self.defaultCenter]
@@ -542,8 +595,6 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             viewModeToggle
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            compactCard
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .onChange(of: selectedResult) { _, item in
@@ -560,8 +611,7 @@ struct OnboardingView: View {
                     // ONE tap → the full place sheet, like Apple Maps. The old
                     // intermediate compact card forced a second tap for the
                     // real information — "a waste" (device feedback).
-                    focusMap(on: item)
-                    activeSheet = .spot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
+                    presentSpot(SpotSelection(item: item, ranked: rankedMatch(for: item)))
                 }
             } else {
                 // A programmatic deselect (agreement landed, negotiation
@@ -692,6 +742,9 @@ struct OnboardingView: View {
                                     senderName: $0.senderName,
                                     isCounter: $0.isCounter)
                             },
+                            isCurrentMeetup: isCurrentMeetup(selection),
+                            isFavorite: isFavorite(selection),
+                            onToggleFavorite: { toggleFavorite(selection) },
                             onSendToChat: { sendToChat(selection) },
                             onAgree: {
                                 if let incoming = selection.incoming {
@@ -813,13 +866,19 @@ struct OnboardingView: View {
         .task { await openDemoSpotSheetIfRequested() }
         .onAppear {
             _ = refreshFromAppGroup()
-            // Cold-open with a live negotiation: drop the sheet to its peek so
-            // the floating proposal/agreed card is visible. Explicit (not
-            // transition-driven) because the poll task's first tick often runs
-            // before this and consumes the nil→value transition under the
-            // anti-yank suppression gate.
+            // Cold-open with a live negotiation: the collapsed sheet header
+            // names the current plan or proposal without covering the map.
+            // Explicit (not transition-driven) because the poll task's first
+            // tick often consumes the nil→value transition under the anti-yank
+            // suppression gate.
             if pendingProposal != nil || agreedMeetup != nil {
+                #if DEBUG
+                selectedSheetDetent = CommandLine.arguments.contains("-DEMO_SPOT_LIBRARY")
+                    ? .fraction(0.90)
+                    : .height(Tokens.Layout.sheetPeekHeight)
+                #else
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
+                #endif
             }
             // Same first-tick race for the CAMERA: the suppressed poll tick
             // can consume the initial App Group load, leaving the refresh
