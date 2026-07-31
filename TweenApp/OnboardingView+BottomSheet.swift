@@ -153,9 +153,23 @@ extension OnboardingView {
     /// zooms far enough from the searched area that the pins no longer
     /// describe the viewport; tapping re-runs the search where they're
     /// looking, without moving the camera.
+    /// Padding that parks the pill a small gap above the sheet's TOP edge for
+    /// the current detent. Detents measure from the screen bottom; the map
+    /// ZStack bottom is the safe-area bottom — subtract the inset difference.
+    func searchHerePillBottomPadding(in geo: GeometryProxy) -> CGFloat {
+        let sheetHeight: CGFloat
+        if selectedSheetDetent == .fraction(0.45) {
+            sheetHeight = geo.size.height * 0.45
+        } else {
+            sheetHeight = Tokens.Layout.sheetPeekHeight
+        }
+        return max(sheetHeight + Tokens.Spacing.s3 - geo.safeAreaInsets.bottom, Tokens.Spacing.s3)
+    }
+
     @ViewBuilder
     var searchHerePill: some View {
-        if showSearchHere {
+        // Hidden at the full detent — the list covers the map there.
+        if showSearchHere, selectedSheetDetent != .fraction(0.90) {
             Button {
                 searchHereTapped()
             } label: {

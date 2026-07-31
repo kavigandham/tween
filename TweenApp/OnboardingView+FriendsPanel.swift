@@ -118,13 +118,16 @@ extension OnboardingView {
 
     var friendActionButtons: some View {
         HStack(spacing: Tokens.Spacing.s2) {
-            Button { activeSheet = .contacts } label: {
+            // friendsSubSheet, NOT activeSheet: these buttons live inside the
+            // presented Friends sheet, and swapping the parent's item drops
+            // silently on iOS 26 (dead buttons — device feedback 2026-07-31).
+            Button { friendsSubSheet = .contacts } label: {
                 Label("Add Friend", systemImage: "person.badge.plus")
             }
             .buttonStyle(.tweenPrimary())
             .accessibilityHint("Picks someone from your contacts")
 
-            Button { activeSheet = .invite } label: {
+            Button { friendsSubSheet = .invite } label: {
                 Label("Invite", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.tweenPrimary(.subtle))

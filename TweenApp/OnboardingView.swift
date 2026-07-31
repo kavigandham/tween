@@ -149,6 +149,9 @@ struct OnboardingView: View {
     /// between this and `visibleRegion` raises the Search Here pill.
     @State var lastSearchedRegion: MKCoordinateRegion?
     @State var showSearchHere = false
+    /// Child sheet of the Friends sheet (contacts picker, invite share,
+    /// message compose). See `FriendsSubSheet` for why this exists.
+    @State var friendsSubSheet: FriendsSubSheet?
     /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
     /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
     /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
@@ -281,6 +284,12 @@ struct OnboardingView: View {
         case friends
         case contacts
         case invite
+
+        // (contacts/invite/message from INSIDE the Friends sheet present via
+        // `friendsSubSheet` instead — swapping `activeSheet`'s item mid-
+        // presentation makes SwiftUI dismiss-then-represent, and on iOS 26
+        // the re-present silently drops: the buttons read as dead (device
+        // feedback 2026-07-31).)
         case message(PendingMessage)
         case spot(SpotSelection)
         case addPoint
@@ -297,6 +306,24 @@ struct OnboardingView: View {
             case .addPoint:          return "addPoint"
             case .whereIllBe:        return "whereIllBe"
             case .settings:          return "settings"
+            }
+        }
+    }
+
+    /// Sheets the FRIENDS sheet presents as its own children. These must not
+    /// go through `activeSheet` — that would swap the presented item while
+    /// the Friends sheet is up, and the dismiss-then-represent that implies
+    /// silently drops on iOS 26 (dead Invite/Add Friend/ping buttons).
+    enum FriendsSubSheet: Identifiable {
+        case contacts
+        case invite
+        case message(PendingMessage)
+
+        var id: String {
+            switch self {
+            case .contacts:          return "contacts"
+            case .invite:            return "invite"
+            case .message(let m):    return "message-\(m.id)"
             }
         }
     }
@@ -620,11 +647,17 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             viewModeToggle
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            searchHerePill
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                // Floats just above the sheet's collapsed peek, where the map
-                // is actually visible while browsing pins.
-                .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4)
+            // GeometryReader for the SAFE-AREA inset: detent heights measure
+            // from the screen's bottom edge, this ZStack's bottom sits at the
+            // safe-area bottom — without subtracting the difference the pill
+            // floated ~50pt above the sheet (device feedback 2026-07-31:
+            // "really high up, it just needs to be slightly above the search
+            // bar").
+            GeometryReader { geo in
+                searchHerePill
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, searchHerePillBottomPadding(in: geo))
+            }
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .animation(Tokens.Motion.snappy, value: showSearchHere)
@@ -740,6 +773,34 @@ struct OnboardingView: View {
                                 }
                         }
                         .presentationDetents([.large])
+                        // Children of the FRIENDS sheet — presented from it,
+                        // not by swapping `activeSheet` (the swap's dismiss-
+                        // then-represent silently drops on iOS 26; the
+                        // Invite/Add Friend/ping buttons were dead on device).
+                        // Bonus: closing a child lands back on Friends free.
+                        .sheet(item: $friendsSubSheet) { sub in
+                            switch sub {
+                            case .contacts:
+                                ContactSearchView { friend in
+                                    FriendRoster.add(friend)
+                                    friends = FriendRoster.load()
+                                    friendsSubSheet = nil
+                                }
+                            case .invite:
+                                ActivityView(items: [Self.inviteText]) { friendsSubSheet = nil }
+                            case .message(let pending):
+                                MessageComposeSheet(recipients: pending.recipients,
+                                                    body: pending.body,
+                                                    message: pending.message) { result in
+                                    friendsSubSheet = nil
+                                    if result == .sent {
+                                        pending.onSent?()
+                                    } else {
+                                        pending.onCancelled?()
+                                    }
+                                }
+                            }
+                        }
                     case .contacts:
                         ContactSearchView { friend in
                             FriendRoster.add(friend)

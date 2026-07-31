@@ -42,7 +42,7 @@ extension OnboardingView {
         // works; your location shares once you're both in. Matches this
         // method's doc contract — "no fresh self coord → plain text".
         guard let myCoord = freshSelfCoordinateForSend else {
-            activeSheet = .message(PendingMessage(
+            presentMessageCompose(PendingMessage(
                 recipients: [handle],
                 body: Self.inviteText,
                 onSent: {
@@ -74,7 +74,7 @@ extension OnboardingView {
         // Once ready, build the MSMessage on the main actor and present.
         Task { @MainActor in
             guard let message = await composeTweenMessage(for: state, totalSeats: 2) else { return }
-            activeSheet = .message(PendingMessage(
+            presentMessageCompose(PendingMessage(
                 recipients: [handle],
                 body: Self.inviteText,
                 message: message,
@@ -84,6 +84,18 @@ extension OnboardingView {
                     pingTick += 1
                     showToast("\(friend.name) is pending")
                 }))
+        }
+    }
+
+    /// Presents a message composer from wherever the user actually is: as the
+    /// Friends sheet's child when Friends is up (swapping `activeSheet`'s item
+    /// mid-presentation drops silently on iOS 26 — dead ping buttons), and
+    /// through the normal root sheet otherwise.
+    func presentMessageCompose(_ pending: PendingMessage) {
+        if case .friends = activeSheet {
+            friendsSubSheet = .message(pending)
+        } else {
+            activeSheet = .message(pending)
         }
     }
 
