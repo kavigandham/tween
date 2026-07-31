@@ -49,6 +49,15 @@ enum Tokens {
         static let neutralAction = dynamicColor(
             light: UIColor(red: 0.925, green: 0.941, blue: 0.957, alpha: 1),   // #ECF0F4
             dark:  UIColor(red: 0.122, green: 0.137, blue: 0.165, alpha: 1))   // #1F232A
+        /// Floating map pill ("Search here"), mirroring Apple Maps: a
+        /// near-solid slate card — deliberately NOT glass, so it stays
+        /// legible over any map tile color.
+        static let mapPillFill = dynamicColor(
+            light: UIColor.systemBackground,
+            dark:  UIColor(red: 0.157, green: 0.204, blue: 0.298, alpha: 1))   // #28344C
+        static let mapPillText = dynamicColor(
+            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),   // #123252
+            dark:  UIColor.white)
         static let destructiveLight = dynamicColor(
             light: UIColor(red: 1.000, green: 0.918, blue: 0.918, alpha: 1),   // #FFEAEA
             dark:  UIColor(red: 0.282, green: 0.114, blue: 0.122, alpha: 1))   // #481D1F

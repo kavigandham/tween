@@ -176,14 +176,17 @@ extension OnboardingView {
             Button {
                 searchHereTapped()
             } label: {
-                Label("Search Here", systemImage: "magnifyingglass")
+                // Apple Maps aesthetic: sentence case, text only (no glyph),
+                // solid slate pill — not the toolbar's glass chrome.
+                Text("Search here")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
-                    .foregroundStyle(Tokens.Palette.accent)
-                    .padding(.horizontal, Tokens.Spacing.s4)
+                    .foregroundStyle(Tokens.Palette.mapPillText)
+                    .padding(.horizontal, Tokens.Spacing.s5)
                     .frame(minHeight: Tokens.Layout.minTapTarget)
             }
             .buttonStyle(.plain)
-            .modifier(TweenGlassControl(shape: Capsule()))
+            .background(Tokens.Palette.mapPillFill, in: Capsule())
+            .tweenElevation(.floating)
             .transition(.scale(scale: 0.85).combined(with: .opacity))
             .accessibilityHint("Searches again in the area you're looking at")
         }
