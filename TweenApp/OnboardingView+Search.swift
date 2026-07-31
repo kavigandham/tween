@@ -172,10 +172,15 @@ extension OnboardingView {
     func updateSearchHereVisibility() {
         // No `!searchResults.isEmpty` clause: after a zero-result search the
         // pill is exactly how the user recovers by panning to a denser area
-        // (delta audit finding 10).
+        // (delta audit finding 10). The span gate mirrors canSearch's
+        // metro-scale anchor rule — without it, a viewport-only-anchored user
+        // zoomed out past the clamp saw the pill raise while its tap hit the
+        // location nag (verify audit N2: never offer an action the tap
+        // refuses).
         guard position.positionedByUser,
               isSearchActive,
-              let visibleRegion, let lastSearchedRegion else {
+              let visibleRegion, let lastSearchedRegion,
+              max(visibleRegion.span.latitudeDelta, visibleRegion.span.longitudeDelta) <= 1.6 else {
             showSearchHere = false
             return
         }
