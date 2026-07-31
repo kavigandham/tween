@@ -156,6 +156,12 @@ struct OnboardingView: View {
     /// is attached to the permanent sheet's content, which cannot present an
     /// alert while the Friends sheet is up (W13 trap). `ensureNamed` routes.
     @State var showNamePromptInFriends = false
+    /// The permanent sheet's MEASURED top edge in global (screen) coordinates.
+    /// The Search-here pill positions off this, not off detent constants:
+    /// iOS 26's floating Liquid Glass panel sits higher than
+    /// `.height(sheetPeekHeight)` implies (float margin), which tucked the
+    /// pill under the glass on device.
+    @State var sheetTopGlobalY: CGFloat?
     /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
     /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
     /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
@@ -645,12 +651,9 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             viewModeToggle
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            // GeometryReader for the SAFE-AREA inset: detent heights measure
-            // from the screen's bottom edge, this ZStack's bottom sits at the
-            // safe-area bottom — without subtracting the difference the pill
-            // floated ~50pt above the sheet (device feedback 2026-07-31:
-            // "really high up, it just needs to be slightly above the search
-            // bar").
+            // The pill hangs off the sheet's MEASURED global top edge (see
+            // searchHerePillBottomPadding); the GeometryReader supplies this
+            // ZStack's own global frame for the same coordinate space.
             GeometryReader { geo in
                 searchHerePill
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -659,9 +662,10 @@ struct OnboardingView: View {
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .animation(Tokens.Motion.snappy, value: showSearchHere)
-        // The pill's bottom padding switches on the detent — without this the
-        // padding snapped unanimated when the sheet settled (delta audit).
-        .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
+        // Smooths the pill when the sheet's measured edge lands discretely
+        // (detent settle); during a live drag the updates stream continuously
+        // and the spring tracks them 1:1.
+        .animation(Tokens.Motion.snappy, value: sheetTopGlobalY)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
@@ -715,6 +719,9 @@ struct OnboardingView: View {
         }
         .sheet(isPresented: .constant(true)) {
             sheetContent
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minY
+                } action: { sheetTopGlobalY = $0 }
                 .presentationDetents(
                     [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent

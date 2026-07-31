@@ -153,20 +153,20 @@ extension OnboardingView {
     /// zooms far enough from the searched area that the pins no longer
     /// describe the viewport; tapping re-runs the search where they're
     /// looking, without moving the camera.
-    /// Padding that parks the pill a small gap above the sheet's TOP edge for
-    /// the current detent. Detents measure from the screen bottom; the map
-    /// ZStack bottom is the safe-area bottom — subtract the inset difference.
+    /// Padding that parks the pill a small gap above the sheet's MEASURED top
+    /// edge (`sheetTopGlobalY`). Detent-constant math can't be trusted here:
+    /// iOS 26's floating Liquid Glass panel rides higher than
+    /// `.height(sheetPeekHeight)` implies, which tucked the pill under the
+    /// glass on device. Both frames are global/screen space, so the offset is
+    /// exact for any device, text size, detent, or mid-drag position.
     func searchHerePillBottomPadding(in geo: GeometryProxy) -> CGFloat {
-        let sheetHeight: CGFloat
-        if selectedSheetDetent == .fraction(0.45) {
-            // Fraction detents resolve against the sheet's FULL available
-            // height (safe-area height + bottom inset), not the safe-area
-            // height alone (delta audit finding 8).
-            sheetHeight = (geo.size.height + geo.safeAreaInsets.bottom) * 0.45
-        } else {
-            sheetHeight = Tokens.Layout.sheetPeekHeight
+        if let sheetTopGlobalY {
+            let mapBottom = geo.frame(in: .global).maxY
+            return max(mapBottom - sheetTopGlobalY + Tokens.Spacing.s4, Tokens.Spacing.s4)
         }
-        return max(sheetHeight + Tokens.Spacing.s3 - geo.safeAreaInsets.bottom, Tokens.Spacing.s3)
+        // Pre-measurement fallback (first frame only): peek constant.
+        return max(Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4 - geo.safeAreaInsets.bottom,
+                   Tokens.Spacing.s4)
     }
 
     @ViewBuilder
