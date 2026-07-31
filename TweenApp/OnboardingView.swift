@@ -663,9 +663,14 @@ struct OnboardingView: View {
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .animation(Tokens.Motion.snappy, value: showSearchHere)
         // Smooths the pill when the sheet's measured edge lands discretely
-        // (detent settle); during a live drag the updates stream continuously
-        // and the spring tracks them 1:1.
+        // (detent settle); during a live drag the streaming updates get
+        // exponentially smoothed (snappy is an easeOut, re-targeted per
+        // tick), so the pill trails the edge slightly and converges.
         .animation(Tokens.Motion.snappy, value: sheetTopGlobalY)
+        // The pill's visibility gate flips on the detent (hidden at 0.90);
+        // without this key a USER drag to/from full can land the flip in a
+        // transaction with no measured-edge change, popping the transition.
+        .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
