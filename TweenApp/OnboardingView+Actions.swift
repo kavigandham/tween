@@ -56,14 +56,21 @@ extension OnboardingView {
     }
 
     /// Runs `action` immediately when a display name is set; otherwise prompts
-    /// for one first and runs `action` after the user saves it.
+    /// for one first and runs `action` after the user saves it. The prompt is
+    /// context-routed: an alert attached to the permanent sheet cannot present
+    /// while the FRIENDS sheet is up (the W13 under-sheet-alert trap), which
+    /// left first-run pings silently dead (delta audit finding 2).
     func ensureNamed(_ action: @escaping () -> Void) {
         if let name = UserProfile.displayName, !name.isEmpty {
             action()
         } else {
             nameDraft = profileName
             pendingNameAction = action
-            showNamePrompt = true
+            if case .friends = activeSheet {
+                showNamePromptInFriends = true
+            } else {
+                showNamePrompt = true
+            }
         }
     }
 
@@ -73,8 +80,12 @@ extension OnboardingView {
             UserProfile.displayName = trimmed
             profileName = trimmed
         }
-        pendingNameAction?()
+        // Next runloop: the parked action may present a sheet (ping → message
+        // compose), and presenting while THIS alert is still dismissing drops
+        // on iOS — the same class as the sheet-item-swap bug.
+        let action = pendingNameAction
         pendingNameAction = nil
+        Task { @MainActor in action?() }
     }
 
     /// Auto-requests location on launch so the map opens on the user's real
@@ -428,7 +439,10 @@ extension OnboardingView {
         Task { @MainActor in
             guard let message = await composeTweenMessage(
                 for: state, totalSeats: max(participants.count, 2)) else { return }
-            activeSheet = .message(PendingMessage(
+            // presentMessageCompose, NOT a direct activeSheet swap: the ride
+            // card lives INSIDE the presented Friends sheet, the same dead-
+            // button class as the ping buttons (delta audit finding 1).
+            presentMessageCompose(PendingMessage(
                 recipients: [],
                 body: needsRide ? "\(myName) needs a ride." : "\(myName) can meet there.",
                 message: message,

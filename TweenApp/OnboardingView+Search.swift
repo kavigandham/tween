@@ -103,6 +103,9 @@ extension OnboardingView {
         rankedSpots = []
         isSearchActive = false
         isSearchLoading = false
+        // The pill re-searches the OLD committed query; over a fresh typing
+        // session it would stomp the suggestion flow (delta audit finding 3).
+        showSearchHere = false
         searchState = .suggesting
         // Debounced (300 ms) — the completer only fires on the query the user
         // paused on, not every intermediate keystroke. Per
@@ -164,8 +167,11 @@ extension OnboardingView {
     /// the region the visible results were fetched for. Programmatic framing
     /// (results fit, recenter, reframe) never raises it.
     func updateSearchHereVisibility() {
+        // No `!searchResults.isEmpty` clause: after a zero-result search the
+        // pill is exactly how the user recovers by panning to a denser area
+        // (delta audit finding 10).
         guard position.positionedByUser,
-              isSearchActive, !searchResults.isEmpty,
+              isSearchActive,
               let visibleRegion, let lastSearchedRegion else {
             showSearchHere = false
             return
@@ -204,7 +210,13 @@ extension OnboardingView {
         // pure manual A→B search got nagged for location even though searchRegion
         // already centers on their points (post-push audit). Ask for a fix only
         // when there's truly nothing to anchor on.
-        guard savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty else {
+        // A viewport the user deliberately panned to is a valid anchor too:
+        // suggestions were already biased there, and a GPS-denied user who
+        // panned to their city should not be nagged for location on commit
+        // (delta audit finding 4). The Kansas guard still holds — a purely
+        // programmatic default frame never counts.
+        let hasViewportAnchor = position.positionedByUser && visibleRegion != nil
+        guard savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty || hasViewportAnchor else {
             searchResults = []
             rankedSpots = []
             isSearchActive = false
@@ -514,7 +526,10 @@ extension OnboardingView {
         rankedSpots = []
         searchResults = items
         lastSearchedRegion = region
-        showSearchHere = false
+        // Recompute rather than force-hide: if the user panned while a
+        // pill-triggered search was loading, real drift exists and no camera
+        // settle is coming to re-raise the pill (delta audit finding 7).
+        updateSearchHereVisibility()
         isSearchActive = true
         isSearchLoading = false
         searchState = .results

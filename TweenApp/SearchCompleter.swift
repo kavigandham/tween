@@ -174,7 +174,13 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
         let key = String(format: "%.2f,%.2f", region.center.latitude, region.center.longitude)
         guard key != regionTokensKey, key != pendingTokensKey else { return }
         pendingTokensKey = key
-        if regionTokensKey != nil { regionTokens = nil }
+        // Drop BOTH the stale tokens and their key: keeping the old key made
+        // a later return to that region early-out with tokens still nil when
+        // the new region's geocode had failed (delta audit finding 6).
+        if regionTokensKey != nil {
+            regionTokens = nil
+            regionTokensKey = nil
+        }
         let location = CLLocation(latitude: region.center.latitude,
                                   longitude: region.center.longitude)
         Task { @MainActor [weak self] in

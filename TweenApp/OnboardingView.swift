@@ -152,6 +152,10 @@ struct OnboardingView: View {
     /// Child sheet of the Friends sheet (contacts picker, invite share,
     /// message compose). See `FriendsSubSheet` for why this exists.
     @State var friendsSubSheet: FriendsSubSheet?
+    /// The "Your Name" prompt, scoped to the FRIENDS sheet — the root prompt
+    /// is attached to the permanent sheet's content, which cannot present an
+    /// alert while the Friends sheet is up (W13 trap). `ensureNamed` routes.
+    @State var showNamePromptInFriends = false
     /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
     /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
     /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
@@ -282,14 +286,10 @@ struct OnboardingView: View {
     /// single `.sheet(item:)`.
     enum ActiveSheet: Identifiable {
         case friends
-        case contacts
-        case invite
-
-        // (contacts/invite/message from INSIDE the Friends sheet present via
-        // `friendsSubSheet` instead — swapping `activeSheet`'s item mid-
-        // presentation makes SwiftUI dismiss-then-represent, and on iOS 26
-        // the re-present silently drops: the buttons read as dead (device
-        // feedback 2026-07-31).)
+        // (contacts/invite — and message from INSIDE the Friends sheet — live
+        // in `FriendsSubSheet` now: swapping `activeSheet`'s item while the
+        // Friends sheet is presented makes SwiftUI dismiss-then-represent,
+        // and on iOS 26 the re-present silently drops — dead buttons.)
         case message(PendingMessage)
         case spot(SpotSelection)
         case addPoint
@@ -299,8 +299,6 @@ struct OnboardingView: View {
         var id: String {
             switch self {
             case .friends:           return "friends"
-            case .contacts:          return "contacts"
-            case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
             case .spot(let s):       return "spot-\(s.id)"
             case .addPoint:          return "addPoint"
@@ -661,6 +659,9 @@ struct OnboardingView: View {
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
         .animation(Tokens.Motion.snappy, value: showSearchHere)
+        // The pill's bottom padding switches on the detent — without this the
+        // padding snapped unanimated when the sheet settled (delta audit).
+        .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
@@ -771,6 +772,18 @@ struct OnboardingView: View {
                                 } message: { editor in
                                     Text("Choose a new name for \(editor.friend.name).")
                                 }
+                                // Friends-scoped twin of the root "Your Name"
+                                // prompt: the root alert hangs off the
+                                // permanent sheet and silently never presents
+                                // while THIS sheet is up (W13) — first-run
+                                // pings died in the prompt (delta audit).
+                                .alert("Your Name", isPresented: $showNamePromptInFriends) {
+                                    TextField("Name", text: $nameDraft)
+                                    Button("Save", action: saveName)
+                                    Button("Cancel", role: .cancel) { pendingNameAction = nil }
+                                } message: {
+                                    Text("Add your name so friends see who's inviting them.")
+                                }
                         }
                         .presentationDetents([.large])
                         // Children of the FRIENDS sheet — presented from it,
@@ -801,16 +814,6 @@ struct OnboardingView: View {
                                 }
                             }
                         }
-                    case .contacts:
-                        ContactSearchView { friend in
-                            FriendRoster.add(friend)
-                            friends = FriendRoster.load()
-                            // Contacts was reached from the Friends sheet —
-                            // land back there with the new row visible.
-                            activeSheet = .friends
-                        }
-                    case .invite:
-                        ActivityView(items: [Self.inviteText]) { activeSheet = nil }
                     case .message(let pending):
                         MessageComposeSheet(recipients: pending.recipients,
                                             body: pending.body,

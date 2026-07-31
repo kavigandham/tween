@@ -159,7 +159,10 @@ extension OnboardingView {
     func searchHerePillBottomPadding(in geo: GeometryProxy) -> CGFloat {
         let sheetHeight: CGFloat
         if selectedSheetDetent == .fraction(0.45) {
-            sheetHeight = geo.size.height * 0.45
+            // Fraction detents resolve against the sheet's FULL available
+            // height (safe-area height + bottom inset), not the safe-area
+            // height alone (delta audit finding 8).
+            sheetHeight = (geo.size.height + geo.safeAreaInsets.bottom) * 0.45
         } else {
             sheetHeight = Tokens.Layout.sheetPeekHeight
         }
