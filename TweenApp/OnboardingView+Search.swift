@@ -94,6 +94,9 @@ extension OnboardingView {
             rankedSpots = []
             isSearchActive = false
             isSearchLoading = false
+            // The X-button clear flows through HERE, not clearSearch — without
+            // this a stale pill floats over the idle map (verify audit).
+            showSearchHere = false
             searchState = .idle
             completer.update(query: "")
             return
@@ -215,7 +218,10 @@ extension OnboardingView {
         // panned to their city should not be nagged for location on commit
         // (delta audit finding 4). The Kansas guard still holds — a purely
         // programmatic default frame never counts.
-        let hasViewportAnchor = position.positionedByUser && visibleRegion != nil
+        // Metro-scale only: one idle nudge of the continental default frame
+        // must not qualify the mid-US void as a search area (verify audit).
+        let hasViewportAnchor = position.positionedByUser
+            && (visibleRegion.map { max($0.span.latitudeDelta, $0.span.longitudeDelta) <= 1.6 } ?? false)
         guard savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty || hasViewportAnchor else {
             searchResults = []
             rankedSpots = []
@@ -601,6 +607,7 @@ extension OnboardingView {
         selectedCategory = nil
         selectedResult = nil
         openNowOnly = false
+        showSearchHere = false
         searchViewMode = .list
         searchFocused = false
     }
