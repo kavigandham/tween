@@ -176,8 +176,9 @@ extension OnboardingView {
             Button {
                 searchHereTapped()
             } label: {
-                // Apple Maps aesthetic: sentence case, text only (no glyph),
-                // solid slate pill — not the toolbar's glass chrome.
+                // Apple Maps text treatment (sentence case, no glyph) on the
+                // system's Liquid Glass chrome (device feedback 2026-07-31:
+                // solid slate read as foreign next to the glass sheet).
                 Text("Search here")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.mapPillText)
@@ -185,9 +186,10 @@ extension OnboardingView {
                     .frame(minHeight: Tokens.Layout.minTapTarget)
             }
             .buttonStyle(.plain)
-            .background(Tokens.Palette.mapPillFill, in: Capsule())
-            .tweenElevation(.floating)
-            .transition(.scale(scale: 0.85).combined(with: .opacity))
+            .modifier(TweenGlassControl(shape: Capsule()))
+            // Plain fade: scale-while-fading fought the measured-edge motion
+            // and read as the pill shrinking into nowhere.
+            .transition(.opacity)
             .accessibilityHint("Searches again in the area you're looking at")
         }
     }
