@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -24,7 +25,11 @@ struct NativeSearchBar: UIViewRepresentable {
         let bar = UISearchBar()
         bar.searchBarStyle = .minimal   // just the field, no outer chrome
         bar.placeholder = placeholder
-        bar.autocorrectionType = .no
+        // Autocorrect stays ON: Apple's server-side correction misses typos
+        // that collide with real place names ("shushi" → Shusha, Azerbaijan;
+        // probed 2026-07-31), so the keyboard fixing the word before it's
+        // ever committed is the strongest typo defense we have.
+        bar.autocorrectionType = .default
         bar.returnKeyType = .search
         bar.delegate = context.coordinator
         bar.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -104,11 +109,21 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     /// suggestions list spun "Searching nearby..." forever (audit W16).
     enum Phase { case idle, searching, resolved, failed }
 
-    /// The current suggestions for the typed query.
+    /// The current suggestions for the typed query, screened against the
+    /// meetup area — the completer's `region` is only a bias, and a query
+    /// with no local footprint fills the dropdown with global name matches
+    /// ("shushi" → Shusha, Azerbaijan; probed 2026-07-31).
     private(set) var results: [MKLocalSearchCompletion] = []
     private(set) var phase: Phase = .idle
 
     private let completer = MKLocalSearchCompleter()
+
+    /// Address tokens ("TX" / "United States") for the current search-region
+    /// center, resolved by ONE reverse-geocode and cached per rounded center.
+    /// Nil until the first geocode lands — suggestions pass unfiltered then.
+    private var regionTokens: CompletionRegionTokens?
+    private var regionTokensKey: String?
+    private let geocoder = CLGeocoder()
 
     /// Timer for the debounced entry point. Cancelled and re-armed on every
     /// keystroke so the completer only sees the query the user paused on,
@@ -139,8 +154,29 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
             return
         }
         phase = .searching
-        if let region { completer.region = region }
+        if let region {
+            completer.region = region
+            resolveRegionTokensIfNeeded(for: region)
+        }
         completer.queryFragment = trimmed
+    }
+
+    /// One reverse-geocode per (rounded) region center, feeding the
+    /// suggestion filter. Best-effort: on failure the previous tokens stay,
+    /// and with none the filter passes everything through.
+    private func resolveRegionTokensIfNeeded(for region: MKCoordinateRegion) {
+        let key = String(format: "%.2f,%.2f", region.center.latitude, region.center.longitude)
+        guard key != regionTokensKey else { return }
+        regionTokensKey = key
+        let location = CLLocation(latitude: region.center.latitude,
+                                  longitude: region.center.longitude)
+        Task { @MainActor [weak self] in
+            guard let placemark = try? await self?.geocoder.reverseGeocodeLocation(location).first
+            else { return }
+            self?.regionTokens = CompletionRegionTokens(
+                administrativeArea: placemark.administrativeArea,
+                country: placemark.country)
+        }
     }
 
     /// Debounced variant of `update(query:region:)`. Cancels any in-flight
@@ -169,7 +205,7 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     // MARK: - MKLocalSearchCompleterDelegate
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        results = completer.results
+        results = CompletionRegionFilter.filter(completer.results, tokens: regionTokens)
         phase = .resolved
     }
 

@@ -140,6 +140,14 @@ struct OnboardingView: View {
     /// committed a search (showing rich result cards). Drives which surface the
     /// sheet renders so suggestions and results never look alike.
     @State var searchState: SearchState = .idle
+    /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
+    /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
+    /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
+    /// → 25 closed cafes, "coffee open now" → the 24-hour set). MapKit exposes
+    /// NO hours API, so this text-engine behavior is the only serverless way
+    /// to honor the filter; if Apple ever stops honoring it, results quietly
+    /// widen back to unfiltered — never an error.
+    @State var openNowOnly = false
     @State var completer = SearchCompleter()
     /// Set when we mutate `searchText` programmatically (committing a suggestion
     /// or a category) so the field's `onChange` doesn't treat it as fresh typing

@@ -103,7 +103,7 @@ extension OnboardingView {
                         case .resolved:
                             Image(systemName: "magnifyingglass")
                                 .foregroundStyle(Tokens.Palette.textSecondary)
-                            Text("No matches — try a different name")
+                            Text("No nearby matches — try a different name")
                                 .font(Tokens.Typography.footnote)
                                 .foregroundStyle(Tokens.Palette.textSecondary)
                         case .idle, .searching:

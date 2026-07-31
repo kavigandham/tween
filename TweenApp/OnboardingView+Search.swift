@@ -162,9 +162,10 @@ extension OnboardingView {
         return true
     }
 
-    /// Resolves a query (address or place name) to map items. Shared by
-    /// `runSearch` and the "add a place / person" flow so both hit MapKit
-    /// identically; returns [] on failure or zero results.
+    /// Resolves a query (address or place name) to map items ANYWHERE — the
+    /// "add a place / person" flow needs far-away resolution (a manual
+    /// "where I'll be" point in another city). Committed meetup searches go
+    /// through `resolveMeetupPlaces` instead, which never leaves the region.
     func resolvePlace(query: String, region: MKCoordinateRegion) async -> [MKMapItem] {
         func search(regionRequired: Bool) async -> [MKMapItem] {
             let request = MKLocalSearch.Request()
@@ -173,21 +174,104 @@ extension OnboardingView {
             if regionRequired, #available(iOS 18.0, *) {
                 request.regionPriority = .required
             }
-            return (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+            return await DeadlinedSearch.mapItems(for: request)
         }
-        // First pass constrains the search to the meetup area (not just a hint),
-        // so a query with no LOCAL name match generalises to the IDEA within the
-        // region — like Apple/Google Maps, "unlimited sushi" → nearby sushi,
-        // instead of a business literally named "Sushi Unlimited" on the far side
-        // of the world (device feedback). A tiny strict result set can still be
-        // incomplete for category-style searches, though, so merge the broader
-        // region-hint pass until we have enough candidates for ranking.
         let local = await search(regionRequired: true)
         if #available(iOS 18.0, *) {
             let fallback = local.count < Self.rankCap ? await search(regionRequired: false) : []
             return SearchResultMerger.merge(local: local, fallback: fallback, minimumCount: Self.rankCap)
         }
         return SearchResultMerger.deduped(local)
+    }
+
+    /// Resolves a committed MEETUP search: strictly in-region, with a rescue
+    /// ladder instead of a global fallback. MapKit returns zero in-region
+    /// results for concept phrasings outside its vocabulary ("unlimited
+    /// sushi") and the old global fallback then surfaced literal name matches
+    /// continents away (probed 2026-07-31: Sushi Unlimited, Cebu City). Now a
+    /// zero-result query retries with qualifiers stripped, then spelling
+    /// corrected; when every rung misses, the honest answer is "nothing
+    /// nearby". Returns the rewrite that produced results so the UI can say
+    /// "Showing results for …".
+    func resolveMeetupPlaces(query: String,
+                             region: MKCoordinateRegion) async -> (items: [MKMapItem], rewrittenQuery: String?) {
+        let original = await meetupSearchAttempt(query: query, region: region)
+        if !original.isEmpty { return (original, nil) }
+        for rewrite in SearchQueryRewriter.rewrites(for: query) {
+            let rescued = await meetupSearchAttempt(query: rewrite, region: region)
+            if !rescued.isEmpty { return (rescued, rewrite) }
+        }
+        return ([], nil)
+    }
+
+    /// One rung of the meetup search: the strict text pass, merged with the
+    /// POI-category engine when the query is category-shaped (typed "tennis
+    /// courts" reaches the same engine as the chips — the text pass only
+    /// finds NAMED courts), topped up from the distance-screened hint pass
+    /// when the local set is too thin to rank.
+    private func meetupSearchAttempt(query: String,
+                                     region: MKCoordinateRegion) async -> [MKMapItem] {
+        let sanityMeters = Self.vicinitySanityMeters(for: region)
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = openNowQualified(query)
+        request.region = region
+        if #available(iOS 18.0, *) {
+            request.regionPriority = .required
+        }
+        // iOS 17 has no regionPriority — there the "strict" pass is only a
+        // hint, so the distance screen is what actually keeps results local.
+        var items = SearchResultMerger.vicinityFiltered(
+            await DeadlinedSearch.mapItems(for: request),
+            around: region.center, maxMeters: sanityMeters)
+
+        // The POI-category engine takes no query text, so it can't carry the
+        // server-side hours filter — merging it while Open Now is on would
+        // re-add closed places.
+        let categories = openNowOnly ? [] : SearchIntent.poiCategories(for: query)
+        if !categories.isEmpty {
+            let halfSpanMeters = max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000 / 2
+            let radius = min(max(halfSpanMeters, 1_000), MKLocalPointsOfInterestRequest.maxRadius)
+            let poiRequest = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
+            poiRequest.pointOfInterestFilter = MKPointOfInterestFilter(including: categories)
+            items = SearchResultMerger.deduped(
+                items + (await DeadlinedSearch.mapItems(for: poiRequest)))
+        }
+
+        if #available(iOS 18.0, *), !items.isEmpty, items.count < Self.rankCap {
+            let hintRequest = MKLocalSearch.Request()
+            hintRequest.naturalLanguageQuery = openNowQualified(query)
+            hintRequest.region = region
+            let fallback = SearchResultMerger.vicinityFiltered(
+                await DeadlinedSearch.mapItems(for: hintRequest),
+                around: region.center, maxMeters: sanityMeters)
+            items = SearchResultMerger.merge(local: items, fallback: fallback, minimumCount: Self.rankCap)
+        }
+        return items
+    }
+
+    /// Appends the server-honored "open now" phrase when the filter chip is
+    /// active (see `openNowOnly`). No-op when the user already typed it.
+    private func openNowQualified(_ query: String) -> String {
+        guard openNowOnly, !query.lowercased().contains("open now") else { return query }
+        return query + " open now"
+    }
+
+    /// Toggles the Open Now filter chip and re-runs whatever search is on
+    /// screen so the results reflect the filter immediately.
+    func toggleOpenNow() {
+        openNowOnly.toggle()
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, searchState == .results || isSearchLoading else { return }
+        commitSearch()
+    }
+
+    /// How far a result may sit from the region center before it's treated as
+    /// engine drift rather than a candidate. Generous — three times the
+    /// region's half-span, never under 60 km — so a legitimately sparse area
+    /// keeps its outskirts while another continent can never render.
+    static func vicinitySanityMeters(for region: MKCoordinateRegion) -> CLLocationDistance {
+        let halfSpanMeters = max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000 / 2
+        return max(halfSpanMeters * 3, 60_000)
     }
 
     /// Resolves a category CHIP the way Apple Maps' own category buttons do: an
@@ -205,20 +289,29 @@ extension OnboardingView {
         // (post-push audit).
         let halfSpanMeters = max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000 / 2
         let radius = min(max(halfSpanMeters, 1_000), MKLocalPointsOfInterestRequest.maxRadius)
-        let request = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
-        request.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
-        let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
-        if !items.isEmpty { return SearchResultMerger.deduped(items) }
+        // Open Now can only ride the TEXT engine (the POI request takes no
+        // query text to carry the server-side hours filter) — skip straight
+        // to the text fallback below, still confined to the chip's categories.
+        if !openNowOnly {
+            let request = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
+            request.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
+            let items = await DeadlinedSearch.mapItems(for: request)
+            if !items.isEmpty { return SearchResultMerger.deduped(items) }
+        }
 
         let textRequest = MKLocalSearch.Request()
-        textRequest.naturalLanguageQuery = preset.mapKitQuery
+        textRequest.naturalLanguageQuery = openNowQualified(preset.mapKitQuery)
         textRequest.region = region
         textRequest.resultTypes = .pointOfInterest
         textRequest.pointOfInterestFilter = MKPointOfInterestFilter(including: preset.poiCategories)
         if #available(iOS 18.0, *) {
             textRequest.regionPriority = .required
         }
-        let fallback = (try? await MKLocalSearch(request: textRequest).start().mapItems) ?? []
+        // Same distance screen as the meetup search: on iOS 17 the text pass
+        // is hint-only, and even with .required the filter costs nothing.
+        let fallback = SearchResultMerger.vicinityFiltered(
+            await DeadlinedSearch.mapItems(for: textRequest),
+            around: region.center, maxMeters: Self.vicinitySanityMeters(for: region))
         return SearchResultMerger.deduped(fallback)
     }
 
@@ -328,12 +421,18 @@ extension OnboardingView {
         // "Study Spots" means nothing to the text engine, which is why the
         // Study chip found nothing (device feedback).
         let items: [MKMapItem]
+        var rewrittenQuery: String?
         if let preset = selectedCategory, trimmed == preset.searchQuery {
             items = await resolveCategory(preset, region: searchRegion)
         } else {
-            items = await resolvePlace(query: trimmed, region: searchRegion)
+            let resolved = await resolveMeetupPlaces(query: trimmed, region: searchRegion)
+            items = resolved.items
+            rewrittenQuery = resolved.rewrittenQuery
         }
         guard !Task.isCancelled else { return }
+        if let rewrittenQuery {
+            showToast("Showing results for \u{201C}\(rewrittenQuery)\u{201D}")
+        }
 
         rankedSpots = []
         searchResults = items
@@ -407,6 +506,7 @@ extension OnboardingView {
         completer.update(query: "")
         selectedCategory = nil
         selectedResult = nil
+        openNowOnly = false
         searchViewMode = .list
         searchFocused = false
     }

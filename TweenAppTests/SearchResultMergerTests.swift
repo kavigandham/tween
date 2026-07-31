@@ -49,6 +49,18 @@ final class SearchResultMergerTests: XCTestCase {
         XCTAssertEqual(results.map(\.name), local.map(\.name))
     }
 
+    func testVicinityFilterDropsFarResults() {
+        let frisco = CLLocationCoordinate2D(latitude: 33.1507, longitude: -96.8236)
+        let items = [
+            item(name: "Local Sushi", latitude: 33.13, longitude: -96.80),
+            item(name: "Sushi Unlimited Cebu", latitude: 10.3157, longitude: 123.8854)
+        ]
+
+        let results = SearchResultMerger.vicinityFiltered(items, around: frisco, maxMeters: 60_000)
+
+        XCTAssertEqual(results.map(\.name), ["Local Sushi"])
+    }
+
     private func item(name: String, latitude: Double, longitude: Double) -> MKMapItem {
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))

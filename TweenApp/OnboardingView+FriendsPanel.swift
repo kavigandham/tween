@@ -448,6 +448,24 @@ extension OnboardingView {
     var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Tokens.Spacing.s2) {
+                // Leading FILTER chip, not a category: constrains whatever is
+                // searched (typed or chip) to places open at this moment.
+                Button { toggleOpenNow() } label: {
+                    Label("Open Now", systemImage: "clock")
+                        .font(Tokens.Typography.subheadline)
+                        .padding(.horizontal, Tokens.Spacing.s4)
+                        .frame(minHeight: Tokens.Layout.minTapTarget)
+                        .background(
+                            openNowOnly ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(openNowOnly ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Now")
+                .accessibilityHint("Limits results to places that are open right now")
+                .accessibilityAddTraits(openNowOnly ? [.isButton, .isSelected] : .isButton)
+
                 ForEach(CategoryPreset.allCases) { preset in
                     let selected = preset == selectedCategory
                     Button { selectCategory(preset) } label: {
@@ -470,6 +488,7 @@ extension OnboardingView {
             .padding(.horizontal)
         }
         .sensoryFeedback(.selection, trigger: selectedCategory)
+        .sensoryFeedback(.selection, trigger: openNowOnly)
     }
 
     var resultsScroll: some View {
@@ -848,11 +867,21 @@ extension OnboardingView {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, Tokens.Spacing.s3)
+        } else if displayedItems.isEmpty, openNowOnly {
+            ContentUnavailableView(
+                "Nothing Open Right Now",
+                systemImage: "clock",
+                description: Text("Turn off Open Now to see every place near your meetup area."))
+                .frame(maxWidth: .infinity, minHeight: 180)
         } else if displayedItems.isEmpty {
             ContentUnavailableView(
                 "No Places Nearby",
                 systemImage: "magnifyingglass",
-                description: Text("Try a broader search like coffee, food, gas, or groceries."))
+                // Honest empty state: the rescue ladder already retried with
+                // qualifiers stripped and spelling corrected, so if we're
+                // here there's genuinely nothing in the meetup area — never
+                // pad with far-away name matches.
+                description: Text("Nothing matched near your meetup area. Try a simpler term like sushi, coffee, or parks."))
                 .frame(maxWidth: .infinity, minHeight: 180)
         } else {
             ForEach(displayedItems, id: \.self) { item in

@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import CoreLocation
 
 
 /// Combines MapKit's strict local search pass with its broader region-hint
@@ -7,6 +8,22 @@ import MapKit
 /// searches, but exact duplicates from the fallback should not produce repeated
 /// pins.
 enum SearchResultMerger {
+    /// Drops candidates wildly outside the search area. The region-hint pass
+    /// treats the region as guidance only and happily returns name matches on
+    /// the far side of the world when nothing local matches (probed
+    /// 2026-07-31: "unlimited sushi" → Sushi Unlimited, Cebu City, 8,300 mi
+    /// away). Screen every hint-pass result through this before merging.
+    static func vicinityFiltered(_ items: [MKMapItem],
+                                 around center: CLLocationCoordinate2D,
+                                 maxMeters: CLLocationDistance) -> [MKMapItem] {
+        let anchor = CLLocation(latitude: center.latitude, longitude: center.longitude)
+        return items.filter { item in
+            let coordinate = item.placemark.coordinate
+            let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            return location.distance(from: anchor) <= maxMeters
+        }
+    }
+
     static func merge(local: [MKMapItem], fallback: [MKMapItem], minimumCount: Int) -> [MKMapItem] {
         let localItems = deduped(local)
         guard !localItems.isEmpty else { return deduped(fallback) }
