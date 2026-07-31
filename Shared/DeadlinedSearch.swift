@@ -24,29 +24,54 @@ enum DeadlinedSearch {
     }
 
     private static func run(_ search: MKLocalSearch, seconds: TimeInterval) async -> [MKMapItem] {
-        await withCheckedContinuation { continuation in
-            let once = ResumeOnce()
-            search.start { response, _ in
-                guard once.claim() else { return }
-                continuation.resume(returning: response?.mapItems ?? [])
+        let box = ContinuationBox()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                box.store(continuation)
+                // The cancellation handler can fire before the continuation
+                // was stored — settle immediately instead of waiting out the
+                // deadline on work nobody wants (post-push audit M1: a
+                // superseded ladder must stop, and the extension's
+                // willResignActive cancel must not pin the search alive).
+                if Task.isCancelled {
+                    search.cancel()
+                    box.take()?.resume(returning: [])
+                    return
+                }
+                search.start { response, _ in
+                    box.take()?.resume(returning: response?.mapItems ?? [])
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
+                    guard let continuation = box.take() else { return }
+                    search.cancel()
+                    continuation.resume(returning: [])
+                }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
-                guard once.claim() else { return }
-                search.cancel()
-                continuation.resume(returning: [])
-            }
+        } onCancel: {
+            guard let continuation = box.take() else { return }
+            search.cancel()
+            continuation.resume(returning: [])
         }
     }
 
-    private final class ResumeOnce: @unchecked Sendable {
+    /// Holds the continuation so exactly ONE of the three racers — callback,
+    /// deadline, task cancellation — resumes it.
+    private final class ContinuationBox: @unchecked Sendable {
         private let lock = NSLock()
-        private var resumed = false
-        func claim() -> Bool {
+        private var continuation: CheckedContinuation<[MKMapItem], Never>?
+
+        func store(_ continuation: CheckedContinuation<[MKMapItem], Never>) {
             lock.lock()
             defer { lock.unlock() }
-            guard !resumed else { return false }
-            resumed = true
-            return true
+            self.continuation = continuation
+        }
+
+        func take() -> CheckedContinuation<[MKMapItem], Never>? {
+            lock.lock()
+            defer { lock.unlock() }
+            let taken = continuation
+            continuation = nil
+            return taken
         }
     }
 }

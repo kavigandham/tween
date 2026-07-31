@@ -140,6 +140,15 @@ struct OnboardingView: View {
     /// committed a search (showing rich result cards). Drives which surface the
     /// sheet renders so suggestions and results never look alike.
     @State var searchState: SearchState = .idle
+    /// What the camera actually shows, updated when each gesture/animation
+    /// settles. Committed searches use THIS (clamped) whenever the user has
+    /// moved the map themselves — Apple/Google's "search where you look" —
+    /// falling back to the participants region otherwise.
+    @State var visibleRegion: MKCoordinateRegion?
+    /// The region the on-screen results were actually fetched for; drift
+    /// between this and `visibleRegion` raises the Search Here pill.
+    @State var lastSearchedRegion: MKCoordinateRegion?
+    @State var showSearchHere = false
     /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
     /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
     /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
@@ -590,6 +599,14 @@ struct OnboardingView: View {
         // plane as Tween's controls and can appear stranded there. Orientation
         // and recentering now live in the deliberate map toolbar below.
         .mapControlVisibility(.hidden)
+        // .onEnd only — per-frame updates would recompute drift mid-gesture.
+        // `position.positionedByUser` distinguishes a real pan/zoom from our
+        // own programmatic framing, so reframes never raise the pill and the
+        // manual-point auto-search never reads a stale viewport.
+        .onMapCameraChange(frequency: .onEnd) { context in
+            visibleRegion = context.region
+            updateSearchHereVisibility()
+        }
     }
 
     var body: some View {
@@ -603,8 +620,14 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             viewModeToggle
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            searchHerePill
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                // Floats just above the sheet's collapsed peek, where the map
+                // is actually visible while browsing pins.
+                .padding(.bottom, Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
+        .animation(Tokens.Motion.snappy, value: showSearchHere)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {

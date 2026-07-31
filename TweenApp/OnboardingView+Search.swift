@@ -31,10 +31,35 @@ extension OnboardingView {
             longitude: lons.reduce(0, +) / Double(points.count))
     }
 
+    /// Where a committed search actually looks. When the user has moved the
+    /// map themselves, search WHERE THEY'RE LOOKING (the Apple/Google logic —
+    /// device feedback: a Fairfax search should find the Ashburn location
+    /// when the camera is zoomed out to see Ashburn). Programmatic framing
+    /// resets `positionedByUser`, so context flows (add-a-point, recenter,
+    /// cold start) keep the participants region.
+    var searchRegion: MKCoordinateRegion {
+        if position.positionedByUser, let visibleRegion {
+            return Self.clampedSearchRegion(visibleRegion)
+        }
+        return participantsSearchRegion
+    }
+
+    /// Keeps a viewport-derived search region useful: never tighter than a
+    /// neighborhood (zoomed onto one block still searches around it) and
+    /// never wider than a metro (a continent-level camera would dilute
+    /// relevance to noise).
+    static func clampedSearchRegion(_ region: MKCoordinateRegion) -> MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: region.center,
+            span: MKCoordinateSpan(
+                latitudeDelta: min(max(region.span.latitudeDelta, 0.05), 1.6),
+                longitudeDelta: min(max(region.span.longitudeDelta, 0.05), 1.6)))
+    }
+
     /// The region search is biased toward the midpoint when multiple points are
     /// known, otherwise whichever single location we have. A tighter local span
     /// keeps common searches like coffee, food, and gas near the active context.
-    var searchRegion: MKCoordinateRegion {
+    var participantsSearchRegion: MKCoordinateRegion {
         let points = comparisonCoordinates
         if points.count >= 2 {
             let lats = points.map(\.latitude), lons = points.map(\.longitude)
@@ -111,10 +136,43 @@ extension OnboardingView {
         searchFocused = false
         expandToSearchDetent()
         isSearchLoading = true
+        // Leave .suggesting NOW: without this, Return / a suggestion tap kept
+        // rendering the stale (still-tappable) completer rows with no
+        // feedback until results landed — the resultsList spinner only shows
+        // from the .results branch (post-push audit M2).
+        searchState = .results
 
         searchTask = Task { @MainActor in
             await runSearch(trimmed: trimmed, reframeMap: true)
         }
+    }
+
+    /// The Search Here pill: re-runs the current query where the user is now
+    /// looking, keeping the camera exactly where they put it.
+    func searchHereTapped() {
+        showSearchHere = false
+        searchTask?.cancel()
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSearch(trimmed) else { return }
+        isSearchLoading = true
+        searchTask = Task { @MainActor in
+            await runSearch(trimmed: trimmed, reframeMap: false)
+        }
+    }
+
+    /// Raises the pill when the settled camera has drifted meaningfully from
+    /// the region the visible results were fetched for. Programmatic framing
+    /// (results fit, recenter, reframe) never raises it.
+    func updateSearchHereVisibility() {
+        guard position.positionedByUser,
+              isSearchActive, !searchResults.isEmpty,
+              let visibleRegion, let lastSearchedRegion else {
+            showSearchHere = false
+            return
+        }
+        showSearchHere = MapRegionDrift.isSignificant(
+            from: lastSearchedRegion,
+            to: Self.clampedSearchRegion(visibleRegion))
     }
 
     func focusSearchPanel() {
@@ -166,6 +224,7 @@ extension OnboardingView {
     /// "add a place / person" flow needs far-away resolution (a manual
     /// "where I'll be" point in another city). Committed meetup searches go
     /// through `resolveMeetupPlaces` instead, which never leaves the region.
+    @MainActor
     func resolvePlace(query: String, region: MKCoordinateRegion) async -> [MKMapItem] {
         func search(regionRequired: Bool) async -> [MKMapItem] {
             let request = MKLocalSearch.Request()
@@ -193,11 +252,16 @@ extension OnboardingView {
     /// corrected; when every rung misses, the honest answer is "nothing
     /// nearby". Returns the rewrite that produced results so the UI can say
     /// "Showing results for …".
+    @MainActor
     func resolveMeetupPlaces(query: String,
                              region: MKCoordinateRegion) async -> (items: [MKMapItem], rewrittenQuery: String?) {
         let original = await meetupSearchAttempt(query: query, region: region)
         if !original.isEmpty { return (original, nil) }
         for rewrite in SearchQueryRewriter.rewrites(for: query) {
+            // A superseded ladder must stop issuing requests — each rung is
+            // several network round-trips, and stale rungs compound the very
+            // geod throttling the deadline guard exists for (post-push audit).
+            guard !Task.isCancelled else { return ([], nil) }
             let rescued = await meetupSearchAttempt(query: rewrite, region: region)
             if !rescued.isEmpty { return (rescued, rewrite) }
         }
@@ -209,8 +273,10 @@ extension OnboardingView {
     /// courts" reaches the same engine as the chips — the text pass only
     /// finds NAMED courts), topped up from the distance-screened hint pass
     /// when the local set is too thin to rank.
+    @MainActor
     private func meetupSearchAttempt(query: String,
                                      region: MKCoordinateRegion) async -> [MKMapItem] {
+        guard !Task.isCancelled else { return [] }
         let sanityMeters = Self.vicinitySanityMeters(for: region)
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = openNowQualified(query)
@@ -257,11 +323,16 @@ extension OnboardingView {
     }
 
     /// Toggles the Open Now filter chip and re-runs whatever search is on
-    /// screen so the results reflect the filter immediately.
+    /// screen so the results reflect the filter immediately. Clears the
+    /// on-screen results first — leaving the old UNFILTERED list under the
+    /// now-active chip presented closed places as filtered for the several
+    /// seconds the re-search takes (post-push audit m2).
     func toggleOpenNow() {
         openNowOnly.toggle()
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, searchState == .results || isSearchLoading else { return }
+        searchResults = []
+        rankedSpots = []
         commitSearch()
     }
 
@@ -281,6 +352,7 @@ extension OnboardingView {
     /// a phrase like "Study Spots" (device feedback: the Study chip was dead).
     /// Sparse areas fall back to the text engine with a term it DOES know,
     /// still filtered to the chip's categories.
+    @MainActor
     func resolveCategory(_ preset: CategoryPreset, region: MKCoordinateRegion) async -> [MKMapItem] {
         // POI requests hard-cap their radius (MKPointsOfInterestRequestMaxRadius);
         // a far-apart group's searchRegion exceeds it, which errored the request
@@ -416,6 +488,11 @@ extension OnboardingView {
             return
         }
 
+        // Snapshot the region once: the camera can settle mid-search, and the
+        // recorded lastSearchedRegion must be the region these results were
+        // actually fetched for, or Search Here drift math lies.
+        let region = searchRegion
+
         // A chip tap is a CATEGORY browse, not a text search — route it through
         // the POI-category engine (how Apple Maps' own category buttons work).
         // "Study Spots" means nothing to the text engine, which is why the
@@ -423,9 +500,9 @@ extension OnboardingView {
         let items: [MKMapItem]
         var rewrittenQuery: String?
         if let preset = selectedCategory, trimmed == preset.searchQuery {
-            items = await resolveCategory(preset, region: searchRegion)
+            items = await resolveCategory(preset, region: region)
         } else {
-            let resolved = await resolveMeetupPlaces(query: trimmed, region: searchRegion)
+            let resolved = await resolveMeetupPlaces(query: trimmed, region: region)
             items = resolved.items
             rewrittenQuery = resolved.rewrittenQuery
         }
@@ -436,6 +513,8 @@ extension OnboardingView {
 
         rankedSpots = []
         searchResults = items
+        lastSearchedRegion = region
+        showSearchHere = false
         isSearchActive = true
         isSearchLoading = false
         searchState = .results

@@ -58,7 +58,15 @@ enum CompletionRegionFilter {
             guard let token = token?.lowercased(), !token.isEmpty else { return false }
             return haystack.contains(" \(token) ")
         }
-        if tokens.administrativeArea != nil { return matches(tokens.administrativeArea) }
+        if matches(tokens.administrativeArea) { return true }
+        // US addresses reliably carry the state code, so a US admin mismatch
+        // is a real out-of-state row — drop it. Elsewhere, subtitles often
+        // omit the administrative area entirely ("12 Rue de Rivoli, Paris,
+        // France" vs admin "Île-de-France"), so requiring it would kill every
+        // legitimate local suggestion (post-push audit M3); fall back to the
+        // country, which still drops the cross-continent name matches.
+        let isUS = tokens.country?.caseInsensitiveCompare("United States") == .orderedSame
+        if isUS, tokens.administrativeArea != nil { return false }
         return matches(tokens.country)
     }
 }

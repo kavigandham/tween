@@ -123,6 +123,9 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     /// Nil until the first geocode lands — suggestions pass unfiltered then.
     private var regionTokens: CompletionRegionTokens?
     private var regionTokensKey: String?
+    /// The center currently being reverse-geocoded — guards against firing a
+    /// new lookup per keystroke while one is already in flight.
+    private var pendingTokensKey: String?
     private let geocoder = CLGeocoder()
 
     /// Timer for the debounced entry point. Cancelled and re-armed on every
@@ -162,18 +165,26 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     /// One reverse-geocode per (rounded) region center, feeding the
-    /// suggestion filter. Best-effort: on failure the previous tokens stay,
-    /// and with none the filter passes everything through.
+    /// suggestion filter. The resolved key is latched only on SUCCESS — a
+    /// failed lookup (rate limit, offline) retries on the next keystroke
+    /// instead of pinning stale tokens forever; while the region has moved
+    /// but tokens haven't resolved, the filter passes everything through
+    /// rather than filtering against the previous region (post-push audit m3).
     private func resolveRegionTokensIfNeeded(for region: MKCoordinateRegion) {
         let key = String(format: "%.2f,%.2f", region.center.latitude, region.center.longitude)
-        guard key != regionTokensKey else { return }
-        regionTokensKey = key
+        guard key != regionTokensKey, key != pendingTokensKey else { return }
+        pendingTokensKey = key
+        if regionTokensKey != nil { regionTokens = nil }
         let location = CLLocation(latitude: region.center.latitude,
                                   longitude: region.center.longitude)
         Task { @MainActor [weak self] in
-            guard let placemark = try? await self?.geocoder.reverseGeocodeLocation(location).first
-            else { return }
-            self?.regionTokens = CompletionRegionTokens(
+            guard let self else { return }
+            let placemark = try? await self.geocoder.reverseGeocodeLocation(location).first
+            guard self.pendingTokensKey == key else { return }
+            self.pendingTokensKey = nil
+            guard let placemark else { return }
+            self.regionTokensKey = key
+            self.regionTokens = CompletionRegionTokens(
                 administrativeArea: placemark.administrativeArea,
                 country: placemark.country)
         }

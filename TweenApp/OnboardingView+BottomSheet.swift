@@ -131,20 +131,45 @@ extension OnboardingView {
 
     /// The map's compact utility cluster. Recenter stays one tap away; lower-
     /// frequency controls live in a labelled menu instead of four equally
-    /// prominent buttons competing down the screen edge.
+    /// prominent buttons competing down the screen edge. VERTICAL, menu on
+    /// top: the horizontal pill collided with the centered List/Map toggle
+    /// on device (feedback 2026-07-31).
     var topMapToolbar: some View {
-        HStack(spacing: 0) {
-            resetMapButton
+        VStack(spacing: 0) {
+            mapOptionsButton
 
             Divider()
-                .frame(height: Tokens.Spacing.s6)
+                .frame(width: Tokens.Spacing.s6)
 
-            mapOptionsButton
+            resetMapButton
         }
         .padding(Tokens.Spacing.s1)
         .modifier(TweenGlassControl(shape: Capsule()))
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
+    }
+
+    /// Google/Apple-style re-search affordance: appears once the user pans or
+    /// zooms far enough from the searched area that the pins no longer
+    /// describe the viewport; tapping re-runs the search where they're
+    /// looking, without moving the camera.
+    @ViewBuilder
+    var searchHerePill: some View {
+        if showSearchHere {
+            Button {
+                searchHereTapped()
+            } label: {
+                Label("Search Here", systemImage: "magnifyingglass")
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.accent)
+                    .padding(.horizontal, Tokens.Spacing.s4)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+            }
+            .buttonStyle(.plain)
+            .modifier(TweenGlassControl(shape: Capsule()))
+            .transition(.scale(scale: 0.85).combined(with: .opacity))
+            .accessibilityHint("Searches again in the area you're looking at")
+        }
     }
 
     var mapOptionsButton: some View {

@@ -59,6 +59,22 @@ final class CompletionRegionFilterTests: XCTestCase {
             tokens: countryOnly))
     }
 
+    func testNonUSLocaleKeepsLocalAddressesViaCountry() {
+        // Outside the US, subtitles usually omit the administrative area
+        // entirely ("12 Rue de Rivoli, Paris, France" vs admin
+        // "Île-de-France") — requiring the admin match killed every local
+        // suggestion (post-push audit M3). Country carries the filter there.
+        let paris = CompletionRegionTokens(administrativeArea: "Île-de-France", country: "France")
+        XCTAssertTrue(CompletionRegionFilter.shouldKeep(
+            title: "Caf\u{00E9} de Flore",
+            subtitle: "172 Boulevard Saint-Germain, Paris, France",
+            tokens: paris))
+        XCTAssertFalse(CompletionRegionFilter.shouldKeep(
+            title: "Sushi Unlimited",
+            subtitle: "La Guardia, Cebu City, 6000 Cebu, Philippines",
+            tokens: paris))
+    }
+
     func testPassesThroughWithoutTokens() {
         let rows = [Row(title: "Sushi Unlimited", subtitle: "Cebu City, Philippines")]
         XCTAssertEqual(CompletionRegionFilter.filter(rows, tokens: nil).count, 1)
