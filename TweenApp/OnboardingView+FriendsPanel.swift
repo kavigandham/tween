@@ -832,15 +832,18 @@ extension OnboardingView {
     }
 
     var discoverySections: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
-            quickSpotSection(title: "Suggested Spot", shortcuts: [Self.suggestedSpot])
+        // Sentence case, and shorter: Maps names a section for the thing it
+        // holds ("Recents", not "RECENT SPOTS") and lets the large bold type
+        // do the separating.
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s5) {
+            quickSpotSection(title: "Suggested", shortcuts: [Self.suggestedSpot])
             storedSpotSection(
                 title: "Favorites",
                 spots: favoriteSpots,
                 emptyText: "Save a place from its details to keep it here.",
                 emptyIcon: "star")
             storedSpotSection(
-                title: "Recent Spots",
+                title: "Recents",
                 spots: recentSpots,
                 emptyText: "Places you look at will appear here.",
                 emptyIcon: "clock")
@@ -850,10 +853,7 @@ extension OnboardingView {
 
     func quickSpotSection(title: String, shortcuts: [QuickSpotShortcut]) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            Text(title)
-                .font(Tokens.Typography.captionBold)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .textCase(.uppercase)
+            TweenSectionHeader(title)
                 .padding(.horizontal, Tokens.Spacing.s1)
 
             VStack(spacing: 0) {
@@ -862,11 +862,8 @@ extension OnboardingView {
                         startShortcutSearch(shortcut)
                     } label: {
                         HStack(spacing: Tokens.Spacing.s3) {
-                            Image(systemName: shortcut.systemImage)
-                                .font(Tokens.Typography.headline)
-                                .foregroundStyle(Tokens.Palette.accent)
-                                .frame(width: 36, height: 36)
-                                .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                            TweenRowIcon(systemImage: shortcut.systemImage,
+                                         color: Tokens.Palette.brand)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(shortcut.title)
@@ -909,20 +906,17 @@ extension OnboardingView {
         emptyIcon: String
     ) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            Text(title)
-                .font(Tokens.Typography.captionBold)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .textCase(.uppercase)
+            TweenSectionHeader(title)
                 .padding(.horizontal, Tokens.Spacing.s1)
 
             VStack(spacing: 0) {
                 if spots.isEmpty {
                     HStack(spacing: Tokens.Spacing.s3) {
-                        Image(systemName: emptyIcon)
-                            .font(Tokens.Typography.headline)
-                            .foregroundStyle(Tokens.Palette.textTertiary)
-                            .frame(width: 36, height: 36)
-                            .background(Tokens.Palette.neutralAction, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                        // The empty slot keeps the circle but drains its
+                        // colour, so the row's shape is already familiar once
+                        // real places land in it.
+                        TweenRowIcon(systemImage: emptyIcon,
+                                     color: Tokens.Palette.textTertiary)
                         Text(emptyText)
                             .font(Tokens.Typography.subheadline)
                             .foregroundStyle(Tokens.Palette.textSecondary)
@@ -933,11 +927,11 @@ extension OnboardingView {
                     ForEach(Array(spots.prefix(5).enumerated()), id: \.element.id) { index, spot in
                         Button { presentStoredSpot(spot) } label: {
                             HStack(spacing: Tokens.Spacing.s3) {
-                                Image(systemName: title == "Favorites" ? "star.fill" : "clock.fill")
-                                    .font(Tokens.Typography.headline)
-                                    .foregroundStyle(title == "Favorites" ? Tokens.Palette.warning : Tokens.Palette.accent)
-                                    .frame(width: 36, height: 36)
-                                    .background(Tokens.Palette.neutralAction, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                                // Favorites take Maps' own saturated orange
+                                // star; recents take the brand blue clock.
+                                TweenRowIcon(
+                                    systemImage: title == "Favorites" ? "star.fill" : "clock.fill",
+                                    color: title == "Favorites" ? Tokens.Palette.warning : Tokens.Palette.brand)
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(spot.name)

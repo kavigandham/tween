@@ -182,6 +182,9 @@ enum Tokens {
         static let title = Font.system(.title, weight: .bold)
         static let title2 = Font.system(.title2)
         static let headline = Font.system(.headline)
+        /// A list section's title. Apple Maps' "Places" / "Recents" scale —
+        /// large and bold, never a small uppercase eyebrow.
+        static let sectionTitle = Font.system(.title2, weight: .bold)
         static let subheadline = Font.system(.subheadline)
         static let body = Font.system(.body)
         static let callout = Font.system(.callout)
@@ -321,6 +324,81 @@ extension ButtonStyle where Self == TweenPrimaryButtonStyle {
     /// `.tweenPrimary(.subtle)` for the tinted secondary variant.
     static func tweenPrimary(_ variant: TweenPrimaryButtonStyle.Variant = .prominent) -> TweenPrimaryButtonStyle {
         TweenPrimaryButtonStyle(variant: variant)
+    }
+}
+
+// MARK: Section headers + row icons (Apple Maps' list language)
+
+/// A section header the way Apple Maps writes one today: a LARGE, BOLD,
+/// sentence-case title — "Places", "Recents", "Your Guides" — with an optional
+/// disclosure chevron riding alongside it.
+///
+/// Tween used the small grey UPPERCASE eyebrow ("RECENT SPOTS") that iOS
+/// shipped through iOS 13 and Apple has since dropped everywhere in Maps. Side
+/// by side it's the single loudest "this isn't a modern Apple app" tell: the
+/// eyebrow makes a section feel like a form fieldset instead of a place in a
+/// hierarchy you can walk into.
+struct TweenSectionHeader: View {
+    let title: String
+    var action: (() -> Void)?
+
+    init(_ title: String, action: (() -> Void)? = nil) {
+        self.title = title
+        self.action = action
+    }
+
+    var body: some View {
+        Group {
+            if let action {
+                Button(action: action) { label }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                label
+            }
+        }
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var label: some View {
+        HStack(spacing: Tokens.Spacing.s1) {
+            Text(title)
+                .font(Tokens.Typography.sectionTitle)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+            if action != nil {
+                // Maps hangs the chevron directly off the last letter rather
+                // than pinning it to the trailing edge — it reads as part of
+                // the title, not as a separate control.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// The leading mark on an Apple Maps list row: a VIVID, fully saturated,
+/// filled circle carrying a white glyph.
+///
+/// Tween drew dark navy rounded squares with a small tinted glyph, which sit
+/// back into the row instead of anchoring it. Apple's read instantly at a
+/// glance and colour-code the row's category for free — and the circle (not a
+/// squircle) is what makes a list of them scan as Maps rather than Settings.
+struct TweenRowIcon: View {
+    let systemImage: String
+    let color: Color
+    var size: CGFloat = 38
+
+    var body: some View {
+        ZStack {
+            Circle().fill(color)
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.46, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

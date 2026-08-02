@@ -79,32 +79,21 @@ struct CompactView: View {
             }
 
             HStack(spacing: Tokens.Spacing.s2) {
-                Button(action: onExpand) {
-                    Label("Browse", systemImage: "magnifyingglass")
-                        .font(Tokens.Typography.captionBold)
-                        .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                }
-                .buttonStyle(.tweenPrimary(.subtle))
+                TweenActionButton("Browse", systemImage: "magnifyingglass",
+                                  action: onExpand)
 
                 if isUserIn {
-                    Button(action: onImOut) {
-                        Label("I'm out", systemImage: "location.slash")
-                            .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                    }
-                    .buttonStyle(.tweenPrimary(.destructive))
                     // handleImOut drops taps while a send is in flight (the
                     // double-fire guard) — reflect that instead of looking
                     // tappable and doing nothing (post-push verify).
-                    .disabled(isSending)
-                    .accessibilityHint("Stops sharing you as active for this meetup")
+                    TweenActionButton("I'm out", systemImage: "location.slash",
+                                      variant: .destructive,
+                                      isEnabled: !isSending,
+                                      action: onImOut)
+                        .accessibilityHint("Stops sharing you as active for this meetup")
                 } else {
-                    Button(action: onExpand) {
-                        Label("Details", systemImage: "person.2")
-                            .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                    }
-                    .buttonStyle(.tweenPrimary(.subtle))
+                    TweenActionButton("Details", systemImage: "person.2",
+                                      action: onExpand)
                 }
             }
         }
@@ -151,36 +140,28 @@ struct CompactView: View {
             // the row keeps the stack inside the keyboard-height budget.
             if isUserIn {
                 HStack(spacing: Tokens.Spacing.s2) {
-                    Button(action: onExpand) {
-                        Label(received?.kind == .place ? "Review spot" : "Browse spots",
-                              systemImage: received?.kind == .place ? "checkmark.bubble" : "magnifyingglass")
-                            .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                    }
-                    .buttonStyle(.tweenPrimary(.subtle))
+                    TweenActionButton(received?.kind == .place ? "Review" : "Browse",
+                                      systemImage: received?.kind == .place
+                                          ? "checkmark.bubble" : "magnifyingglass",
+                                      action: onExpand)
 
-                    Button(action: onImOut) {
-                        Label("I'm out", systemImage: "location.slash")
-                            .font(Tokens.Typography.captionBold)
-                            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                    }
-                    .buttonStyle(.tweenPrimary(.destructive))
-                    .disabled(isSending)
-                    .accessibilityHint("Stops sharing you as active for this meetup")
+                    TweenActionButton("I'm out", systemImage: "location.slash",
+                                      variant: .destructive,
+                                      isEnabled: !isSending,
+                                      action: onImOut)
+                        .accessibilityHint("Stops sharing you as active for this meetup")
                 }
             }
         }
     }
 
+    /// Vivid filled circle, white glyph — the mark Apple Maps puts at the head
+    /// of a row. The old dim-glyph-on-tinted-circle version sat back into the
+    /// card instead of anchoring it.
     private var compactAppIcon: some View {
-        ZStack {
-            Circle()
-                .fill(Tokens.Palette.brandLight)
-            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.accent)
-        }
-        .frame(width: 42, height: 42)
+        TweenRowIcon(systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+                     color: Tokens.Palette.brand,
+                     size: 42)
     }
 
     private var rosterCountPill: some View {

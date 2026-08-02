@@ -344,18 +344,23 @@ struct ExpandedView: View {
     /// replacing the old 120pt status card.
     var panelHeadline: some View {
         HStack(alignment: .center, spacing: Tokens.Spacing.s2) {
-            VStack(alignment: .leading, spacing: 2) {
-                if received != nil {
-                    Text(statusEyebrow)
-                        .font(Tokens.Typography.caption2Bold)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
+            // Apple's place-card order: the NAME leads, big and bold, and the
+            // context ("Coffee Shop" there, "Hassan chose" here) sits under it
+            // in small grey sentence case. Tween had it inverted — a tiny
+            // uppercase eyebrow on top of a 17pt name — which buried the one
+            // thing the panel is actually about.
+            VStack(alignment: .leading, spacing: 1) {
                 Text(statusTitle)
-                    .font(Tokens.Typography.headline)
+                    .font(Tokens.Typography.sectionTitle)
                     .foregroundStyle(Tokens.Palette.textPrimary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
+                if received != nil {
+                    Text(statusEyebrow)
+                        .font(Tokens.Typography.subheadline)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
             if let received, let progress = groupProgress(for: received) {
