@@ -119,17 +119,22 @@ enum BubbleImageRenderer {
                 ctx.restoreGState()
             }
 
-            // Pin halos: every participant, with the local user coloured distinctly.
+            // Participants: the local user gets Apple's location dot, everyone
+            // else a Find-My-style avatar carrying their initials — so a
+            // recipient can tell at a glance who is where.
             for participant in participants {
-                let color = isLocal(participant, localID: localID, localName: localName)
-                    ? Tokens.Palette.UI.pinSelf
-                    : Tokens.Palette.UI.pinFriend
-                drawHalo(color, at: snapshot.point(for: participant.coordinate), in: ctx)
+                let isMe = isLocal(participant, localID: localID, localName: localName)
+                drawPin(role: isMe ? .selfActive : .friend,
+                        initials: isMe ? nil : TweenPin.initials(for: participant.name),
+                        needsRide: participant.needsRide,
+                        at: snapshot.point(for: participant.coordinate),
+                        in: ctx)
             }
 
             // Place pin sits on top of participants when this is a propose/agree.
             if state.kind == .place {
-                drawHalo(Tokens.Palette.UI.pinFair, at: snapshot.point(for: state.coordinate), in: ctx, emphasized: true)
+                drawPin(role: .fairSpot, at: snapshot.point(for: state.coordinate),
+                        in: ctx, emphasized: true)
             }
 
             drawFooter(headline: footerHeadline(for: state), in: ctx)
@@ -207,13 +212,15 @@ enum BubbleImageRenderer {
 
             for (i, point) in points.enumerated() {
                 let participant = i < participants.count ? participants[i] : nil
-                let color = participant.map { isLocal($0, localID: localID, localName: localName) } == true
-                    ? Tokens.Palette.UI.pinSelf
-                    : (i == 0 ? Tokens.Palette.UI.pinSelf : Tokens.Palette.UI.pinFriend)
-                drawHalo(color, at: point, in: ctx)
+                let isMe = participant.map { isLocal($0, localID: localID, localName: localName) } ?? (i == 0)
+                drawPin(role: isMe ? .selfActive : .friend,
+                        initials: isMe ? nil : participant.map { TweenPin.initials(for: $0.name) },
+                        needsRide: participant?.needsRide ?? false,
+                        at: point, in: ctx)
             }
             if state.kind == .place {
-                drawHalo(Tokens.Palette.UI.pinFair, at: CGPoint(x: size.width * 0.50, y: centerY - 4), in: ctx, emphasized: true)
+                drawPin(role: .fairSpot, at: CGPoint(x: size.width * 0.50, y: centerY - 4),
+                        in: ctx, emphasized: true)
             }
 
             drawFooter(headline: footerHeadline(for: state), in: ctx)
@@ -230,18 +237,16 @@ enum BubbleImageRenderer {
         return participant.id == participant.name && participant.name == localName
     }
 
-    private static func drawHalo(_ color: UIColor, at point: CGPoint, in ctx: CGContext, emphasized: Bool = false) {
-        let d: CGFloat = emphasized ? 30 : 22
-
-        ctx.setFillColor(color.withAlphaComponent(0.3).cgColor)
-        ctx.fillEllipse(in: CGRect(x: point.x - d, y: point.y - d, width: d * 2, height: d * 2))
-
-        let dot = CGRect(x: point.x - d / 2, y: point.y - d / 2, width: d, height: d)
-        ctx.setFillColor(color.cgColor)
-        ctx.fillEllipse(in: dot)
-        ctx.setStrokeColor(UIColor.white.cgColor)
-        ctx.setLineWidth(3)
-        ctx.strokeEllipse(in: dot)
+    /// One participant/spot mark on the bubble image, drawn through the shared
+    /// `PinRenderer` so it matches the app and extension maps. The old version
+    /// drew a color dot inside a large translucent halo — an anonymous blob
+    /// that told a recipient nothing about WHO is where (the same "colored
+    /// blobs" the in-app pins were redesigned away from).
+    private static func drawPin(role: TweenPin.Role, initials: String? = nil,
+                                needsRide: Bool = false, at point: CGPoint,
+                                in ctx: CGContext, emphasized: Bool = false) {
+        PinRenderer.draw(role: role, initials: initials, needsRide: needsRide,
+                         at: point, diameter: emphasized ? 46 : 38, in: ctx)
     }
 
     /// The one useful line a NON-app-user reads in the bubble footer, per state

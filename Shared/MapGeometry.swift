@@ -10,6 +10,10 @@ struct MapMarker: Identifiable {
     let id = UUID()
     let coordinate: CLLocationCoordinate2D
     let role: TweenPin.Role
+    /// Person initials for avatar pins, so a rasterized map shows the same
+    /// identity the live map does instead of an anonymous colored circle.
+    var initials: String? = nil
+    var needsRide: Bool = false
 }
 
 /// Pure geometry helpers shared by the snapshot view, the bubble renderer, and

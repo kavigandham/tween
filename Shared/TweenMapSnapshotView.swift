@@ -167,7 +167,7 @@ struct TweenMapSnapshotView: View {
         return renderer.image { context in
             snapshot.image.draw(at: .zero)
             for marker in markers {
-                drawMarker(marker.role, at: snapshot.point(for: marker.coordinate), in: context.cgContext)
+                drawMarker(marker, at: snapshot.point(for: marker.coordinate), in: context.cgContext)
             }
         }
     }
@@ -229,7 +229,7 @@ struct TweenMapSnapshotView: View {
             }
 
             for marker in markers {
-                drawMarker(marker.role, at: point(for: marker.coordinate), in: ctx)
+                drawMarker(marker, at: point(for: marker.coordinate), in: ctx)
             }
         }
     }
@@ -238,17 +238,18 @@ struct TweenMapSnapshotView: View {
     /// at the `.compact` scale. The old 1.6× halo (audit F5) inflated every
     /// marker's footprint and cluttered the extension's thumbnail map; dropped
     /// in favour of a clean rim-only dot.
-    private static func drawMarker(_ role: TweenPin.Role, at point: CGPoint, in ctx: CGContext,
+    /// Delegates to `PinRenderer` so a rasterized pin renders the SAME three
+    /// families as the live SwiftUI `TweenPin` — initials on people, glyphs on
+    /// spots, Apple's location dot for you. This used to draw a bare filled
+    /// circle, which made every person on an extension map anonymous.
+    private static func drawMarker(_ marker: MapMarker, at point: CGPoint, in ctx: CGContext,
                                    context: TweenPin.Context = .compact) {
-        let color = UIColor(role.fill)
-        let d = role.diameter(context)
-
-        let dot = CGRect(x: point.x - d / 2, y: point.y - d / 2, width: d, height: d)
-        ctx.setFillColor(color.cgColor)
-        ctx.fillEllipse(in: dot)
-        ctx.setStrokeColor(UIColor.white.cgColor)
-        ctx.setLineWidth(1.5)
-        ctx.strokeEllipse(in: dot)
+        PinRenderer.draw(role: marker.role,
+                         initials: marker.initials,
+                         needsRide: marker.needsRide,
+                         at: point,
+                         diameter: marker.role.diameter(context),
+                         in: ctx)
     }
 }
 

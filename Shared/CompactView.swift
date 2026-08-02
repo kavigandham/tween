@@ -308,14 +308,18 @@ struct CompactView: View {
 
         // Every "in" participant other than me from the group roster.
         for participant in state.participants where !participant.matches(id: myId, name: myName) {
-            result.append(MapMarker(coordinate: participant.coordinate, role: .friend))
+            result.append(MapMarker(coordinate: participant.coordinate,
+                                    role: .friend,
+                                    initials: TweenPin.initials(for: participant.name),
+                                    needsRide: participant.needsRide))
         }
         // For legacy bubbles (kind=.participant, empty participants[]) the
         // main coord IS the friend's pin. representsParticipantLocation rules
         // out `.leave` payloads, whose main coord is the LEAVER's last position
         // — an empty-roster leave must not pin the person who just left.
         if state.representsParticipantLocation && state.participants.isEmpty {
-            result.append(MapMarker(coordinate: state.coordinate, role: .friend))
+            result.append(MapMarker(coordinate: state.coordinate, role: .friend,
+                                    initials: state.senderName.map { TweenPin.initials(for: UserName.peerDisplayName($0)) }))
         }
 
         if let me = LocationCache.loadSelf()?.coordinate {

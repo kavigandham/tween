@@ -702,7 +702,10 @@ struct ExpandedView: View {
 
     var openFullAppButton: some View {
         Button(action: onOpenFullApp) {
-            Label("Browse spots", systemImage: "arrow.up.forward.app")
+            // magnifyingglass, not arrow.up.forward.app: an external-link
+            // glyph told the user "this leaves Messages" when the useful
+            // meaning is "search for places" (screenshot review).
+            Label("Browse spots", systemImage: "magnifyingglass")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.tweenPrimary(.subtle))

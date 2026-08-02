@@ -124,11 +124,14 @@ extension ExpandedView {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: Tokens.Spacing.s3) {
+                // Bare glyph, no tinted tile: a light-on-light chip inside an
+                // already-filled brand button read as a stray misaligned
+                // square (screenshot review). The row's own fill is the
+                // surface; the icon just needs to sit on it.
                 Image(systemName: systemImage)
-                    .font(Tokens.Typography.headline)
+                    .font(Tokens.Typography.title2)
                     .foregroundStyle(foreground)
-                    .frame(width: 40, height: 40)
-                    .background(foreground.opacity(0.16), in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                    .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)

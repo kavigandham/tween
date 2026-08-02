@@ -49,7 +49,12 @@ extension ExpandedView {
             result.append(MapMarker(coordinate: selfCoord, role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot)))
         }
         for participant in otherParticipants {
-            result.append(MapMarker(coordinate: participant.coordinate, role: participant.needsRide ? .rideNeeded : .friend))
+            // Initials ride along so the snapshot shows WHO each pin is —
+            // matching the live map instead of anonymous colored circles.
+            result.append(MapMarker(coordinate: participant.coordinate,
+                                    role: .friend,
+                                    initials: TweenPin.initials(for: participant.name),
+                                    needsRide: participant.needsRide))
         }
         // No centroid/midpoint marker (audit F3): the geographic middle isn't a
         // place anyone meets, and on the small extension map it just adds clutter.

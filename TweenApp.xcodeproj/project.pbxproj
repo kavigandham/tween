@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		02855529C5710F5C0A5BD01D /* Participant.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA256CAEB5D69FB5441F7C3 /* Participant.swift */; };
 		033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */; };
+		062709ED92EE4A83DEC6638F /* PinRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B07ACA4F93EAFFF43F704C4 /* PinRenderer.swift */; };
 		0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
 		0BB801FEA82175D72FD4E5F2 /* TweenPro.storekit in Resources */ = {isa = PBXBuildFile; fileRef = C7D8D73856CB283078AE1359 /* TweenPro.storekit */; };
 		0F64262C9F3F9FD67E86F667 /* UserName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDD40282483BFE2BDFF2AC5 /* UserName.swift */; };
@@ -80,6 +81,7 @@
 		81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
 		83043CC695A5C485E3AA03EC /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECF02EB2138B0F7429E735F /* SearchCompleter.swift */; };
+		86F28AC3BB8B6FF2963DDB0D /* PinRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0067B4ABA39E2D1A7F95AD27 /* PinRenderTests.swift */; };
 		879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = A618C73F525063A2FDDFE457 /* BubbleCaption.swift */; };
 		87BC63ED55A22A574627BC14 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F1AE4B186C366F4408259C /* PaywallSheet.swift */; };
 		89112A445FB115BCC05D216D /* SearchResultMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3202FC302D0B895B639FB7 /* SearchResultMerger.swift */; };
@@ -109,6 +111,7 @@
 		B45F30A447B00151E8614A21 /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		BDA6476E9BC0E7B85F0B263A /* ExpandedView+Map.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A5EA9F6F1D2BEAF57E7E60 /* ExpandedView+Map.swift */; };
 		C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
+		C456956CFBA3237412ED7C65 /* PinRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B07ACA4F93EAFFF43F704C4 /* PinRenderer.swift */; };
 		C4DF351FDB2A7E03848AC843 /* FriendGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CEBA45E9DAAC8F30D9D805 /* FriendGroup.swift */; };
 		C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
 		C7D9EFBE6DBB30E9039D9FC2 /* MessagesViewController+Delivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */; };
@@ -184,6 +187,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0067B4ABA39E2D1A7F95AD27 /* PinRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinRenderTests.swift; sourceTree = "<group>"; };
 		0511AABEF75C39947CC371A4 /* TweenState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenState.swift; sourceTree = "<group>"; };
 		06A5EA9F6F1D2BEAF57E7E60 /* ExpandedView+Map.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpandedView+Map.swift"; sourceTree = "<group>"; };
 		075D9066250C6952934E34C1 /* FairnessRanker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FairnessRanker.swift; sourceTree = "<group>"; };
@@ -244,6 +248,7 @@
 		903D56EC7E4EC861015BC630 /* RosterMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterMergeTests.swift; sourceTree = "<group>"; };
 		928EA991BF06413D729B295D /* OnboardingView+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+Actions.swift"; sourceTree = "<group>"; };
 		999A32C93B516396B9807953 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		9B07ACA4F93EAFFF43F704C4 /* PinRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinRenderer.swift; sourceTree = "<group>"; };
 		9C7172745204E1AC5798F550 /* ExpandedView+SpotList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpandedView+SpotList.swift"; sourceTree = "<group>"; };
 		9E33C768FCCDA10A6EEF5142 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
 		9FB5313DB76EE0C1216F5EF7 /* SearchQueryRewriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryRewriter.swift; sourceTree = "<group>"; };
@@ -342,6 +347,7 @@
 				E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */,
 				A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */,
 				C546097077ED186216682C7A /* PingLogTests.swift */,
+				0067B4ABA39E2D1A7F95AD27 /* PinRenderTests.swift */,
 				1C9464FC228CD1893EAE466F /* ProEntitlementTests.swift */,
 				903D56EC7E4EC861015BC630 /* RosterMergeTests.swift */,
 				F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */,
@@ -405,6 +411,7 @@
 				A51D741A60625DD97D522832 /* OutgoingDraft.swift */,
 				DEA256CAEB5D69FB5441F7C3 /* Participant.swift */,
 				74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */,
+				9B07ACA4F93EAFFF43F704C4 /* PinRenderer.swift */,
 				32924B4A54F474D511ED1002 /* ProEntitlement.swift */,
 				AC600F17A953B060A499D6A2 /* RosterMerge.swift */,
 				2D6EAFA9A6CFABBE09027A57 /* SearchIntent.swift */,
@@ -653,6 +660,7 @@
 				C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */,
 				40A1AD454FAFF52473DF9F83 /* OutgoingDraft.swift in Sources */,
 				A24BDC9CEAC5DEC4C6C65C67 /* Participant.swift in Sources */,
+				062709ED92EE4A83DEC6638F /* PinRenderer.swift in Sources */,
 				0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */,
 				DB965FAA30B6FD54D81AB5C3 /* ProEntitlement.swift in Sources */,
 				26D0F1921C6E7761820B46BB /* RosterMerge.swift in Sources */,
@@ -725,6 +733,7 @@
 				8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */,
 				02855529C5710F5C0A5BD01D /* Participant.swift in Sources */,
 				87BC63ED55A22A574627BC14 /* PaywallSheet.swift in Sources */,
+				C456956CFBA3237412ED7C65 /* PinRenderer.swift in Sources */,
 				669685640A0A881C3AC790F7 /* PingLog.swift in Sources */,
 				16C72537D073E25B27645440 /* ProEntitlement.swift in Sources */,
 				D462840F9EDFAFD156309937 /* ResultRows.swift in Sources */,
@@ -765,6 +774,7 @@
 				68A4E065B88A3147AB2F4FAE /* NameIntegrityTests.swift in Sources */,
 				4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */,
 				1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */,
+				86F28AC3BB8B6FF2963DDB0D /* PinRenderTests.swift in Sources */,
 				6FC9998EBA4084D36E9EC53F /* PingLogTests.swift in Sources */,
 				A53B30374109CFBA3891D6B3 /* ProEntitlementTests.swift in Sources */,
 				C99724C777E8BD20CE80E3D0 /* RosterMergeTests.swift in Sources */,
