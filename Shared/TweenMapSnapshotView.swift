@@ -121,7 +121,11 @@ struct TweenMapSnapshotView: View {
         // Per docs/ui-research.md §5. `UIScreen.main.scale` is safe from a
         // @MainActor context and matches BubbleImageRenderer (which hardcodes
         // 3 because its output is a fixed-size bubble image).
-        options.scale = UIScreen.main.scale
+        // Cap at @2x: a full-bleed @3x snapshot plus its compositing renderer
+        // is a ~10 MB transient inside the extension's ~120 MB ceiling, and
+        // the map imagery is indistinguishable at @2x on a small canvas
+        // (post-push audit). Also halves render time — snappier open.
+        options.scale = min(UIScreen.main.scale, 2)
 
         let snapshotter = MKMapSnapshotter(options: options)
         // Deadline: a sibling task cancels the snapshotter if it stalls past

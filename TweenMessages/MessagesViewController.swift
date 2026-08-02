@@ -42,6 +42,10 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     var rankingTask: Task<Void, Never>?
     var sendTask: Task<Void, Never>?
+    /// Silent activation-time location refresh (fix: "joined, then moved —
+    /// had to leave and rejoin to update"). Cancelled in willResignActive
+    /// like every other task.
+    var locationRefreshTask: Task<Void, Never>?
     var isRanking = false
     var isSending = false
     var sendStatusMessage: String?
@@ -243,6 +247,50 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
         presentUI(for: presentationStyle)
         retryBlankRenderIfNeeded()
+        // Every open refreshes the location of a user who's already in, so
+        // someone who joined from home and reopened the drawer across town is
+        // ranked (and next shares their roster entry) from where they ARE —
+        // no more leave-and-rejoin to move yourself (device feedback).
+        refreshLocationIfUserIsIn()
+    }
+
+    /// Silently re-fixes the local user's location on activation when they're
+    /// already opted in. Never prompts (authorized-only), never touches a
+    /// declared "I'll be at…" manual location, and re-ranks once the fresh
+    /// coordinate lands so the spot list reflects where the user is now.
+    func refreshLocationIfUserIsIn() {
+        guard LocationCache.isOptedIn,
+              LocationCache.loadSelf()?.isManual != true else { return }
+        switch locationProvider.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways: break
+        default: return
+        }
+        locationRefreshTask?.cancel()
+        locationRefreshTask = Task { @MainActor in
+            guard let fresh = await acquireLocation(), !Task.isCancelled else { return }
+            let previous = LocationCache.loadSelf()?.coordinate
+            LocationCache.save(fresh, isActive: true)
+            // Refresh my roster entry too (what peers get on the next send,
+            // and what the participant snapshot renders) — only when a roster
+            // already exists; a solo cache refresh must not mint one.
+            if isLocalUserInCurrentConversation, !currentParticipants.isEmpty {
+                let updated = nextParticipantList(myCoord: fresh, conversation: activeConversation)
+                currentParticipants = updated
+                LocationCache.saveParticipantSnapshot(updated, localContext: localParticipantContext())
+                saveParticipantsForActiveConversation(updated)
+            }
+            // Re-rank only if the fix meaningfully moved (~250 m) — jitter
+            // must not burn MKDirections budget on every drawer open.
+            let movedFar = previous.map {
+                CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                    .distance(from: CLLocation(latitude: fresh.latitude, longitude: fresh.longitude)) > 250
+            } ?? true
+            if movedFar, presentationStyle == .expanded {
+                kickOffRanking()
+            } else {
+                presentUI(for: presentationStyle)
+            }
+        }
     }
 
     override func willTransition(to presentationStyle: MSMessagesAppPresentationStyle) {
@@ -252,6 +300,32 @@ final class MessagesViewController: MSMessagesAppViewController {
         } else {
             rankingTask?.cancel()
             isRanking = false
+        }
+        presentUI(for: presentationStyle)
+    }
+
+    /// The user tapped a Tween bubble while the extension was ALREADY active.
+    /// `willBecomeActive` only fires on activation and `didReceive` only for
+    /// live inbound messages — without this override, tapping a friend's
+    /// newer proposal with the drawer open changed nothing on screen and the
+    /// previous place stayed up (device feedback: "clicked the second place,
+    /// still shows the first"). Decode the tapped bubble exactly like a live
+    /// arrival; decodeAndCache's revision guard still rejects genuinely older
+    /// bubbles, so tapping a stale one can't resurrect it.
+    override func didSelect(_ message: MSMessage, conversation: MSConversation) {
+        super.didSelect(message, conversation: conversation)
+        if let session = message.session {
+            lastKnownSession = session
+        }
+        let decoded = decodeAndCache(message, in: conversation)
+        if decoded {
+            clearSnapshotHint()
+            // The tapped bubble replaces whatever spot list belonged to the
+            // previous state — re-rank against the new proposal's roster.
+            rankedSpots = []
+            if presentationStyle == .expanded {
+                kickOffRanking()
+            }
         }
         presentUI(for: presentationStyle)
     }
@@ -344,6 +418,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Drop every background task before we're backgrounded.
         rankingTask?.cancel()
         sendTask?.cancel()
+        locationRefreshTask?.cancel()
         isSending = false
         // The cancelled task can't run its own reset — without this,
         // reactivating mid-rank shows a stuck "Finding fair spots...".

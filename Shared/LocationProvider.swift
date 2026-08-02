@@ -44,10 +44,40 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     private static let fixTimeout: Duration = .seconds(20)
     private var fixWatchdog: Task<Void, Never>?
 
+    /// True once a caller asked for the continuous stream — lets a grant that
+    /// arrives later (first-launch permission alert) start the stream the
+    /// moment authorization lands instead of waiting for another call.
+    private var continuousRequested = false
+
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        // Continuous mode is foreground-only (When-In-Use); the filter keeps
+        // delegate traffic to genuine movement instead of GPS jitter.
+        manager.distanceFilter = 35
+    }
+
+    /// Streams fixes while the app is foregrounded so the user's pin tracks
+    /// them as they move — no more frozen location until "I'm in" or a
+    /// relaunch. Updates land through the same `didUpdateLocations` →
+    /// `.got` path one-shot fixes use, so existing observers just keep
+    /// firing. When-In-Use only: callers stop the stream on backgrounding.
+    /// Never prompts — an unauthorized call arms `continuousRequested` and
+    /// the stream starts when (if) authorization arrives.
+    func startContinuous() {
+        continuousRequested = true
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.startUpdatingLocation()
+        default:
+            break
+        }
+    }
+
+    func stopContinuous() {
+        continuousRequested = false
+        manager.stopUpdatingLocation()
     }
 
     /// Requests When-In-Use authorization if needed, then a single fix.
@@ -108,6 +138,11 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
                     self.status = .requesting
                     self.requestFix()
                 }
+                // A continuous stream requested before the user answered the
+                // permission alert starts now that they've granted.
+                if self.continuousRequested {
+                    self.manager.startUpdatingLocation()
+                }
             }
         case .denied, .restricted:
             settle(.denied)
@@ -127,6 +162,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // kCLErrorLocationUnknown is TRANSIENT — CoreLocation keeps trying
+        // and delivers through didUpdateLocations moments later. Treating it
+        // as terminal failed every fix attempt the instant the continuous
+        // stream started before a first fix existed (simulator boot, airplane
+        // mode blips). The fixWatchdog still bounds the wait for one-shots.
+        if let clError = error as? CLError, clError.code == .locationUnknown {
+            return
+        }
         settle(.failed)
     }
 }

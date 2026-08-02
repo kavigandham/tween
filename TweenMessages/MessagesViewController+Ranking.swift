@@ -116,20 +116,13 @@ extension MessagesViewController {
         let request = MKLocalPointsOfInterestRequest(center: region.center, radius: radius)
         request.pointOfInterestFilter = MKPointOfInterestFilter(including: category.poiCategories)
 
-        let response = await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
-            group.addTask {
-                try? await MKLocalSearch(request: request).start()
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                return nil
-            }
-
-            let response = await group.next() ?? nil
-            group.cancelAll()
-            return response
-        }
-        return response?.mapItems ?? []
+        // DeadlinedSearch, NOT a task-group race: the group form awaited its
+        // stalled MKLocalSearch child on scope exit, so a geod-throttled
+        // request hung the "Finding fair spots…" spinner forever (post-push
+        // audit CRITICAL 1 — the exact failure DeadlinedSearch was built for).
+        return await DeadlinedSearch.mapItems(
+            for: request,
+            seconds: TimeInterval(timeoutNanoseconds) / 1_000_000_000)
     }
 
     static func searchItems(query: String,
@@ -146,20 +139,10 @@ extension MessagesViewController {
             request.regionPriority = .required
         }
 
-        let response = await withTaskGroup(of: MKLocalSearch.Response?.self) { group in
-            group.addTask {
-                try? await MKLocalSearch(request: request).start()
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                return nil
-            }
-
-            let response = await group.next() ?? nil
-            group.cancelAll()
-            return response
-        }
-        return response?.mapItems ?? []
+        // Same DeadlinedSearch swap as searchPOIItems — see the note there.
+        return await DeadlinedSearch.mapItems(
+            for: request,
+            seconds: TimeInterval(timeoutNanoseconds) / 1_000_000_000)
     }
 
     func rankingParticipants() -> [Participant] {

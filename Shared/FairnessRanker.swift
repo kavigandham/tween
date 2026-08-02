@@ -305,17 +305,12 @@ enum FairnessRanker {
 
     private static func calculateRoute(_ request: MKDirections.Request,
                                        timeoutNanoseconds: UInt64) async -> MKDirections.Response? {
-        await withTaskGroup(of: MKDirections.Response?.self) { group in
-            group.addTask {
-                try? await MKDirections(request: request).calculate()
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                return nil
-            }
-            let response = await group.next() ?? nil
-            group.cancelAll()
-            return response
-        }
+        // DeadlinedSearch.route, NOT a task-group race: a task group awaits
+        // its unfinished children on scope exit, so a throttled calculate()
+        // that ignores cancellation blocked this "timeout" exactly when it
+        // mattered — the ranking spinner hung forever (post-push audit).
+        await DeadlinedSearch.route(
+            for: request,
+            seconds: TimeInterval(timeoutNanoseconds) / 1_000_000_000)
     }
 }

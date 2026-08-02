@@ -23,8 +23,40 @@ enum DeadlinedSearch {
         await run(MKLocalSearch(request: request), seconds: seconds)
     }
 
+    /// Same deadline discipline for `MKDirections` — a geod-throttled route
+    /// request that never calls back must degrade to nil (callers fall through
+    /// to the straight-line estimate), not pin the ranking task group open
+    /// forever (post-push audit CRITICAL 1).
+    static func route(for request: MKDirections.Request,
+                      seconds: TimeInterval = 10) async -> MKDirections.Response? {
+        let directions = MKDirections(request: request)
+        let box = ContinuationBox<MKDirections.Response?>()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                box.store(continuation)
+                if Task.isCancelled {
+                    directions.cancel()
+                    box.take()?.resume(returning: nil)
+                    return
+                }
+                directions.calculate { response, _ in
+                    box.take()?.resume(returning: response)
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
+                    guard let continuation = box.take() else { return }
+                    directions.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
+        } onCancel: {
+            guard let continuation = box.take() else { return }
+            directions.cancel()
+            continuation.resume(returning: nil)
+        }
+    }
+
     private static func run(_ search: MKLocalSearch, seconds: TimeInterval) async -> [MKMapItem] {
-        let box = ContinuationBox()
+        let box = ContinuationBox<[MKMapItem]>()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 box.store(continuation)
@@ -56,17 +88,17 @@ enum DeadlinedSearch {
 
     /// Holds the continuation so exactly ONE of the three racers — callback,
     /// deadline, task cancellation — resumes it.
-    private final class ContinuationBox: @unchecked Sendable {
+    private final class ContinuationBox<Value>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<[MKMapItem], Never>?
+        private var continuation: CheckedContinuation<Value, Never>?
 
-        func store(_ continuation: CheckedContinuation<[MKMapItem], Never>) {
+        func store(_ continuation: CheckedContinuation<Value, Never>) {
             lock.lock()
             defer { lock.unlock() }
             self.continuation = continuation
         }
 
-        func take() -> CheckedContinuation<[MKMapItem], Never>? {
+        func take() -> CheckedContinuation<Value, Never>? {
             lock.lock()
             defer { lock.unlock() }
             let taken = continuation

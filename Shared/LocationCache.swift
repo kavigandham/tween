@@ -51,9 +51,15 @@ enum LocationCache {
         }
     }
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: appGroup)
-    }
+    /// One cached suite instance, not a fresh `UserDefaults(suiteName:)` per
+    /// access: the extension's view bodies read this ~20× per render pass and
+    /// suite construction is the expensive part (post-push audit, extension
+    /// perf). UserDefaults is thread-safe and a cached instance still reads
+    /// through to cfprefsd, so cross-process freshness is unchanged.
+    private static let cachedDefaults: UserDefaults? = UserDefaults(suiteName: appGroup)
+    private static var defaults: UserDefaults? { cachedDefaults }
+    /// The same cached suite for sibling App Group stores (SpotLibrary etc.).
+    static var sharedDefaults: UserDefaults? { cachedDefaults }
 
     // MARK: - Self
 
@@ -352,9 +358,7 @@ enum SpotLibrary {
     static let recentLimit = 20
     static let favoritesLimit = 50
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static func loadRecents() -> [StoredSpot] {
         load(key: recentKey)

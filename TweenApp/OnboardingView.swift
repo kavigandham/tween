@@ -899,22 +899,33 @@ struct OnboardingView: View {
                 // selfIsManual, so a deliberate live join still wins.
                 let keepManual = selfIsManual && !awaitingImIn
                 if !keepManual {
+                    // Continuous-stream ticks arrive every ~35 m of movement;
+                    // reframing on each one would yank the camera out of the
+                    // user's hands while they pan. Only the FIRST fix (no pin
+                    // yet) and an explicit "I'm in" recenter.
+                    let shouldReframe = savedCoordinate == nil || awaitingImIn
                     withAnimation(Tokens.Motion.spring) {
                         savedCoordinate = coord
                         // Stamp the freshness of this in-memory fix so a pending
                         // send (which resumes right below) knows it's current even
                         // though the silent branch doesn't touch the cache.
                         savedCoordinateAt = Date()
-                        // Only the explicit "I'm in" gesture flips presence on and
-                        // persists the coordinate for the peer hand-off. The silent
-                        // launch fix just recenters the map on a self dot.
+                        // The explicit "I'm in" gesture flips presence on; after
+                        // that, every movement tick keeps the shared coordinate
+                        // current too — so the extension, rankings, and the next
+                        // outgoing bubble see where the user IS, not where they
+                        // joined from (device feedback: "location doesn't update
+                        // while I'm moving").
                         if awaitingImIn {
                             LocationCache.save(coord, isActive: true)
                             saveLocalParticipant(coord)
                             isUserIn = true
+                        } else if isUserIn && !selfIsManual {
+                            LocationCache.save(coord, isActive: true)
+                            saveLocalParticipant(coord)
                         }
                     }
-                    reframe()
+                    if shouldReframe { reframe() }
                 }
                 awaitingImIn = false
                 // Resume whatever send the user initiated before the fix
@@ -936,6 +947,14 @@ struct OnboardingView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            // Continuous location runs only while foregrounded (When-In-Use):
+            // moving users see their pin travel with them instead of it
+            // freezing until the next "I'm in" or relaunch.
+            if phase == .active {
+                provider.startContinuous()
+            } else {
+                provider.stopContinuous()
+            }
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
             if phase != .active {

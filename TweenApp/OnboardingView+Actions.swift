@@ -189,6 +189,11 @@ extension OnboardingView {
     }
 
     func requestInitialLocation() {
+        // The continuous stream keeps the pin moving with the user for the
+        // whole foreground session (scenePhase's onChange doesn't fire for
+        // the launch value, so start it here too — startContinuous never
+        // prompts and arms itself if authorization hasn't landed yet).
+        provider.startContinuous()
         guard !(savedCoordinate != nil && LocationCache.isActive) else { return }
         provider.requestOnce()
     }
