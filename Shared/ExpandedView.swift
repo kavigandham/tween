@@ -110,6 +110,8 @@ struct ExpandedView: View {
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     // Spot cards grow with the user's text size instead of clipping.
+    /// Retained for the memberwise initializer's stability; the spot list is
+    /// row-based now and sizes itself (see ExpandedView+SpotCards).
     @ScaledMetric(relativeTo: .subheadline) var spotCardWidth: CGFloat = 176
     @ScaledMetric(relativeTo: .subheadline) var spotCardHeight: CGFloat = 176
 

@@ -105,6 +105,13 @@ enum SpotETADisplay {
         return result.isEmpty ? "?" : result
     }
 
+    /// First name only — what fits in a one-line summary like
+    /// "Fair · You 21 · Kavi 23". Falls back to initials for the unnamed.
+    static func shortName(for name: String) -> String {
+        let first = name.split(separator: " ").first.map(String.init) ?? ""
+        return first.isEmpty ? initials(for: name) : first
+    }
+
     // MARK: Drive-balance geometry (avatars on a spread track)
 
     /// Caps the avatars drawn on the balance track at six; anything larger

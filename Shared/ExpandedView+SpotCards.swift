@@ -3,35 +3,51 @@ import UIKit
 import MapKit
 import CoreLocation
 
-// Spot cards + the ranked spot list ExpandedView renders (split from
-// ExpandedView.swift — structure plan R2; extension = same type, new file).
+// The ranked-spot list ExpandedView renders (split from ExpandedView.swift —
+// structure plan R2; extension = same type, new file).
+//
+// Shape follows Apple Maps' own results list, studied side by side on device
+// (2026-08-02): ONE grouped container, two-line rows, a circular leading icon,
+// and hairline separators inset to the text's leading edge. The previous
+// horizontal rail of bordered mini-cards — each stacking four colour-filled ETA
+// rows — was the single densest thing in the extension and read as clunky next
+// to Maps' calm list. Same information, Apple's structure:
+//
+//   ◉  Blue Bottle Coffee                    ✓
+//      Fair · You 21 · Kavi 23
+//      ───────────────────────────────
+//   ◉  Sightglass Coffee
+//      Longer · You 15 · Kavi 31
+//
 extension ExpandedView {
-    // MARK: Spot cards
+    // MARK: Spot list
 
-    /// Horizontally paging spot cards — every person's time on every card,
-    /// replacing the vertical 40%-height list.
+    /// Ranked spots as one grouped list. Scrolls internally when the group is
+    /// long; the container itself never grows past `spotListMaxHeight` so the
+    /// map keeps its share of the extension's fixed height.
     var spotCardRail: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Tokens.Spacing.s3) {
-                    ForEach(rankedSpots) { spot in
-                        spotCard(spot).id(spot.id)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    ForEach(Array(rankedSpots.enumerated()), id: \.element.id) { index, spot in
+                        spotRow(spot, isFirst: index == 0)
+                            .id(spot.id)
+                        if index < rankedSpots.count - 1 {
+                            // Inset separator — starts at the text's leading
+                            // edge, past the icon, exactly as Maps does. An
+                            // explicit hairline, not `Divider()`: the system
+                            // divider is invisible against this fill.
+                            Rectangle()
+                                .fill(Tokens.Palette.textPrimary.opacity(0.12))
+                                .frame(height: 1 / UIScreen.main.scale)
+                                .padding(.leading, spotRowIconSize + Tokens.Spacing.s3 * 2)
+                        }
                     }
                 }
-                .padding(.horizontal, 1)
-                .padding(.vertical, 2)
-                .scrollTargetLayout()
             }
-            // Snap each card to the rail's leading edge so a scroll never
-            // rests mid-card: the second card being sliced through its ETA
-            // rows read as a broken layout rather than "keep scrolling"
-            // (screenshot audit).
-            //
-            // Do NOT try to full-bleed this by pairing `contentMargins` with a
-            // negative horizontal padding — that combination sends SwiftUI's
-            // layout into recursion and segfaults on launch (verified
-            // 2026-08-02).
-            .scrollTargetBehavior(.viewAligned)
+            .frame(maxHeight: spotListMaxHeight)
+            .background(Tokens.Palette.elevated,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
             .onChange(of: selectedSpotID) { _, newValue in
                 guard let newValue else { return }
                 withAnimation(Tokens.Motion.snappy) {
@@ -42,126 +58,94 @@ extension ExpandedView {
         }
     }
 
-    func spotCard(_ spot: RankedSpot) -> some View {
+    /// Three rows fit without scrolling — past that the list scrolls rather
+    /// than eating the map.
+    var spotListMaxHeight: CGFloat { spotRowHeight * 3 + 2 }
+    var spotRowHeight: CGFloat { 62 }
+    var spotRowIconSize: CGFloat { 34 }
+
+    func spotRow(_ spot: RankedSpot, isFirst: Bool) -> some View {
         let isSelected = selectedSpotID == spot.id
         let name = spot.item?.name ?? "Spot"
-        return VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            spotCardHeader(spot, name: name)
-            spotCardPeople(spot)
-            Spacer(minLength: 0)
-            spotCardSpread(spot)
+        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: spotBestWorstETA)
+        return Button {
+            select(spot)
+        } label: {
+            HStack(spacing: Tokens.Spacing.s3) {
+                // Leading mark: the fairness colour carried on one small
+                // circle, a star on the recommended spot. One spot of colour
+                // per row — Maps' discipline — instead of a colour-filled
+                // capsule behind every number.
+                ZStack {
+                    Circle().fill(tint.opacity(0.22))
+                    Image(systemName: isFirst ? "star.fill" : "mappin")
+                        .font(.system(size: spotRowIconSize * 0.42, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: spotRowIconSize, height: spotRowIconSize)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(Tokens.Typography.subheadline.weight(.semibold))
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                        .lineLimit(1)
+                    // One secondary line, Maps-style: verdict, then each
+                    // person's drive separated by middots. Everyone's time is
+                    // still here — it just stops shouting.
+                    Text(spotRowSubtitle(spot))
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+
+                Spacer(minLength: Tokens.Spacing.s2)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, Tokens.Spacing.s3)
+            .frame(height: spotRowHeight)
+            .contentShape(Rectangle())
         }
-        .padding(Tokens.Spacing.s3)
-        .frame(width: spotCardWidth, height: spotCardHeight, alignment: .topLeading)
-        // elevatedStrong, not `surface`: `.systemBackground` is pure black in
-        // dark mode, so cards rendered as holes in the lighter material panel
-        // instead of raised surfaces (screenshot audit).
-        .background(isSelected ? AnyShapeStyle(Tokens.Palette.brand.opacity(0.18)) : AnyShapeStyle(Tokens.Palette.elevatedStrong),
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                .strokeBorder(isSelected ? Tokens.Palette.brand : Color.clear, lineWidth: 1.5)
-        }
+        .buttonStyle(.spotRow)
+        .background(isSelected ? Tokens.Palette.brand.opacity(0.16) : Color.clear)
         .animation(reduceMotion ? nil : Tokens.Motion.snappy, value: isSelected)
-        .contentShape(Rectangle())
-        .onTapGesture { select(spot) }
-        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(SpotETADisplay.compactLabel(for: spot, bestWorstETA: spotBestWorstETA))")
         .accessibilityHint("Selects this spot to send")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    func spotCardHeader(_ spot: RankedSpot, name: String) -> some View {
-        let isBest = rankedSpots.first?.id == spot.id
-        return HStack(spacing: Tokens.Spacing.s1) {
-            Text(name)
-                .font(Tokens.Typography.subheadline.weight(.semibold))
-                .foregroundStyle(Tokens.Palette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            Spacer(minLength: 0)
-            if isBest {
-                // Brand-colored "Best" — the recommendation, kept distinct from
-                // the green/yellow/orange fairness tiers (device feedback: a
-                // yellow star clashed with a green "Even" spot).
-                Text("Best")
-                    .font(Tokens.Typography.caption2Bold)
-                    .foregroundStyle(Tokens.Palette.onBrand)
-                    .padding(.horizontal, 6)
-                    .frame(minHeight: 18)
-                    .background(Tokens.Palette.brand, in: Capsule())
-            }
+    /// "Fair · You 21 · Kavi 23" — the verdict plus as many people as fit.
+    func spotRowSubtitle(_ spot: RankedSpot) -> String {
+        let verdict = SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA)
+        let people = spot.etas.prefix(3).map { eta in
+            "\(SpotETADisplay.shortName(for: eta.name)) \(Int((eta.eta / 60).rounded()))"
         }
+        let extra = spot.etas.count - 3
+        var parts = [verdict] + people
+        if extra > 0 { parts.append("+\(extra)") }
+        return parts.joined(separator: " · ")
     }
 
     /// Shortest worst-case drive across the ranked spots — the reference the
     /// per-spot quality colour compares against.
     var spotBestWorstETA: TimeInterval? { rankedSpots.map(\.worstETA).min() }
 
-    @ViewBuilder
-    func spotCardPeople(_ spot: RankedSpot) -> some View {
-        let extra = spot.etas.count - 4
-        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: spotBestWorstETA)
-        VStack(alignment: .leading, spacing: 5) {
-            ForEach(spot.etas.prefix(4)) { eta in
-                spotCardPersonRow(eta, tint: tint)
-            }
-            if extra > 0 {
-                Text("+\(extra) more")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textTertiary)
-            }
-        }
-    }
-
-    func spotCardPersonRow(_ eta: ParticipantETA, tint: Color) -> some View {
-        HStack(spacing: Tokens.Spacing.s1) {
-            Text(SpotETADisplay.initials(for: eta.name))
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .foregroundStyle(Tokens.Palette.onBrand)
-                .frame(width: 18, height: 18)
-                .background(Tokens.Palette.brand, in: Circle())
-            Text(eta.name)
-                .font(Tokens.Typography.caption)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Spacer(minLength: Tokens.Spacing.s1)
-            // Plain tinted text, NOT a filled capsule per row: four stacked
-            // colour-filled pills per card (times four visible cards) turned
-            // the rail into a wall of blocks. The card's own fill already
-            // separates it from the panel and the fairness dot below carries
-            // the verdict — colour on the number still encodes fairness at a
-            // glance (device feedback) without the noise.
-            Text(formatETA(eta.eta))
-                .font(Tokens.Typography.captionBold.monospacedDigit())
-                .foregroundStyle(tint)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-    }
-
-    func spotCardSpread(_ spot: RankedSpot) -> some View {
-        let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: spotBestWorstETA)
-        return HStack(spacing: Tokens.Spacing.s1) {
-            Circle()
-                .fill(tint)
-                .frame(width: 7, height: 7)
-            Text(SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA))
-                .font(Tokens.Typography.caption2Bold)
-                .foregroundStyle(tint)
-        }
-    }
-
-    /// The card rail's empty slot — ranking shimmer, waiting, or "no spots".
-    /// Compact horizontal layout so it doesn't waste a tall block of space
-    /// repeating the status (device feedback).
+    /// The list's empty slot — ranking shimmer, waiting, or "no spots".
+    /// Matches the list container so the panel's shape doesn't jump when
+    /// results arrive.
     var panelEmptyState: some View {
         HStack(spacing: Tokens.Spacing.s3) {
             Image(systemName: emptySpotListIcon)
-                .font(.system(size: 22))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Tokens.Palette.accent)
-                .frame(width: 34)
+                .frame(width: spotRowIconSize, height: spotRowIconSize)
+                .background(Tokens.Palette.accent.opacity(0.16), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(emptySpotListTitle)
                     .font(Tokens.Typography.subheadline.weight(.semibold))
@@ -174,10 +158,25 @@ extension ExpandedView {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Tokens.Spacing.s3)
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .frame(minHeight: spotRowHeight)
         .background(Tokens.Palette.elevated,
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
         .accessibilityElement(children: .combine)
     }
+}
 
+/// Row press feedback: the whole row dims on touch-DOWN, the way a Maps list
+/// row does — instant, no scale, no ripple.
+struct SpotRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed
+                        ? Tokens.Palette.textPrimary.opacity(0.08)
+                        : Color.clear)
+    }
+}
+
+extension ButtonStyle where Self == SpotRowButtonStyle {
+    static var spotRow: SpotRowButtonStyle { SpotRowButtonStyle() }
 }

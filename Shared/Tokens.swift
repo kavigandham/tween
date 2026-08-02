@@ -137,6 +137,10 @@ enum Tokens {
     enum Radius {
         static let chip: CGFloat = 8
         static let card: CGFloat = 12
+        /// A grouped list container — Apple Maps' results list and every
+        /// inset-grouped table use this larger, softer corner. Measured
+        /// against Maps on device (2026-08-02).
+        static let group: CGFloat = 18
         static let sheet: CGFloat = 24
         static let pin: CGFloat = 22
         static let pill: CGFloat = .infinity
