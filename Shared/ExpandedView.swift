@@ -488,10 +488,7 @@ struct ExpandedView: View {
                 let needsMyAgreement = !received.isProposer(participantID: localParticipantID, name: myName)
                     && !received.hasAgreed(participantID: localParticipantID, name: myName)
                 if needsMyAgreement {
-                    VStack(spacing: Tokens.Spacing.s2) {
-                        agreeChangeRow(for: received)
-                        draftAlternateButton
-                    }
+                    agreeChangeRow(for: received)
                 } else {
                     waitingChangeRow(for: received)
                 }
@@ -502,10 +499,7 @@ struct ExpandedView: View {
                             || received.hasAgreed(participantID: localParticipantID, name: myName) {
                     waitingChangeRow(for: received)
                 } else {
-                    VStack(spacing: Tokens.Spacing.s2) {
-                        agreeChangeRow(for: received)
-                        draftAlternateButton
-                    }
+                    agreeChangeRow(for: received)
                 }
             } else if let draft {
                 let didSend = recentlySentSpotName == draft.spotName
@@ -599,73 +593,77 @@ struct ExpandedView: View {
                 .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 .background(Tokens.Palette.surfaceSecondary, in: Capsule())
 
-            Button {
+            TweenActionButton(selectedSpot == nil ? "Change" : "Send",
+                              systemImage: selectedSpot == nil
+                                  ? "arrow.triangle.2.circlepath" : "paperplane.fill",
+                              isEnabled: !rankedSpots.isEmpty && !isSending) {
                 sendTick += 1
                 if let spot = selectedSpot {
                     onSelectSpot(spot)
                 } else if let first = rankedSpots.first {
                     select(first)
                 }
-            } label: {
-                Label(selectedSpot == nil ? "Change" : "Send change",
-                      systemImage: selectedSpot == nil ? "arrow.triangle.2.circlepath" : "paperplane.fill")
-                    .lineLimit(1)
             }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .disabled(rankedSpots.isEmpty || isSending)
+            .frame(maxWidth: 110)
             .accessibilityHint(selectedSpot == nil ? "Selects another fair spot" : "Sends the selected alternative")
         }
     }
 
+    /// The panel's action row, built like Apple Maps' place-card row: compact
+    /// equal-width buttons on ONE line, SF Symbol stacked over a short label,
+    /// with exactly one filled button carrying the hierarchy. This replaced
+    /// three stacked full-width buttons whose equal weight meant nothing read
+    /// as primary (screenshot audit).
     func agreeChangeRow(for received: TweenState) -> some View {
         HStack(spacing: Tokens.Spacing.s2) {
-            Button {
+            TweenActionButton("Agree", systemImage: "checkmark",
+                              variant: .prominent,
+                              // Every other send CTA disables mid-flight;
+                              // without this the user could double-fire
+                              // agreements while the first was still sending.
+                              isEnabled: !isSending) {
                 sendTick += 1
                 onAgreePlace(received)
-            } label: {
-                Label("Agree", systemImage: "checkmark.circle.fill")
-                    .lineLimit(1)
             }
-            .buttonStyle(.tweenPrimary())
-            // Every other send CTA disables mid-flight; without this the user
-            // could double-fire agreements while the first was still sending.
-            .disabled(isSending)
             .accessibilityHint("Sends that you agree to meet at \(received.text)")
 
-            Button {
+            TweenActionButton(selectedSpot == nil ? "Change" : "Send",
+                              systemImage: selectedSpot == nil
+                                  ? "arrow.triangle.2.circlepath" : "paperplane.fill",
+                              isEnabled: !rankedSpots.isEmpty && !isSending) {
                 sendTick += 1
                 if let spot = selectedSpot {
                     onSelectSpot(spot)
                 } else if let first = rankedSpots.first {
                     select(first)
                 }
-            } label: {
-                Label(selectedSpot == nil ? "Change" : "Send change", systemImage: "arrow.triangle.2.circlepath")
-                    .lineLimit(1)
             }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .disabled(rankedSpots.isEmpty || isSending)
             .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
+
+            draftAlternateButton
+
+            TweenActionButton("I'm out", systemImage: "location.slash",
+                              variant: .destructive,
+                              action: onImOut)
+                .accessibilityHint("Stops sharing you as active for this meetup")
         }
     }
 
+    /// The preloaded-spot shortcut, as one more button in the action row.
+    /// Label is the bare spot name — Maps' row labels are one word ("Call",
+    /// "Website", "Order"), and "Send McDonald's instead" spanning a full row
+    /// was the widest thing on the panel.
     @ViewBuilder
     var draftAlternateButton: some View {
         if let draft {
             let didSend = recentlySentSpotName == draft.spotName
-            Button {
-                guard !didSend else { return }
+            TweenActionButton(draft.spotName,
+                              systemImage: didSend ? "checkmark" : "paperplane.fill",
+                              isEnabled: !isSending && !didSend) {
                 sendTick += 1
                 onSendDraft()
-            } label: {
-                Label(didSend ? "Sent \(draft.spotName)" : "Send \(draft.spotName) instead",
-                      systemImage: didSend ? "checkmark.circle.fill" : "paperplane.fill")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .disabled(isSending || didSend)
+            .accessibilityLabel(didSend ? "Sent \(draft.spotName)" : "Send \(draft.spotName) instead")
             .accessibilityHint("Sends your preloaded spot instead of the received proposal")
         }
     }
@@ -680,6 +678,12 @@ struct ExpandedView: View {
     var bottomAction: some View {
         if let received, received.kind == .place, received.isFullyAgreed {
             openFullAppButton
+        } else if isUserIn, received?.kind == .place {
+            // "I'm out" lives in the action row on a proposal, so all that's
+            // left down here is the escape hatch to the full app.
+            tertiaryAction(title: "Browse spots", systemImage: "magnifyingglass",
+                           tint: Tokens.Palette.accent, action: onOpenFullApp)
+                .accessibilityHint("Opens the full Tween app to search for places")
         } else if isUserIn {
             HStack(spacing: 0) {
                 tertiaryAction(title: "Browse spots", systemImage: "magnifyingglass",

@@ -137,6 +137,9 @@ enum Tokens {
     enum Radius {
         static let chip: CGFloat = 8
         static let card: CGFloat = 12
+        /// An action-row button. Measured off Apple Maps' place-card row on
+        /// device, 2026-08-02 — noticeably softer than a plain card corner.
+        static let action: CGFloat = 14
         /// A grouped list container — Apple Maps' results list and every
         /// inset-grouped table use this larger, softer corner. Measured
         /// against Maps on device (2026-08-02).
@@ -157,6 +160,9 @@ enum Tokens {
         static let minTapTarget: CGFloat = 44
         /// Primary filled CTA height ("I'm in", "Send to chat").
         static let primaryControlHeight: CGFloat = 50
+        /// An action-row button (icon stacked over label). Measured off Apple
+        /// Maps' place-card row on device, 2026-08-02.
+        static let actionButtonHeight: CGFloat = 56
         /// Search field height.
         static let searchBarHeight: CGFloat = 44
         /// Collapsed-sheet peek height. The single source of truth for the
@@ -315,5 +321,99 @@ extension ButtonStyle where Self == TweenPrimaryButtonStyle {
     /// `.tweenPrimary(.subtle)` for the tinted secondary variant.
     static func tweenPrimary(_ variant: TweenPrimaryButtonStyle.Variant = .prominent) -> TweenPrimaryButtonStyle {
         TweenPrimaryButtonStyle(variant: variant)
+    }
+}
+
+// MARK: Action row (Apple Maps' place-card buttons)
+
+/// One button from Apple Maps' place-card action row, measured off the real
+/// thing on device (2026-08-02): a compact rounded rect with the SF Symbol
+/// stacked ABOVE a short label, both centred, sized to share a single row
+/// equally with its siblings.
+///
+/// Maps runs exactly one filled button per row (the walking-time CTA) and
+/// leaves the rest translucent with tinted content, which is what gives the
+/// row its hierarchy. Tween previously laid buttons out the other way — icon
+/// beside label, full width, one per row, stacked three deep — which reads as
+/// a form, not a toolbar.
+///
+///     TweenActionButton("Agree", systemImage: "checkmark", variant: .prominent) { … }
+///     TweenActionButton("Change", systemImage: "arrow.triangle.2.circlepath") { … }
+///
+struct TweenActionButton: View {
+    enum Variant {
+        case prominent
+        case standard
+        case destructive
+    }
+
+    let title: String
+    let systemImage: String
+    var variant: Variant = .standard
+    var isEnabled: Bool = true
+    let action: () -> Void
+
+    init(_ title: String,
+         systemImage: String,
+         variant: Variant = .standard,
+         isEnabled: Bool = true,
+         action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.variant = variant
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            // Icon over label, both centred — and sized off Maps' own row:
+            // ~20pt glyph, 15pt semibold label, 4pt apart.
+            VStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .semibold))
+                Text(title)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(TweenActionButtonStyle(variant: variant, isEnabled: isEnabled))
+        .disabled(!isEnabled)
+        .accessibilityLabel(title)
+    }
+}
+
+struct TweenActionButtonStyle: ButtonStyle {
+    var variant: TweenActionButton.Variant
+    var isEnabled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(foreground)
+            .padding(.horizontal, Tokens.Spacing.s2)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.actionButtonHeight)
+            .background(background,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.action, style: .continuous))
+            .tweenPressFeedback(isPressed: configuration.isPressed)
+    }
+
+    private var foreground: Color {
+        guard isEnabled else { return Tokens.Palette.textTertiary }
+        switch variant {
+        case .prominent:   return Tokens.Palette.onBrand
+        case .standard:    return Tokens.Palette.accent
+        case .destructive: return Tokens.Palette.destructive
+        }
+    }
+
+    private var background: AnyShapeStyle {
+        guard isEnabled else { return AnyShapeStyle(Tokens.Palette.neutralAction) }
+        switch variant {
+        case .prominent:   return AnyShapeStyle(Tokens.Palette.brand)
+        case .standard:    return AnyShapeStyle(Tokens.Palette.neutralAction)
+        case .destructive: return AnyShapeStyle(Tokens.Palette.neutralAction)
+        }
     }
 }
