@@ -139,6 +139,11 @@ struct SpotDetailCard: View {
     /// place identifier (unlocks the rich native detail view); synthesized
     /// proposal pins don't and use the fallback layout.
     var mapItem: MKMapItem? = nil
+    /// The user's own location (or declared "where I'll be" point). Lets the
+    /// card fetch a drive time for spots that arrive WITHOUT a fairness
+    /// ranking, so the Directions controls always carry a time — Apple Maps
+    /// puts the ETA on the drive button and ours went blank (device feedback).
+    var selfCoordinate: CLLocationCoordinate2D? = nil
     /// When set, this card represents a proposal received via `tween://` link
     /// (i.e. from a friend's "Send to friends" SMS). Switches the CTAs from
     /// "Send to chat" to "Agree" / "Change".
@@ -165,6 +170,10 @@ struct SpotDetailCard: View {
 
     /// Bumped on send so the CTA can fire an impact haptic.
     @State private var sendTick = 0
+
+    /// One-shot drive time fetched for spots that arrive unranked (map POI
+    /// taps, plain search browsing) — fills the Directions controls' time.
+    @State private var fetchedETA: TimeInterval?
 
     /// Rebuild token + bookkeeping for the embedded place detail: the hosted
     /// controller lays out for the size it first sees, so each settled
@@ -237,6 +246,7 @@ struct SpotDetailCard: View {
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+        .task { await fetchETAIfNeeded() }
         #if DEBUG
         // -DEMO_SPOT_SHEET_GROW: auto-switch medium → large after the sheet
         // settles, exercising the exact resize path a user's drag takes (a
@@ -371,11 +381,34 @@ struct SpotDetailCard: View {
         }
     }
 
-    /// Drive-time label for the Directions tile — "12 min" when this spot was
-    /// fairness-ranked (my leg), otherwise just "Directions".
+    /// The user's own drive time to this spot: their leg of the fairness
+    /// ranking when the spot was ranked, otherwise the one-shot fetched ETA.
+    private var myDriveETA: TimeInterval? {
+        if let ranked, let mine = ranked.etas.first { return mine.eta }
+        return fetchedETA
+    }
+
+    /// Label for every Directions control — the drive time when known (Apple
+    /// Maps puts the ETA on the drive button), otherwise "Directions".
+    /// `formatETA` keeps hour-long drives reading "1h 5m", not "65 min".
     private var driveLabel: String {
-        guard let ranked else { return "Directions" }
-        return "\(max(Int((ranked.etaFromA / 60).rounded()), 1)) min"
+        guard let myDriveETA else { return "Directions" }
+        return formatETA(myDriveETA)
+    }
+
+    /// Fetches the user's drive time when the spot arrived without a ranking.
+    /// The controls read "Directions" until the time lands; no spinner — the
+    /// label swap is the feedback.
+    private func fetchETAIfNeeded() async {
+        guard myDriveETA == nil, fetchedETA == nil else { return }
+        guard let origin = selfCoordinate ?? LocationCache.freshSelfCoordinate() else { return }
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
+        request.destination = mapItem ?? MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        request.transportType = .automobile
+        guard let response = try? await MKDirections(request: request).calculateETA(),
+              !Task.isCancelled else { return }
+        fetchedETA = response.expectedTravelTime
     }
 
     private func actionTile(icon: String, label: String, primary: Bool = false,
@@ -457,7 +490,7 @@ struct SpotDetailCard: View {
             Button {
                 openInPreferredMaps()
             } label: {
-                Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                Label(driveLabel, systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.tweenPrimary())
@@ -478,7 +511,7 @@ struct SpotDetailCard: View {
                 Button {
                     openInPreferredMaps()
                 } label: {
-                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    Label(driveLabel, systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         .lineLimit(1)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))
@@ -549,7 +582,8 @@ struct SpotDetailCard: View {
         Button {
             openInPreferredMaps()
         } label: {
-            Label("Open in Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+            Label(myDriveETA.map { "Open in Maps · \(formatETA($0))" } ?? "Open in Maps",
+                  systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.tweenPrimary(.subtle))

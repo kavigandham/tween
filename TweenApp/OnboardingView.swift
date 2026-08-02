@@ -844,6 +844,7 @@ struct OnboardingView: View {
                             coordinate: selection.coordinate,
                             ranked: selection.ranked,
                             mapItem: selection.item,
+                            selfCoordinate: savedCoordinate,
                             incoming: selection.incoming.map {
                                 SpotDetailCard.IncomingProposal(
                                     senderName: $0.senderName,
