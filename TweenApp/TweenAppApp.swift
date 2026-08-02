@@ -14,11 +14,24 @@ struct TweenAppApp: App {
            !ConversationMeetupStore.hasLiveMeetup(within: ConversationMeetupStore.snapshotTTL) {
             LocationCache.startFreshMeetup()
         }
+        #if DEBUG
+        // Demo hooks for Pro-gated surfaces: force the cached entitlement so
+        // screenshots can show either side of the gate without a purchase.
+        if CommandLine.arguments.contains("-DEMO_PRO_UNLOCKED") {
+            ProEntitlement.setUnlocked(true)
+        } else if CommandLine.arguments.contains("-DEMO_PRO_LOCKED") {
+            ProEntitlement.setUnlocked(false)
+        }
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                // Initial entitlement check + the app-lifetime purchase/refund
+                // listener. The extension never does StoreKit work — it reads
+                // the cached flag this keeps fresh.
+                .task { ProEntitlement.activate() }
         }
     }
 }

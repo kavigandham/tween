@@ -97,8 +97,14 @@ targets:
     platform: iOS
     sources:
       - path: TweenAppTests
+      # StoreKit test configuration bundled as a test resource so
+      # ProEntitlementTests can drive real (local) StoreKit purchases via
+      # SKTestSession. Lives at repo root so the app target globs never ship it.
+      - path: TweenPro.storekit
+        buildPhase: resources
     dependencies:
       - target: TweenApp
+      - sdk: StoreKitTest.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppTests
@@ -115,3 +121,27 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kavigandham.TweenApp.TweenAppUITests
         GENERATE_INFOPLIST_FILE: YES
+
+# Explicit shared scheme (replaces the auto-generated one) so Run carries the
+# local StoreKit configuration — Xcode ⌘R shows the Tween Pro test products
+# and purchase sheet without App Store Connect. Unit tests load the same file
+# programmatically via SKTestSession, so `xcodebuild test` needs nothing extra.
+schemes:
+  TweenApp:
+    build:
+      targets:
+        TweenApp: all
+    run:
+      config: Debug
+      storeKitConfiguration: TweenPro.storekit
+    test:
+      config: Debug
+      targets:
+        - TweenAppTests
+        - TweenAppUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
