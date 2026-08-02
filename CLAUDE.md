@@ -46,7 +46,7 @@ Files in `Shared/` must be listed under BOTH `TweenApp` and `TweenMessages` sour
 5. **No API keys** in code or URLs.
 
 6. **App Group UserDefaults is unencrypted.** Coordinates and preferences only.
-   - *Sanctioned exception (product decision 2026-07-06):* `FriendRoster` (`Shared/TweenFriend.swift`) persists friend display name, optional CNContact identifier, and phone/email handle — so ping compose keeps working even if Contacts access is later revoked. Nothing else PII-bearing may be added.
+   - *Sanctioned exception (product decisions 2026-07-06, 2026-08-02):* `FriendRoster` (`Shared/TweenFriend.swift`) persists friend display name, optional CNContact identifier, and phone/email handle — so ping compose keeps working even if Contacts access is later revoked. Pro adds an optional per-friend home-base coordinate + label, and `GroupStore` (`Shared/FriendGroup.swift`) persists named groups of friend-ID references. Home bases are LOCAL planning data: they seed `manual:` participants for group searches and are never broadcast in any payload. Nothing else PII-bearing may be added.
 
 7. **`@Observable`**, not `ObservableObject`. `@State` owns, `@Bindable` for two-way.
 

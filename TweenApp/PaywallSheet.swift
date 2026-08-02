@@ -63,6 +63,8 @@ struct PaywallSheet: View {
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
+            featureRow(icon: "person.3.fill", title: "Groups & home bases",
+                       detail: "Save where friends usually start from, then open a group for instant fair spots — no live locations needed.")
             featureRow(icon: "calendar.badge.clock", title: "Pick a day and time",
                        detail: "Fair spots ranked by predicted traffic for when you'll actually meet.")
             featureRow(icon: "tram.fill", title: "Any way you travel",

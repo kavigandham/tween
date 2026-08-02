@@ -196,6 +196,9 @@ struct OnboardingView: View {
     // Friends / social
     @State var friendsPanelTab: FriendsPanelTab = .people
     @State var friends: [TweenFriend] = FriendRoster.load()
+    /// Pro: named friend groups — opening one seeds its members' home bases
+    /// as local manual participants for an instant fair-spot search.
+    @State var groups: [FriendGroup] = GroupStore.load()
     @State var editorMode: FriendEditor?
     @State var lastReplyAt: Date? = PingLog.lastIncomingReplyAt
     @State var lastGenericInviteAt: Date? = PingLog.lastGenericInviteAt
@@ -322,12 +325,21 @@ struct OnboardingView: View {
         case contacts
         case invite
         case message(PendingMessage)
+        /// Pro: pick a friend's home base (place search → saved on the roster).
+        case homeBase(TweenFriend)
+        /// Pro: create (nil) or edit a group.
+        case groupEditor(FriendGroup?)
+        /// The Tween Pro paywall, shown when a locked user taps a Pro affordance.
+        case paywall
 
         var id: String {
             switch self {
             case .contacts:          return "contacts"
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
+            case .homeBase(let f):   return "homeBase-\(f.id)"
+            case .groupEditor(let g): return "groupEditor-\(g?.id.uuidString ?? "new")"
+            case .paywall:           return "paywall"
             }
         }
     }
@@ -523,6 +535,21 @@ struct OnboardingView: View {
                                    coordinate: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194))
             ])
             initialDetent = .fraction(0.45)
+        }
+        // -DEMO_GROUPS: seeds two home-based friends + a group so the Pro
+        // groups flow can be screenshot-verified (combine with
+        // -DEMO_PRO_UNLOCKED to exercise the unlocked path).
+        if CommandLine.arguments.contains("-DEMO_GROUPS") {
+            let kavi = TweenFriend(name: "Kavi", handle: "555-0101",
+                                   homeBaseLatitude: 37.3382, homeBaseLongitude: -121.8863,
+                                   homeBaseLabel: "Kavi's place, San Jose")
+            let maya = TweenFriend(name: "Maya", handle: "555-0102",
+                                   homeBaseLatitude: 37.8044, homeBaseLongitude: -122.2712,
+                                   homeBaseLabel: "Maya's place, Oakland")
+            FriendRoster.save([kavi, maya])
+            GroupStore.save([FriendGroup(name: "The crew", memberIDs: [kavi.id, maya.id])])
+            _friends = State(initialValue: FriendRoster.load())
+            _groups = State(initialValue: GroupStore.load())
         }
         // -DEMO_WHERE_ILL_BE: seeds a DECLARED future self location so the
         // "You'll be at X" label + active state can be screenshot-verified.
@@ -824,6 +851,32 @@ struct OnboardingView: View {
                                         pending.onCancelled?()
                                     }
                                 }
+                            case .homeBase(let friend):
+                                AddPointSheet(
+                                    title: "\(friend.name)'s home base",
+                                    prompt: "The place they usually start from",
+                                    region: searchRegion,
+                                    resolvePlace: resolvePlace) { point in
+                                        FriendRoster.setHomeBase(id: friend.id,
+                                                                 coordinate: point.coordinate,
+                                                                 label: point.name)
+                                        friends = FriendRoster.load()
+                                        friendsSubSheet = nil
+                                }
+                            case .groupEditor(let group):
+                                GroupEditorSheet(group: group, friends: friends,
+                                                 onSave: { saved in
+                                                     GroupStore.upsert(saved)
+                                                     groups = GroupStore.load()
+                                                     friendsSubSheet = nil
+                                                 },
+                                                 onDelete: { id in
+                                                     GroupStore.delete(id: id)
+                                                     groups = GroupStore.load()
+                                                     friendsSubSheet = nil
+                                                 })
+                            case .paywall:
+                                PaywallSheet()
                             }
                         }
                     case .message(let pending):

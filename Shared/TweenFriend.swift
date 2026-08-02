@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// A person you can ping to start a meetup. Sourced either from the system
 /// contact picker or added ad hoc; `contactIdentifier` ties a row back to a
@@ -9,12 +10,29 @@ struct TweenFriend: Identifiable, Codable, Equatable {
     var name: String
     var contactIdentifier: String?
     var handle: String?
+    /// Pro: this friend's declared "home base" — where they usually start
+    /// from. LOCAL PLANNING DATA ONLY: it seeds group spot searches as
+    /// `manual:` participants (the manual-location isolation applies — never
+    /// merged into any outgoing payload) and is never broadcast. Optional
+    /// fields so pre-home-base rosters decode unchanged.
+    var homeBaseLatitude: Double?
+    var homeBaseLongitude: Double?
+    var homeBaseLabel: String?
 
-    init(id: UUID = UUID(), name: String, contactIdentifier: String? = nil, handle: String? = nil) {
+    init(id: UUID = UUID(), name: String, contactIdentifier: String? = nil, handle: String? = nil,
+         homeBaseLatitude: Double? = nil, homeBaseLongitude: Double? = nil, homeBaseLabel: String? = nil) {
         self.id = id
         self.name = name
         self.contactIdentifier = contactIdentifier
         self.handle = handle
+        self.homeBaseLatitude = homeBaseLatitude
+        self.homeBaseLongitude = homeBaseLongitude
+        self.homeBaseLabel = homeBaseLabel
+    }
+
+    var homeBase: CLLocationCoordinate2D? {
+        guard let homeBaseLatitude, let homeBaseLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: homeBaseLatitude, longitude: homeBaseLongitude)
     }
 }
 
@@ -42,15 +60,46 @@ enum FriendRoster {
     }
 
     /// Adds or refreshes a friend. Contacts can be selected more than once from
-    /// the picker, so match stable identifiers/handles before appending.
+    /// the picker, so match stable identifiers/handles before appending. A
+    /// re-pick keeps the EXISTING row's id and home base — the id keys the
+    /// ping history and the home base is a Pro declaration; both were lost
+    /// when the whole struct (with a freshly minted UUID) replaced the row
+    /// (post-push audit).
     static func add(_ friend: TweenFriend) {
         var friends = load()
         if let index = friends.firstIndex(where: { $0.representsSamePerson(as: friend) }) {
-            friends[index] = friend
+            let existing = friends[index]
+            friends[index] = TweenFriend(
+                id: existing.id,
+                name: friend.name,
+                contactIdentifier: friend.contactIdentifier ?? existing.contactIdentifier,
+                handle: friend.handle ?? existing.handle,
+                homeBaseLatitude: friend.homeBaseLatitude ?? existing.homeBaseLatitude,
+                homeBaseLongitude: friend.homeBaseLongitude ?? existing.homeBaseLongitude,
+                homeBaseLabel: friend.homeBaseLabel ?? existing.homeBaseLabel)
             save(friends)
             return
         }
         friends.append(friend)
+        save(friends)
+    }
+
+    /// Sets (or replaces) a friend's home base in place, keeping the id.
+    static func setHomeBase(id: UUID, coordinate: CLLocationCoordinate2D, label: String?) {
+        var friends = load()
+        guard let index = friends.firstIndex(where: { $0.id == id }) else { return }
+        friends[index].homeBaseLatitude = coordinate.latitude
+        friends[index].homeBaseLongitude = coordinate.longitude
+        friends[index].homeBaseLabel = label
+        save(friends)
+    }
+
+    static func clearHomeBase(id: UUID) {
+        var friends = load()
+        guard let index = friends.firstIndex(where: { $0.id == id }) else { return }
+        friends[index].homeBaseLatitude = nil
+        friends[index].homeBaseLongitude = nil
+        friends[index].homeBaseLabel = nil
         save(friends)
     }
 

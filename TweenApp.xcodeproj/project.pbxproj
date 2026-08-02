@@ -19,6 +19,7 @@
 		1CB92BB0C60428A6CCD58E29 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */; };
 		1E40AF4E002C365EDC185233 /* ParticipantCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A288C13C0A2141D179D58F67 /* ParticipantCodecTests.swift */; };
 		1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126396012D826EDE687B9221 /* LocationCache.swift */; };
+		21F0EED850BA968BB3AF3122 /* FriendGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CEBA45E9DAAC8F30D9D805 /* FriendGroup.swift */; };
 		25EBB1371F60304CB6BD44AB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */; };
 		26D0F1921C6E7761820B46BB /* RosterMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC600F17A953B060A499D6A2 /* RosterMerge.swift */; };
 		276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */; };
@@ -26,6 +27,7 @@
 		2B685EA78D2235084F728C7A /* ConversationMeetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */; };
 		2B9E58CBDF91D387B2026C68 /* MessagesViewController+Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */; };
 		2CABE4970402650FE4F62332 /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC52AECB9B816328EF102D1 /* MapLinks.swift */; };
+		2E470EF5697C6A87AD218BEE /* FriendGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6E282CCED22FDC2848B58C /* FriendGroupTests.swift */; };
 		3607C423A0ED457F9747A0DE /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */; };
 		38EBE426E101BAF907787082 /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
 		38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
@@ -107,6 +109,7 @@
 		B45F30A447B00151E8614A21 /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		BDA6476E9BC0E7B85F0B263A /* ExpandedView+Map.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A5EA9F6F1D2BEAF57E7E60 /* ExpandedView+Map.swift */; };
 		C4287B68356A74F18C38209B /* OnboardingFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D5E40D144C329C588077FE /* OnboardingFlags.swift */; };
+		C4DF351FDB2A7E03848AC843 /* FriendGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CEBA45E9DAAC8F30D9D805 /* FriendGroup.swift */; };
 		C6705A943AA2413ADD2B7EDD /* BubbleImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */; };
 		C7D9EFBE6DBB30E9039D9FC2 /* MessagesViewController+Delivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */; };
 		C817B57E78A456ECAE441137 /* SearchIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49CB07DDC9A48E0BB2BF3C7D /* SearchIntentTests.swift */; };
@@ -129,6 +132,7 @@
 		F0033D16E761466DDFD9FF94 /* ExpandedView+SpotCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CD8B6A6ED843B821B266E3 /* ExpandedView+SpotCards.swift */; };
 		F0530B026C0ECE982F213FEB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C8D82F71D0698CFE660B31 /* Assets.xcassets */; };
 		F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */; };
+		F16A321BFDE38020623BBAF2 /* GroupEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E68414BAB5062B609F4D927D /* GroupEditorSheet.swift */; };
 		F20B9C51C1C91611033F60A6 /* MessagesViewController+Sending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F8536F2549D8B50B27DD29 /* MessagesViewController+Sending.swift */; };
 		F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
 		F3BDB1E91DC1A1393169A682 /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FD34C21C893A47710A971 /* UserProfile.swift */; };
@@ -215,6 +219,7 @@
 		5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRenderer.swift; sourceTree = "<group>"; };
 		5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualLocationTests.swift; sourceTree = "<group>"; };
 		5EDD40282483BFE2BDFF2AC5 /* UserName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserName.swift; sourceTree = "<group>"; };
+		5F6E282CCED22FDC2848B58C /* FriendGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroupTests.swift; sourceTree = "<group>"; };
 		5FE7FC7424C83995540C66D4 /* TweenAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TweenAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		62B03D220EE99E30C33F9CEE /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		62FCD4F41CD181ED05A79647 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -270,6 +275,7 @@
 		DFFB7B24D0C8085EF13B5DA2 /* TweenFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenFriend.swift; sourceTree = "<group>"; };
 		E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingDraftTests.swift; sourceTree = "<group>"; };
 		E2B247391C7D7142F3F01BCD /* ExpandedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedView.swift; sourceTree = "<group>"; };
+		E68414BAB5062B609F4D927D /* GroupEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorSheet.swift; sourceTree = "<group>"; };
 		E72299F1DE819612950DE53F /* OnboardingView+FriendsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+FriendsPanel.swift"; sourceTree = "<group>"; };
 		ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorial.swift; sourceTree = "<group>"; };
 		EE3AEADCA6B40CA60C715B65 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
@@ -278,6 +284,7 @@
 		F2174E7F02B909D70550DB68 /* SpotVicinity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotVicinity.swift; sourceTree = "<group>"; };
 		F24FA9A83F819283C4ABF764 /* SearchCompleterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleterTests.swift; sourceTree = "<group>"; };
 		F74DAA9095412EC9B43B791B /* MessagesViewController+Delivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Delivery.swift"; sourceTree = "<group>"; };
+		F9CEBA45E9DAAC8F30D9D805 /* FriendGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroup.swift; sourceTree = "<group>"; };
 		FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometryTests.swift; sourceTree = "<group>"; };
 		FDEAFD0A04DFEF80BD767C7B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -326,6 +333,7 @@
 				B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */,
 				C98816C870F268364451D897 /* CompletionRegionFilterTests.swift */,
 				8BEE13DD937D5A41CCDE9B3F /* FairnessRankerTests.swift */,
+				5F6E282CCED22FDC2848B58C /* FriendGroupTests.swift */,
 				45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */,
 				5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */,
 				FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */,
@@ -385,6 +393,7 @@
 				10CD8B6A6ED843B821B266E3 /* ExpandedView+SpotCards.swift */,
 				9C7172745204E1AC5798F550 /* ExpandedView+SpotList.swift */,
 				075D9066250C6952934E34C1 /* FairnessRanker.swift */,
+				F9CEBA45E9DAAC8F30D9D805 /* FriendGroup.swift */,
 				126396012D826EDE687B9221 /* LocationCache.swift */,
 				999A32C93B516396B9807953 /* LocationProvider.swift */,
 				4AD43B944D80A6936C7A19AB /* MapGeometry.swift */,
@@ -423,6 +432,7 @@
 				4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */,
 				31774B86CC587B67A1B6CB6A /* ContentView.swift */,
 				8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */,
+				E68414BAB5062B609F4D927D /* GroupEditorSheet.swift */,
 				4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */,
 				62FCD4F41CD181ED05A79647 /* Info.plist */,
 				ED46557D0B4144B3BCB9C44F /* OnboardingTutorial.swift */,
@@ -627,6 +637,7 @@
 				58F0C9BFD204E71BF8EA547C /* ExpandedView+SpotList.swift in Sources */,
 				6A85592D747AC023B2943699 /* ExpandedView.swift in Sources */,
 				3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */,
+				21F0EED850BA968BB3AF3122 /* FriendGroup.swift in Sources */,
 				1F98B19320E0A1E7C0F6E5B9 /* LocationCache.swift in Sources */,
 				3EFCBDBCB3B45CA0DC5FDD44 /* LocationProvider.swift in Sources */,
 				EFA00EAD5278E8299C9A7189 /* MapGeometry.swift in Sources */,
@@ -688,7 +699,9 @@
 				A7F97BF8BD42C3C615F5AEFB /* ExpandedView+SpotList.swift in Sources */,
 				488D3DDCB1FFAD9709030BCA /* ExpandedView.swift in Sources */,
 				F2DA552064F8B4F63F9B9967 /* FairnessRanker.swift in Sources */,
+				C4DF351FDB2A7E03848AC843 /* FriendGroup.swift in Sources */,
 				D6B1313278EA26D56C460BB4 /* FriendsPanel.swift in Sources */,
+				F16A321BFDE38020623BBAF2 /* GroupEditorSheet.swift in Sources */,
 				F077C39E36DC856D2AD48669 /* HarnessView.swift in Sources */,
 				C8A5BF140657245C2AF48717 /* LocationCache.swift in Sources */,
 				81E10380730BFAEF1BE3D1D8 /* LocationProvider.swift in Sources */,
@@ -744,6 +757,7 @@
 				4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */,
 				5789C22343ADBEA5AFBB86CE /* CompletionRegionFilterTests.swift in Sources */,
 				6066C7E5A4F0A85FE3A7C834 /* FairnessRankerTests.swift in Sources */,
+				2E470EF5697C6A87AD218BEE /* FriendGroupTests.swift in Sources */,
 				49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */,
 				033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */,
 				434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */,

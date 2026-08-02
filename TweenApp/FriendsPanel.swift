@@ -62,6 +62,13 @@ struct FriendRow: View {
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .lineLimit(1)
+                // Pro home base — where group searches place this friend.
+                if let label = friend.homeBaseLabel, friend.homeBase != nil {
+                    Label(label, systemImage: "house.fill")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "paperplane.fill")

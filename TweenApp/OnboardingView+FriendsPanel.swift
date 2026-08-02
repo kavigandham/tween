@@ -48,6 +48,7 @@ extension OnboardingView {
                 nameFieldRow
                 friendActionButtons
                 meetupStatusSection
+                groupsSection
             }
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -78,6 +79,14 @@ extension OnboardingView {
                                 Label("Rename", systemImage: "pencil")
                             }
                             .tint(Tokens.Palette.pinSelf)
+                        }
+                        .swipeActions(edge: .leading) {
+                            // Pro: declare where this friend usually starts
+                            // from, so groups can search without live shares.
+                            Button { setHomeBase(for: friend) } label: {
+                                Label("Home Base", systemImage: "house.fill")
+                            }
+                            .tint(Tokens.Palette.accent)
                         }
                 }
             }
@@ -134,6 +143,110 @@ extension OnboardingView {
             .accessibilityHint("Shares an invite link to Tween")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Pro: named groups that open straight into a fair-spot search from the
+    /// members' home bases. The section is always visible (it advertises the
+    /// feature); every action gates on the entitlement and routes locked
+    /// users to the paywall.
+    var groupsSection: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            HStack {
+                Label("Groups", systemImage: "person.3.fill")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                if !ProEntitlement.isUnlocked {
+                    Image(systemName: "sparkles")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.brand)
+                        .accessibilityLabel("Tween Pro feature")
+                }
+                Spacer()
+                Button {
+                    guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
+                    friendsSubSheet = .groupEditor(nil)
+                } label: {
+                    Label("New", systemImage: "plus")
+                        .font(Tokens.Typography.captionBold)
+                }
+                .accessibilityHint("Creates a new friend group")
+            }
+            if groups.isEmpty {
+                Text("Make a group — open it any time to find fair spots between everyone's home bases, no live locations needed.")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+            } else {
+                ForEach(groups) { group in
+                    groupRow(group)
+                }
+            }
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+    }
+
+    func groupRow(_ group: FriendGroup) -> some View {
+        let members = group.members(in: friends)
+        let based = members.filter { $0.homeBase != nil }.count
+        return Button {
+            openGroup(group)
+        } label: {
+            HStack(spacing: Tokens.Spacing.s3) {
+                Image(systemName: "person.3.fill")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.accent)
+                    .frame(width: 36, height: 36)
+                    .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.name)
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                    Text(based == members.count
+                         ? "\(members.count) people, all home bases set"
+                         : "\(members.count) people, \(based) home base\(based == 1 ? "" : "s") set")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                Spacer()
+                Button {
+                    guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
+                    friendsSubSheet = .groupEditor(group)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit \(group.name)")
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Finds fair spots between \(group.name)'s home bases")
+    }
+
+    /// Pro gate + the group-open flow: members' home bases become LOCAL
+    /// manual participants (the manual-location isolation applies — they are
+    /// never merged into an outgoing payload), the sheet drops to the map,
+    /// and the user picks a category to rank.
+    func openGroup(_ group: FriendGroup) {
+        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
+        let based = group.members(in: friends).compactMap { friend -> Participant? in
+            guard let coordinate = friend.homeBase else { return nil }
+            return Participant.manual(label: friend.name, coordinate: coordinate)
+        }
+        guard !based.isEmpty else {
+            showToast("No home bases in \(group.name) yet — swipe a friend to set one")
+            return
+        }
+        manualParticipants = based
+        activeSheet = nil
+        reframe()
+        showToast("\(group.name) is on the map — pick a category to find fair spots")
+    }
+
+    /// Pro gate for the per-friend home-base picker.
+    func setHomeBase(for friend: TweenFriend) {
+        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
+        friendsSubSheet = .homeBase(friend)
     }
 
     var meetupStatusSection: some View {
