@@ -20,7 +20,18 @@ extension ExpandedView {
                 }
                 .padding(.horizontal, 1)
                 .padding(.vertical, 2)
+                .scrollTargetLayout()
             }
+            // Snap each card to the rail's leading edge so a scroll never
+            // rests mid-card: the second card being sliced through its ETA
+            // rows read as a broken layout rather than "keep scrolling"
+            // (screenshot audit).
+            //
+            // Do NOT try to full-bleed this by pairing `contentMargins` with a
+            // negative horizontal padding — that combination sends SwiftUI's
+            // layout into recursion and segfaults on launch (verified
+            // 2026-08-02).
+            .scrollTargetBehavior(.viewAligned)
             .onChange(of: selectedSpotID) { _, newValue in
                 guard let newValue else { return }
                 withAnimation(Tokens.Motion.snappy) {
@@ -42,7 +53,10 @@ extension ExpandedView {
         }
         .padding(Tokens.Spacing.s3)
         .frame(width: spotCardWidth, height: spotCardHeight, alignment: .topLeading)
-        .background(isSelected ? Tokens.Palette.brand.opacity(0.14) : Tokens.Palette.surface,
+        // elevatedStrong, not `surface`: `.systemBackground` is pure black in
+        // dark mode, so cards rendered as holes in the lighter material panel
+        // instead of raised surfaces (screenshot audit).
+        .background(isSelected ? AnyShapeStyle(Tokens.Palette.brand.opacity(0.18)) : AnyShapeStyle(Tokens.Palette.elevatedStrong),
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
@@ -113,19 +127,17 @@ extension ExpandedView {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Spacer(minLength: Tokens.Spacing.s1)
-            // Time coloured by the spot's fairness so a fair spot's rows read
-            // green at a glance (device feedback: restore the color-coded times).
-            // On a tinted capsule (like the host chip) so it stays readable in
-            // both light and dark (post-push audit: bare yellow text was low
-            // contrast on a light surface).
+            // Plain tinted text, NOT a filled capsule per row: four stacked
+            // colour-filled pills per card (times four visible cards) turned
+            // the rail into a wall of blocks. The card's own fill already
+            // separates it from the panel and the fairness dot below carries
+            // the verdict — colour on the number still encodes fairness at a
+            // glance (device feedback) without the noise.
             Text(formatETA(eta.eta))
                 .font(Tokens.Typography.captionBold.monospacedDigit())
                 .foregroundStyle(tint)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 6)
-                .frame(minHeight: 20)
-                .background(tint.opacity(0.16), in: Capsule())
         }
     }
 
@@ -163,7 +175,7 @@ extension ExpandedView {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surface.opacity(0.6),
+        .background(Tokens.Palette.elevated,
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
     }

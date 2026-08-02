@@ -80,7 +80,7 @@ struct CompactView: View {
 
             HStack(spacing: Tokens.Spacing.s2) {
                 Button(action: onExpand) {
-                    Label("Browse", systemImage: "arrow.up.forward.app")
+                    Label("Browse", systemImage: "magnifyingglass")
                         .font(Tokens.Typography.captionBold)
                         .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 }
@@ -153,7 +153,7 @@ struct CompactView: View {
                 HStack(spacing: Tokens.Spacing.s2) {
                     Button(action: onExpand) {
                         Label(received?.kind == .place ? "Review spot" : "Browse spots",
-                              systemImage: received?.kind == .place ? "checkmark.bubble" : "arrow.up.forward.app")
+                              systemImage: received?.kind == .place ? "checkmark.bubble" : "magnifyingglass")
                             .font(Tokens.Typography.captionBold)
                             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                     }
@@ -211,7 +211,7 @@ struct CompactView: View {
                         .foregroundStyle(Tokens.Palette.textSecondary)
                         .padding(.horizontal, Tokens.Spacing.s2)
                         .frame(height: 24)
-                        .background(Tokens.Palette.surface, in: Capsule())
+                        .background(Tokens.Palette.elevated, in: Capsule())
                         .padding(.leading, 12)
                 }
             }

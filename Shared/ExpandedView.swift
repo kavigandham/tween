@@ -363,7 +363,7 @@ struct ExpandedView: View {
                     .lineLimit(1)
                     .padding(.horizontal, Tokens.Spacing.s2)
                     .frame(minHeight: 24)
-                    .background(Tokens.Palette.surface, in: Capsule())
+                    .background(Tokens.Palette.elevated, in: Capsule())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,7 +388,7 @@ struct ExpandedView: View {
                         .foregroundStyle(Tokens.Palette.textSecondary)
                         .padding(.horizontal, Tokens.Spacing.s2)
                         .frame(minHeight: 26)
-                        .background(Tokens.Palette.surface, in: Capsule())
+                        .background(Tokens.Palette.elevated, in: Capsule())
                 }
                 let waiting = max(totalSeats - activeParticipantCount, 0)
                 if waiting > 0 {
@@ -398,7 +398,7 @@ struct ExpandedView: View {
                         .lineLimit(1)
                         .padding(.horizontal, Tokens.Spacing.s2)
                         .frame(minHeight: 26)
-                        .background(Tokens.Palette.surface, in: Capsule())
+                        .background(Tokens.Palette.elevated, in: Capsule())
                 }
             }
             .padding(.horizontal, 1)
@@ -419,7 +419,7 @@ struct ExpandedView: View {
                             .lineLimit(1)
                             .padding(.horizontal, Tokens.Spacing.s3)
                             .frame(minHeight: 36)
-                            .background(selected ? Tokens.Palette.brand : Tokens.Palette.surface,
+                            .background(selected ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.elevated),
                                         in: Capsule())
                             .foregroundStyle(selected ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
                     }
@@ -459,7 +459,7 @@ struct ExpandedView: View {
         }
         .padding(.trailing, isSelf ? 0 : Tokens.Spacing.s2)
         .padding(.vertical, 2)
-        .background(Tokens.Palette.surface, in: Capsule())
+        .background(Tokens.Palette.elevated, in: Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(isSelf ? "You, in" : "\(name), in")
     }
@@ -668,23 +668,44 @@ struct ExpandedView: View {
         }
     }
 
+    /// The panel's tertiary row. Deliberately QUIETER than the CTAs above it:
+    /// these are escape hatches ("look somewhere else", "count me out"), not
+    /// the thing the screen is for. Rendered as compact text actions rather
+    /// than two more filled blocks — the proposal screen was stacking four
+    /// rows of same-weight buttons, so nothing read as primary (screenshot
+    /// audit: "the buttons don't flow").
     @ViewBuilder
     var bottomAction: some View {
         if let received, received.kind == .place, received.isFullyAgreed {
             openFullAppButton
         } else if isUserIn {
-            HStack(spacing: Tokens.Spacing.s2) {
-                openFullAppButton
-                Button(action: onImOut) {
-                    Label("I'm out", systemImage: "location.slash")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.tweenPrimary(.destructive))
-                .accessibilityHint("Stops sharing you as active for this meetup")
+            HStack(spacing: 0) {
+                tertiaryAction(title: "Browse spots", systemImage: "magnifyingglass",
+                               tint: Tokens.Palette.accent, action: onOpenFullApp)
+                    .accessibilityHint("Opens the full Tween app to search for places")
+                Divider()
+                    .frame(height: 18)
+                tertiaryAction(title: "I'm out", systemImage: "location.slash",
+                               tint: Tokens.Palette.destructive, action: onImOut)
+                    .accessibilityHint("Stops sharing you as active for this meetup")
             }
         } else {
             openFullAppButton
         }
+    }
+
+    func tertiaryAction(title: String, systemImage: String, tint: Color,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     func directionButtons(for state: TweenState) -> some View {
@@ -705,7 +726,12 @@ struct ExpandedView: View {
             // magnifyingglass, not arrow.up.forward.app: an external-link
             // glyph told the user "this leaves Messages" when the useful
             // meaning is "search for places" (screenshot review).
+            // lineLimit(1) + scale: in a 2-up row "Browse spots" wrapped to
+            // two lines, making the row taller than its neighbour and visibly
+            // lopsided (screenshot audit).
             Label("Browse spots", systemImage: "magnifyingglass")
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.tweenPrimary(.subtle))

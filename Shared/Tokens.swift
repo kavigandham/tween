@@ -26,6 +26,20 @@ enum Tokens {
         /// (#E5E5EA light / #2C2C2E dark) — tertiarySystemFill was too faint
         /// to read as a field over the sheet blur.
         static let inputFill = Color(uiColor: .systemGray5)
+        /// Fill for a small element that sits ON the material bottom panel —
+        /// chips, roster pills, progress badges.
+        ///
+        /// MUST NOT be `surface`: `.systemBackground` is pure BLACK in dark
+        /// mode, so every chip drawn on the lighter `.regularMaterial` panel
+        /// rendered as a hole punched through it — elevation inverted, the
+        /// single biggest reason the extension read as unclean (screenshot
+        /// audit). The `systemFill` family is Apple's answer for exactly this:
+        /// translucent overlays that LIGHTEN whatever is behind them, so a
+        /// chip reads as raised in both modes and over any material.
+        static let elevated = Color(uiColor: .tertiarySystemFill)
+        /// Same idea with more presence, for larger raised surfaces (spot
+        /// cards) that need to hold their own shape against the panel.
+        static let elevatedStrong = Color(uiColor: .secondarySystemFill)
 
         // Brand — a restrained midnight navy. Teal remains available to the
         // map as a functional result-pin colour; it no longer competes with
