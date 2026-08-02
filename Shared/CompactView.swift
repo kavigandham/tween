@@ -98,7 +98,7 @@ struct CompactView: View {
             }
         }
         .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
     }
 
     private var activeMeetupState: some View {
@@ -125,9 +125,9 @@ struct CompactView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(Tokens.Spacing.s3)
-                .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous))
+                .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.sheet, style: .continuous)
+                    RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous)
                         .strokeBorder(Tokens.Palette.brand.opacity(0.18), lineWidth: 1)
                 }
             }
@@ -243,20 +243,18 @@ struct CompactView: View {
         }
     }
 
+    /// A vivid category circle, not a map crop. The snapshot here was framed so
+    /// tight it rendered a sliced-off piece of a city label and told you
+    /// nothing about *which* place the card was about; the category mark at
+    /// least says "coffee" or "gas" instantly, and matches the row icons used
+    /// everywhere else. See `SpotCategoryMark` for why it's keyed off the name.
     @ViewBuilder
     private var thumbnail: some View {
-        if let received {
-            TweenMapSnapshotView(
-                markers: markers(for: received),
-                cornerRadius: Tokens.Radius.card,
-                focusCoordinate: received.kind == .place ? received.coordinate : nil)
-                .frame(width: 96, height: 72)
+        if let received, received.kind == .place {
+            let mark = SpotCategoryMark.forName(received.text)
+            TweenRowIcon(systemImage: mark.systemImage, color: mark.color, size: 52)
         } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.card).fill(Tokens.Palette.surfaceSecondary)
-                Image(systemName: "map.fill").foregroundStyle(Tokens.Palette.textTertiary)
-            }
-            .frame(width: 96, height: 72)
+            TweenRowIcon(systemImage: "map.fill", color: Tokens.Palette.brand, size: 52)
         }
     }
 

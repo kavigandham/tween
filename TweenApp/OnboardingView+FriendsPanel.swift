@@ -100,11 +100,7 @@ extension OnboardingView {
     /// (every write fans out through the App Group change publisher).
     var nameFieldRow: some View {
         HStack(spacing: Tokens.Spacing.s3) {
-            Image(systemName: "person.text.rectangle")
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.accent)
-                .frame(width: 36, height: 36)
-                .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            TweenRowIcon(systemImage: "person.text.rectangle", color: Tokens.Palette.brand, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Your name")
                     .font(Tokens.Typography.caption)
@@ -192,11 +188,7 @@ extension OnboardingView {
             openGroup(group)
         } label: {
             HStack(spacing: Tokens.Spacing.s3) {
-                Image(systemName: "person.3.fill")
-                    .font(Tokens.Typography.headline)
-                    .foregroundStyle(Tokens.Palette.accent)
-                    .frame(width: 36, height: 36)
-                    .background(Tokens.Palette.brandLight, in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                TweenRowIcon(systemImage: "person.3.fill", color: Tokens.Palette.brand, size: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.name)
                         .font(Tokens.Typography.headline)
@@ -310,12 +302,9 @@ extension OnboardingView {
     func participantStatusRow(_ participant: Participant) -> some View {
         let isLocal = isLocalParticipant(participant)
         return HStack(spacing: Tokens.Spacing.s3) {
-            Image(systemName: participant.needsRide ? "figure.wave" : "checkmark.circle.fill")
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.success)
-                .frame(width: 36, height: 36)
-                .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.success).opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            TweenRowIcon(systemImage: participant.needsRide ? "figure.wave" : "checkmark",
+                         color: participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.success,
+                         size: 36)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(participantLabel(participant))
@@ -337,12 +326,8 @@ extension OnboardingView {
 
     func pendingInviteStatusRow(_ invite: PendingInviteRow) -> some View {
         HStack(spacing: Tokens.Spacing.s3) {
-            Image(systemName: invite.isGeneric ? "paperplane.circle.fill" : "hourglass.circle.fill")
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.warning)
-                .frame(width: 36, height: 36)
-                .background(Tokens.Palette.warning.opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            TweenRowIcon(systemImage: invite.isGeneric ? "paperplane.fill" : "hourglass",
+                         color: Tokens.Palette.warning, size: 36)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(invite.name)
@@ -395,12 +380,9 @@ extension OnboardingView {
     var rideRequestCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
             HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
-                Image(systemName: localNeedsRide ? "figure.wave" : "car.fill")
-                    .font(Tokens.Typography.headline)
-                    .foregroundStyle(localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.accent)
-                    .frame(width: 40, height: 40)
-                    .background((localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
-                                in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+                TweenRowIcon(systemImage: localNeedsRide ? "figure.wave" : "car.fill",
+                             color: localNeedsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand,
+                             size: 40)
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
                     Text(localNeedsRide ? "You need a ride" : "Ride status")
                         .font(Tokens.Typography.headline)
@@ -456,12 +438,9 @@ extension OnboardingView {
 
     func rideParticipantRow(_ participant: Participant) -> some View {
         return HStack(spacing: Tokens.Spacing.s3) {
-            Image(systemName: participant.needsRide ? "figure.wave" : "car.fill")
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.accent)
-                .frame(width: 36, height: 36)
-                .background((participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand).opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: Tokens.Radius.chip, style: .continuous))
+            TweenRowIcon(systemImage: participant.needsRide ? "figure.wave" : "car.fill",
+                         color: participant.needsRide ? Tokens.Palette.pinRideNeeded : Tokens.Palette.brand,
+                         size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(participantLabel(participant))
                     .font(Tokens.Typography.headline)

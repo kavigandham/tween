@@ -41,32 +41,36 @@ enum Tokens {
         /// cards) that need to hold their own shape against the panel.
         static let elevatedStrong = Color(uiColor: .secondarySystemFill)
 
-        // Brand — a restrained midnight navy. Teal remains available to the
-        // map as a functional result-pin colour; it no longer competes with
-        // navigation, selection, and primary actions throughout the product.
-        static let brand = dynamicColor(
-            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),  // #123252
-            dark:  UIColor(red: 0.176, green: 0.380, blue: 0.557, alpha: 1))   // #2D618E
-        /// Interactive text, icons, selection marks, and native tint. Dark mode
-        /// lifts the lightness so small affordances remain legible on glass;
-        /// filled primary controls continue to use the deeper `brand` navy.
-        static let accent = dynamicColor(
-            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),  // #123252
-            dark:  UIColor(red: 0.396, green: 0.710, blue: 0.918, alpha: 1))   // #65B5EA
-        /// Foreground for content sitting on the navy action fill.
-        static let onBrand = dynamicColor(
-            light: UIColor.white,
-            dark:  UIColor.white)
-        static let brandLight = dynamicColor(
-            light: UIColor(red: 0.918, green: 0.945, blue: 0.969, alpha: 1),  // #EAF1F7
-            dark:  UIColor(red: 0.090, green: 0.145, blue: 0.208, alpha: 1))   // #172535
-        static let neutralAction = dynamicColor(
-            light: UIColor(red: 0.925, green: 0.941, blue: 0.957, alpha: 1),   // #ECF0F4
-            dark:  UIColor(red: 0.122, green: 0.137, blue: 0.165, alpha: 1))   // #1F232A
-        /// Text on the floating map pill ("Search here"): brand navy over
-        /// light glass, white over dark glass.
+        // Brand — Apple's systemBlue.
+        //
+        // This was a custom midnight navy (#123252 / #2D618E) while the "You"
+        // pin and its roster chip used systemBlue, because a pin's colour is
+        // its identity across every surface. The result: Apple blue and navy
+        // sitting inches apart on the same panel, reading as a bug rather than
+        // a palette (product decision 2026-08-02 — "I really just want
+        // consistency"). Unifying on systemBlue makes the You chip, the You
+        // pin, Agree, and every tint one colour, and it's the colour iOS users
+        // already read as "this is the action".
+        //
+        // systemBlue is dynamic (#007AFF light / #0A84FF dark) and tracks
+        // Increase Contrast for free, so no hand-tuned dark variant is needed.
+        static let brand = Color(uiColor: .systemBlue)
+        /// Interactive text, icons, selection marks, and native tint — the same
+        /// blue as `brand`, so a tinted glyph and a filled button never
+        /// disagree.
+        static let accent = Color(uiColor: .systemBlue)
+        /// Foreground for content sitting on the blue action fill.
+        static let onBrand = Color.white
+        /// A blue-tinted wash for surfaces that should read as "ours" without
+        /// carrying a full fill.
+        static let brandLight = Color(uiColor: .systemBlue).opacity(0.16)
+        /// The translucent fill under a secondary action. Apple's fill family
+        /// rather than a hand-picked grey, so it lightens whatever material it
+        /// sits on instead of punching a hole in it.
+        static let neutralAction = Color(uiColor: .secondarySystemFill)
+        /// Text on the floating map pill ("Search here").
         static let mapPillText = dynamicColor(
-            light: UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1),   // #123252
+            light: UIColor.systemBlue,
             dark:  UIColor.white)
         static let destructiveLight = dynamicColor(
             light: UIColor(red: 1.000, green: 0.918, blue: 0.918, alpha: 1),   // #FFEAEA
@@ -109,11 +113,7 @@ enum Tokens {
             static let pinMidpoint = UIColor.systemOrange
             static let pinClosest = UIColor.systemGreen
             static let pinResult = UIColor.systemTeal
-            static let brand = UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.176, green: 0.380, blue: 0.557, alpha: 1)      // #2D618E
-                : UIColor(red: 0.071, green: 0.196, blue: 0.322, alpha: 1)      // #123252
-            }
+            static let brand = UIColor.systemBlue
         }
     }
 
@@ -134,15 +134,27 @@ enum Tokens {
 
     // MARK: - Radius
 
+    /// Corner radii, smallest to largest. The scale is a HIERARCHY — a corner
+    /// should get rounder as the surface gets larger and more container-like —
+    /// so pick by what the thing IS, not by what looks nice in isolation:
+    ///
+    ///   chip   ( 8) small inline badges sitting inside another surface
+    ///   card   (12) a plain content card
+    ///   action (14) a tappable button
+    ///   group  (18) a grouped list container, or a card inside a sheet
+    ///   sheet  (24) the sheet edge itself — nothing nested
+    ///   pill   (∞)  anything capsule-shaped: filters, roster chips, status
+    ///
+    /// Nesting a radius at or above its parent's is what makes a layout read
+    /// as "boxy in some places, round in others": CompactView's inner cards
+    /// used `sheet` (24) inside a `sheet` (24) container, so the card fought
+    /// its own background instead of nesting inside it (audit 2026-08-02).
+    ///
+    /// Values 14/18 were measured off Apple Maps on device, 2026-08-02.
     enum Radius {
         static let chip: CGFloat = 8
         static let card: CGFloat = 12
-        /// An action-row button. Measured off Apple Maps' place-card row on
-        /// device, 2026-08-02 — noticeably softer than a plain card corner.
         static let action: CGFloat = 14
-        /// A grouped list container — Apple Maps' results list and every
-        /// inset-grouped table use this larger, softer corner. Measured
-        /// against Maps on device (2026-08-02).
         static let group: CGFloat = 18
         static let sheet: CGFloat = 24
         static let pin: CGFloat = 22

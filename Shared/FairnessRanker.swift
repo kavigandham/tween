@@ -42,7 +42,20 @@ struct RankedSpot: Identifiable {
     /// spots with real routes. The numerator is clamped at 0: below the grace
     /// period a negative value divided by a SMALLER confidence would rank
     /// straight-line guesses ABOVE real routes (inverted penalty).
-    var score: Double { max(worstETA - 120, 0) / confidence }
+    ///
+    /// Finally the user's max-drive-time preference scales the whole thing.
+    /// It's deliberately a multiplier and not a filter — over-limit spots stay
+    /// in the list, they just stop looking promising.
+    var score: Double {
+        max(worstETA - 120, 0) / confidence
+            * DriveTimePreference.penaltyMultiplier(worstETA: worstETA)
+    }
+
+    /// True when this spot asks someone to drive longer than the user's
+    /// preference — surfaced in the list so a demoted spot explains itself.
+    var exceedsDriveLimit: Bool {
+        DriveTimePreference.exceedsLimit(worstETA: worstETA)
+    }
 
     init(id: UUID = UUID(), item: MKMapItem?, etas: [ParticipantETA], confidence: Double) {
         self.id = id

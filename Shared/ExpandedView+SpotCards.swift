@@ -121,8 +121,12 @@ extension ExpandedView {
     }
 
     /// "Fair · You 21 · Kavi 23" — the verdict plus as many people as fit.
+    /// A spot past the user's max-drive-time preference says so first, so a
+    /// demoted row explains its own position instead of looking mis-sorted.
     func spotRowSubtitle(_ spot: RankedSpot) -> String {
-        let verdict = SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA)
+        let verdict = spot.exceedsDriveLimit
+            ? "Over your limit"
+            : SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA)
         let people = spot.etas.prefix(3).map { eta in
             "\(SpotETADisplay.shortName(for: eta.name)) \(Int((eta.eta / 60).rounded()))"
         }

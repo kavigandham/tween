@@ -1,4 +1,5 @@
 # Secrets — never commit App Store Connect keys or signing keys
+.mcp.json
 *.p8
 AuthKey_*.p8
 *.pem

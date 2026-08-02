@@ -11,6 +11,41 @@ struct SettingsSheet: View {
     /// inside the presented sheet leaves dead buttons (2026-07 lesson).
     @State private var showPaywall = false
     @State private var proUnlocked = ProEntitlement.isUnlocked
+    @State private var maxDriveMinutes = DriveTimePreference.maxMinutes
+
+    /// Preset capsules rather than a slider or stepper: this is a coarse
+    /// choice, and Maps uses exactly this control for its own coarse filters
+    /// (Open Now / Drive-Thru). One tap, readable at a glance.
+    private var driveTimeChips: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            ForEach(DriveTimePreference.options, id: \.self) { minutes in
+                driveTimeChip(label: "\(minutes)m", value: minutes)
+            }
+            driveTimeChip(label: "Any", value: nil)
+        }
+        .padding(.vertical, Tokens.Spacing.s1)
+    }
+
+    private func driveTimeChip(label: String, value: Int?) -> some View {
+        let isSelected = maxDriveMinutes == value
+        return Button {
+            maxDriveMinutes = value
+            DriveTimePreference.maxMinutes = value
+        } label: {
+            Text(label)
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(isSelected ? Tokens.Palette.onBrand : Tokens.Palette.accent)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                .background(isSelected ? AnyShapeStyle(Tokens.Palette.brand)
+                                       : AnyShapeStyle(Tokens.Palette.neutralAction),
+                            in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(value.map { "Maximum \($0) minutes" } ?? "No maximum drive time")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
 
     var body: some View {
         NavigationStack {
@@ -72,6 +107,14 @@ struct SettingsSheet: View {
                     Text("Directions open in")
                 } footer: {
                     Text("Every Open in Maps button — in Tween and in iMessage — uses this app. Google Maps opens on the web if the app isn't installed.")
+                }
+
+                Section {
+                    driveTimeChips
+                } header: {
+                    Text("Max drive time")
+                } footer: {
+                    Text("Spots that ask someone to drive longer than this still show up — they just rank lower, so you always see something even when the area is quiet.")
                 }
             }
             .navigationTitle("Settings")
