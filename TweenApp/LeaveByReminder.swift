@@ -81,6 +81,22 @@ enum LeaveByReminder {
             .removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
+    /// True when a leave-by reminder is currently pending.
+    static func isArmed() async -> Bool {
+        await pendingFireDate() != nil
+    }
+
+    /// When the pending reminder is set to fire, or nil if none is armed.
+    /// Used by `LeaveByRefresher` to decide whether live traffic has drifted
+    /// far enough to be worth rescheduling.
+    static func pendingFireDate() async -> Date? {
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        guard let request = pending.first(where: { $0.identifier == identifier }),
+              let trigger = request.trigger as? UNCalendarNotificationTrigger
+        else { return nil }
+        return trigger.nextTriggerDate()
+    }
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short

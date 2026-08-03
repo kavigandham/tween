@@ -144,10 +144,48 @@ struct PaywallSheet: View {
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                subscriptionDisclosure
             }
             .disabled(purchasing)
         }
     }
+
+    /// Required for the auto-renewable monthly product. App Review guideline
+    /// 3.1.2 wants the renewal terms stated in the purchase flow AND functional
+    /// links to a Terms of Use (EULA) and a Privacy Policy — their absence is a
+    /// rejection, and both were missing (audit 2026-08-02).
+    ///
+    /// Apple's standard EULA is used, which is the correct link when an app
+    /// ships no custom licence agreement.
+    private var subscriptionDisclosure: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            Text("Monthly renews automatically unless cancelled at least 24 hours before the period ends. Manage or cancel in your App Store account settings. Lifetime is a one-time purchase and never renews.")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: Tokens.Spacing.s3) {
+                Link("Terms of Use", destination: Self.termsURL)
+                Link("Privacy Policy", destination: Self.privacyURL)
+            }
+            .font(Tokens.Typography.caption)
+            .foregroundStyle(Tokens.Palette.accent)
+        }
+    }
+
+    /// Apple's standard EULA — the correct Terms link for an app with no
+    /// custom licence agreement.
+    static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+
+    /// ⚠️ MUST resolve to a live page before submitting. App Review clicks
+    /// this, and a dead link is a worse rejection than a missing one.
+    ///
+    /// The policy text lives in `docs/privacy.md` in this repo and is accurate
+    /// to what the app actually does. To make this URL live, enable GitHub
+    /// Pages for the repo with `/docs` as the source. If you host it anywhere
+    /// else, change this ONE constant.
+    static let privacyURL = URL(string: "https://kavigandham.github.io/tween/privacy")!
 
     private func productButton(_ product: Product) -> some View {
         let isLifetime = product.id == ProEntitlement.lifetimeProductID

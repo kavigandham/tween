@@ -1000,6 +1000,11 @@ struct OnboardingView: View {
                 } else {
                     provider.startContinuousAskingIfNeeded()
                 }
+                // Re-measure an armed leave-by reminder against current
+                // traffic. This is what makes "based on live drive time" true
+                // without asking for Always location — you open Tween on the
+                // way out, which is exactly when a stale estimate matters.
+                Task { await LeaveByRefresher.refresh(from: savedCoordinate) }
             } else {
                 provider.stopContinuous()
             }
