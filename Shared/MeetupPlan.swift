@@ -69,9 +69,18 @@ struct MeetupPlan: Codable, Equatable, Sendable {
     /// enumerate everyone.
     var modes: [String: TravelMode]
 
-    init(arrivalDate: Date? = nil, modes: [String: TravelMode] = [:]) {
+    /// Which spot this schedule is FOR. Without it every spot card read
+    /// "Planned" off one global flag, and a reminder set for one place quietly
+    /// replaced another's (audit 2026-08-02). Travel modes stay global — how
+    /// you get around isn't per-destination.
+    var spotName: String?
+
+    init(arrivalDate: Date? = nil,
+         modes: [String: TravelMode] = [:],
+         spotName: String? = nil) {
         self.arrivalDate = arrivalDate
         self.modes = modes
+        self.spotName = spotName
     }
 
     static let none = MeetupPlan()
@@ -127,6 +136,13 @@ enum MeetupPlanStore {
             return MeetupPlan(arrivalDate: nil, modes: plan.modes)
         }
         return plan
+    }
+
+    /// True only when a schedule exists AND it's for this spot — so the badge
+    /// appears on the planned card, not on every card.
+    static func isScheduled(for spotName: String) -> Bool {
+        let plan = current
+        return plan.isScheduled && plan.spotName == spotName
     }
 
     static func save(_ plan: MeetupPlan) {

@@ -16,6 +16,10 @@ struct PlanMeetupSheet: View {
     let myTravelTime: TimeInterval?
     let participants: [Participant]
     let localParticipantID: String?
+    /// Fired after the plan is persisted so the host can re-rank. Without it a
+    /// saved plan changed nothing on screen until the next search, and the user
+    /// reasonably concluded the feature did nothing (audit 2026-08-02).
+    var onSaved: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
 
@@ -177,8 +181,18 @@ struct PlanMeetupSheet: View {
     // MARK: Actions
 
     private func save() {
+        let previousArrival = plan.arrivalDate
         plan.arrivalDate = isScheduled ? arrival : nil
+        plan.spotName = isScheduled ? spotName : nil
         MeetupPlanStore.save(plan)
+        // Un-scheduling, or moving the time, must retire the pending
+        // notification — otherwise "Time to head out" fires for a meetup that
+        // no longer exists or has moved (audit 2026-08-02). Re-arming is the
+        // reminder button's job, which is explicit.
+        if !isScheduled || previousArrival != plan.arrivalDate {
+            LeaveByReminder.cancel()
+        }
+        onSaved()
     }
 
     private func scheduleReminder() async {

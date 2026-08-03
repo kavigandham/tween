@@ -152,6 +152,7 @@ struct OnboardingView: View {
     /// Child sheet of the Friends sheet (contacts picker, invite share,
     /// message compose). See `FriendsSubSheet` for why this exists.
     @State var friendsSubSheet: FriendsSubSheet?
+    @State var spotSubSheet: SpotSubSheet?
     /// The "Your Name" prompt, scoped to the FRIENDS sheet — the root prompt
     /// is attached to the permanent sheet's content, which cannot present an
     /// alert while the Friends sheet is up (W13 trap). `ensureNamed` routes.
@@ -304,9 +305,6 @@ struct OnboardingView: View {
         case addPoint
         case whereIllBe
         case settings
-        /// Pro: schedule the meetup, set per-person travel modes, and hang a
-        /// leave-by reminder / calendar event off it.
-        case plan(SpotSelection)
 
         var id: String {
             switch self {
@@ -316,7 +314,6 @@ struct OnboardingView: View {
             case .addPoint:          return "addPoint"
             case .whereIllBe:        return "whereIllBe"
             case .settings:          return "settings"
-            case .plan(let s):       return "plan-\(s.id)"
             }
         }
     }
@@ -895,38 +892,7 @@ struct OnboardingView: View {
                             }
                         }
                     case .spot(let selection):
-                        SpotDetailCard(
-                            name: selection.name,
-                            address: selection.address,
-                            coordinate: selection.coordinate,
-                            ranked: selection.ranked,
-                            mapItem: selection.item,
-                            selfCoordinate: savedCoordinate,
-                            incoming: selection.incoming.map {
-                                SpotDetailCard.IncomingProposal(
-                                    senderName: $0.senderName,
-                                    isCounter: $0.isCounter)
-                            },
-                            isCurrentMeetup: isCurrentMeetup(selection),
-                            isFavorite: isFavorite(selection),
-                            onToggleFavorite: { toggleFavorite(selection) },
-                            onSendToChat: { sendToChat(selection) },
-                            onAgree: {
-                                if let incoming = selection.incoming {
-                                    sendAgreeReply(for: selection, incoming: incoming)
-                                }
-                            },
-                            onChange: { startChangeFlow(initialCoord: selection.coordinate) },
-                            onPlan: {
-                                guard ProEntitlement.isUnlocked else {
-                                    activeSheet = nil
-                                    friendsSubSheet = .paywall
-                                    return
-                                }
-                                activeSheet = .plan(selection)
-                            },
-                            planIsSet: MeetupPlanStore.current.isScheduled
-                        )
+                        spotDetailSheet(selection)
                     case .addPoint:
                         AddPointSheet(region: searchRegion,
                                       resolvePlace: resolvePlace,
@@ -939,18 +905,6 @@ struct OnboardingView: View {
                                       onAdd: setManualSelf)
                     case .settings:
                         SettingsSheet()
-                    case .plan(let selection):
-                        PlanMeetupSheet(
-                            spotName: selection.name,
-                            coordinate: selection.coordinate,
-                            // My own leg out of the ranked ETAs, when ranking
-                            // has produced one — the leave-by maths needs it.
-                            myTravelTime: selection.ranked?.etas.first {
-                                $0.id == TweenIdentity.stableID
-                                    || $0.name == (UserProfile.displayName ?? UserName.fallback)
-                            }?.eta,
-                            participants: currentParticipants,
-                            localParticipantID: TweenIdentity.stableID)
                     }
                 }
                 // Alerts triggered from inside the sheet must present FROM the

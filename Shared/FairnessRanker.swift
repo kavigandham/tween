@@ -237,13 +237,16 @@ enum FairnessRanker {
         _ item: MKMapItem,
         participants: [Participant]
     ) async -> RankedSpot {
+        // Read the plan ONCE per spot, not once per leg: each read is two
+        // UserDefaults suite lookups plus a JSON decode, and this runs on the
+        // extension's hot path under a ~120 MB ceiling. Reading it per-leg also
+        // meant a plan edited mid-ranking produced legs computed against
+        // different plans (audit 2026-08-02). With no plan set this is
+        // .driving / nil — byte-for-byte the old behaviour.
+        let plan = MeetupPlanStore.current
         let etas = await withTaskGroup(of: (Int, ParticipantETA).self) { group -> [ParticipantETA] in
             for (index, participant) in participants.enumerated() {
                 group.addTask {
-                    // Pro plan (if any) decides this person's mode and the
-                    // arrival time we predict traffic for. With no plan this
-                    // is .driving / nil — byte-for-byte the old behaviour.
-                    let plan = MeetupPlanStore.current
                     let (eta, ok) = await Self.eta(
                         from: participant.coordinate,
                         to: item,
@@ -322,12 +325,19 @@ enum FairnessRanker {
         _ item: MKMapItem,
         participants: [Participant]
     ) -> RankedSpot {
+        // Honour the plan's travel modes here too. These estimates are what the
+        // UI shows FIRST and what every candidate outside the route budget keeps
+        // permanently, so leaving this on car speed reproduced the exact
+        // "an hour on foot ranked as a fair ten-minute trip" bug the routed path
+        // fixed (audit 2026-08-02).
+        let plan = MeetupPlanStore.current
         let etas = participants.map { participant in
             let origin = CLLocation(latitude: participant.latitude, longitude: participant.longitude)
             return ParticipantETA(
                 id: participant.id,
                 name: participant.name,
-                eta: estimatedETA(from: origin, to: item),
+                eta: estimatedETA(from: origin, to: item,
+                                  mode: plan.mode(for: participant.id)),
                 fromRoute: false)
         }
         return RankedSpot(item: item, etas: etas, confidence: 0.5)

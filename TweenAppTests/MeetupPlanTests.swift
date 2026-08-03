@@ -54,6 +54,49 @@ final class MeetupPlanTests: XCTestCase {
                           TravelMode.driving.fallbackMetresPerSecond)
     }
 
+    /// The constants test above passed even while the straight-line path
+    /// ignored TravelMode entirely and used car speed for everyone. This
+    /// asserts on the RANKER's output instead, which is what users see.
+    func testStraightLineRankingHonoursTravelMode() async {
+        var plan = MeetupPlan()
+        plan.setMode(.walking, for: "walker")
+        MeetupPlanStore.save(plan)
+
+        // Two people the same distance out, one walking. Far enough that no
+        // real route is attempted for the estimate path.
+        let spot = MKMapItem(placemark: MKPlacemark(
+            coordinate: .init(latitude: 37.7749, longitude: -122.4194)))
+        let driver = Participant(id: "driver", name: "Driver",
+                                 coordinate: .init(latitude: 37.8199, longitude: -122.4783))
+        let walker = Participant(id: "walker", name: "Walker",
+                                 coordinate: .init(latitude: 37.8199, longitude: -122.4783))
+
+        let ranked = FairnessRanker.estimatedRankings(candidates: [spot],
+                                                      participants: [driver, walker])
+        guard let etas = ranked.first?.etas, etas.count == 2 else {
+            return XCTFail("expected one spot with two legs")
+        }
+        let driverETA = etas.first { $0.id == "driver" }?.eta ?? 0
+        let walkerETA = etas.first { $0.id == "walker" }?.eta ?? 0
+        XCTAssertGreaterThan(walkerETA, driverETA * 3,
+                             "same distance on foot must estimate far longer than by car")
+    }
+
+    /// Guards CRITICAL #3 from the audit: a mode is keyed by participant id, so
+    /// the id the planning sheet writes must be the id the ranker reads.
+    func testPlanModeLookupUsesTheRankersParticipantIDs() {
+        var plan = MeetupPlan()
+        plan.setMode(.transit, for: TweenIdentity.stableID)
+        MeetupPlanStore.save(plan)
+
+        // The host app's ranking roster identifies the local user this way.
+        let localAsRanked = Participant(id: TweenIdentity.stableID,
+                                        name: "Whatever Display Name",
+                                        coordinate: .init(latitude: 1, longitude: 1))
+        XCTAssertEqual(MeetupPlanStore.current.mode(for: localAsRanked.id), .transit,
+                       "modes keyed by stableID must resolve for the ranker's local participant")
+    }
+
     // MARK: Leave-by
 
     func testLeaveByIsArrivalMinusTravel() {

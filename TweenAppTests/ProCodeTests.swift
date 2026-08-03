@@ -21,10 +21,17 @@ final class ProCodeTests: XCTestCase {
     }
 
     func testRedemptionIsCaseAndSeparatorInsensitive() {
-        // People retype these out of a text message.
-        XCTAssertTrue(ProCode.isValid("halfway2026"))
-        XCTAssertTrue(ProCode.isValid("HALFWAY-2026"))
-        XCTAssertTrue(ProCode.isValid("  halfway 2026  "))
+        // Drive redeem(), not just isValid — the old version of this test would
+        // have passed with redeem() completely broken.
+        XCTAssertTrue(ProCode.redeem("halfway2026"))
+        XCTAssertTrue(ProEntitlement.isUnlocked)
+        ProCode.clearRedemption()
+
+        XCTAssertTrue(ProCode.redeem("HALFWAY-2026"))
+        ProCode.clearRedemption()
+
+        XCTAssertTrue(ProCode.redeem("  halfway 2026  "))
+        XCTAssertTrue(ProEntitlement.isUnlocked)
     }
 
     func testInvalidCodeChangesNothing() {
@@ -52,6 +59,20 @@ final class ProCodeTests: XCTestCase {
 
         // Losing the purchase (refund) with no code redeemed does lock again.
         ProEntitlement.setUnlocked(false)
+        XCTAssertFalse(ProEntitlement.isUnlocked)
+
+        // Now actually exercise BOTH sources together, which is what the name
+        // claims: each one alone holds the gate open, and it only closes when
+        // neither is present.
+        ProCode.redeem("HALFWAY2026")
+        ProEntitlement.setUnlocked(true)
+        XCTAssertTrue(ProEntitlement.isUnlocked)
+
+        ProEntitlement.setUnlocked(false)          // refunded, still redeemed
+        XCTAssertTrue(ProEntitlement.isUnlocked)
+        XCTAssertFalse(ProEntitlement.isPurchased)
+
+        ProCode.clearRedemption()                  // neither → locked
         XCTAssertFalse(ProEntitlement.isUnlocked)
     }
 
