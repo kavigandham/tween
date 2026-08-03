@@ -788,6 +788,15 @@ struct OnboardingView: View {
                     // (via the selectedResult onChange). Harmless for the
                     // other sheet types — they never set a selection.
                     if selectedResult != nil { selectedResult = nil }
+                    // Disarm the spot's child sheet. `activeSheet` is nilled
+                    // ASYNCHRONOUSLY on leave teardown and on incoming
+                    // agree/leave payloads, which destroys the view owning
+                    // `.sheet(item: $spotSubSheet)` while this @State survives
+                    // — so the next spot card opened would instantly re-present
+                    // the plan for the OLD selection. That's the same "armed to
+                    // ambush" failure this commit fixed for the paywall
+                    // (audit 2026-08-02).
+                    if spotSubSheet != nil { spotSubSheet = nil }
                 }) { sheet in
                     switch sheet {
                     case .friends:

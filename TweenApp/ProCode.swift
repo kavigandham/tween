@@ -27,17 +27,11 @@ enum ProCode {
         "fdf77a9f035d27e9b93cd65f53d80d6f5fe708d02d462ec57616ddc82c3a2692",
     ]
 
-    private static let redeemedKey = "tween.pro.redeemedCode"
-
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
-
     /// True once any valid code has been redeemed on this device. Survives
-    /// `ProEntitlement.refresh()` because it lives under its own key.
-    static var hasRedeemed: Bool {
-        defaults?.bool(forKey: redeemedKey) ?? false
-    }
+    /// `ProEntitlement.refresh()` because it lives under its own key. The flag
+    /// itself lives in `ProEntitlement` (Shared) so that the extension can read
+    /// the gate without linking CryptoKit for this file's digest checking.
+    static var hasRedeemed: Bool { ProEntitlement.isRedeemed }
 
     /// Case-, space-, and dash-insensitive so "halfway 2026" and
     /// "HALFWAY-2026" both work — people retype these from a text message.
@@ -59,17 +53,16 @@ enum ProCode {
     @discardableResult
     static func redeem(_ raw: String) -> Bool {
         guard isValid(raw) else { return false }
-        defaults?.set(true, forKey: redeemedKey)
-        // Same contract as every other App Group writer: tell the other process.
+        // setRedeemed recomputes the gate; post AFTER, so the other process
+        // never wakes to a stale value.
+        ProEntitlement.setRedeemed(true)
         MeetupSync.post()
-        ProEntitlement.syncUnlockedFlag()
         return true
     }
 
     /// Test/support hook — clears the redemption on this device.
     static func clearRedemption() {
-        defaults?.removeObject(forKey: redeemedKey)
+        ProEntitlement.setRedeemed(false)
         MeetupSync.post()
-        ProEntitlement.syncUnlockedFlag()
     }
 }

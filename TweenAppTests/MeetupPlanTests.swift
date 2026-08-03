@@ -82,19 +82,30 @@ final class MeetupPlanTests: XCTestCase {
                              "same distance on foot must estimate far longer than by car")
     }
 
-    /// Guards CRITICAL #3 from the audit: a mode is keyed by participant id, so
-    /// the id the planning sheet writes must be the id the ranker reads.
+    /// Guards CRITICAL #3: a mode is keyed by participant id, so the id the
+    /// planning sheet writes must be the id the ranker reads.
+    ///
+    /// Asserts against `Participant.localForRanking` — the factory the host's
+    /// ranking roster actually uses. The previous version of this test wrote
+    /// and read `stableID` directly, so it would have stayed green through the
+    /// exact regression it names (audit 2026-08-02).
     func testPlanModeLookupUsesTheRankersParticipantIDs() {
         var plan = MeetupPlan()
+        // The planning sheet writes modes under the local participant id.
         plan.setMode(.transit, for: TweenIdentity.stableID)
         MeetupPlanStore.save(plan)
 
-        // The host app's ranking roster identifies the local user this way.
-        let localAsRanked = Participant(id: TweenIdentity.stableID,
-                                        name: "Whatever Display Name",
-                                        coordinate: .init(latitude: 1, longitude: 1))
-        XCTAssertEqual(MeetupPlanStore.current.mode(for: localAsRanked.id), .transit,
-                       "modes keyed by stableID must resolve for the ranker's local participant")
+        // Built exactly the way the ranking roster builds the local user —
+        // deliberately with a display name that differs from the id, so an
+        // id-vs-name mixup cannot accidentally pass.
+        let asRanked = Participant.localForRanking(
+            name: "A Display Name That Is Not The ID",
+            coordinate: .init(latitude: 1, longitude: 1))
+
+        XCTAssertNotEqual(asRanked.id, asRanked.name,
+                          "the ranker's local id must not be the display name")
+        XCTAssertEqual(MeetupPlanStore.current.mode(for: asRanked.id), .transit,
+                       "a mode set in the plan must resolve for the participant the ranker uses")
     }
 
     // MARK: Leave-by
@@ -113,6 +124,25 @@ final class MeetupPlanTests: XCTestCase {
         let arrival = Date(timeIntervalSince1970: 100_000)
         let fire = LeaveByReminder.fireDate(arrivalDate: arrival, travelTime: 900)
         XCTAssertEqual(fire, arrival.addingTimeInterval(-(900 + LeaveByReminder.bufferSeconds)))
+    }
+
+    // MARK: Spot scoping
+
+    func testScheduleIsScopedToItsSpot() {
+        var plan = MeetupPlan(arrivalDate: Date().addingTimeInterval(3600))
+        plan.spotName = "Blue Bottle Coffee"
+        MeetupPlanStore.save(plan)
+
+        XCTAssertTrue(MeetupPlanStore.isScheduled(for: "Blue Bottle Coffee"))
+        // The badge must not appear on every other card in the list.
+        XCTAssertFalse(MeetupPlanStore.isScheduled(for: "Sightglass Coffee"))
+    }
+
+    func testUnscheduledPlanIsNotScheduledForAnySpot() {
+        var plan = MeetupPlan()
+        plan.setMode(.walking, for: "me")
+        MeetupPlanStore.save(plan)
+        XCTAssertFalse(MeetupPlanStore.isScheduled(for: "Blue Bottle Coffee"))
     }
 
     // MARK: Persistence

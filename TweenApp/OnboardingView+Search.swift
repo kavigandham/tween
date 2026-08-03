@@ -419,13 +419,9 @@ extension OnboardingView {
         var participants: [Participant] = []
         if let me = savedCoordinate {
             let myName = UserProfile.displayName ?? UserName.fallback
-            // STABLE ID, not the display name. A Pro plan keys per-person travel
-            // modes by participant id, and the planning sheet is handed
-            // TweenIdentity.stableID — with the name as the id here those keys
-            // never matched, so every leg silently fell back to driving and
-            // "Any way you travel" did nothing in the app (audit 2026-08-02).
-            // The name is also mutable; the stable id isn't.
-            participants.append(Participant(id: TweenIdentity.stableID, name: myName, coordinate: me))
+            // Factory, not an inline init: see Participant.localForRanking for
+            // why the id must be the stable id, and so a test can assert on it.
+            participants.append(Participant.localForRanking(name: myName, coordinate: me))
         }
         if let peer = peerCoordinate {
             participants.append(Participant(id: "peer", name: "Friend", coordinate: peer))
@@ -458,6 +454,23 @@ extension OnboardingView {
             isSearchLoading = false
             searchTask = Task { @MainActor in await rerankCurrentResults() }
         }
+    }
+
+    /// Re-rank after the Pro plan changed (arrival time or travel modes).
+    ///
+    /// Goes through `searchTask` like every other re-rank trigger. The first
+    /// version spawned a bare `Task {}`, which meant it could neither cancel an
+    /// in-flight search nor be cancelled by one — and because `save()` is
+    /// called from the Save button AND from the reminder and calendar actions,
+    /// one sheet session could launch three concurrent, uncancellable ranking
+    /// passes (up to 20 MKDirections calls each) racing to write `rankedSpots`.
+    /// That is exactly the "slower older round-trip finishes last and stomps
+    /// the current ranking" hazard documented above (audit 2026-08-02).
+    @MainActor
+    func rerankAfterPlanChange() {
+        searchTask?.cancel()
+        isSearchLoading = false
+        searchTask = Task { @MainActor in await rerankCurrentResults() }
     }
 
     func removeManualPoint(_ point: Participant) {

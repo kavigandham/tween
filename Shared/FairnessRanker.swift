@@ -131,8 +131,12 @@ enum FairnessRanker {
         participants: [Participant]
     ) -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
+        // ONE plan read for the whole pass. Read inside `estimatedSpot` it cost
+        // two UserDefaults suite constructions plus a JSON decode per
+        // candidate — 2N-cap decodes per search (audit 2026-08-02).
+        let plan = MeetupPlanStore.current
         return candidates
-            .map { estimatedSpot($0, participants: participants) }
+            .map { estimatedSpot($0, participants: participants, plan: plan) }
             .sorted {
                 rankedScore($0, participants: participants)
                     < rankedScore($1, participants: participants)
@@ -148,9 +152,10 @@ enum FairnessRanker {
         participants: [Participant]
     ) -> [RankedSpot] {
         guard !participants.isEmpty else { return routed }
+        let plan = MeetupPlanStore.current
         let completed = allCandidates.map { item in
             routed.first(where: { $0.item == item })
-                ?? estimatedSpot(item, participants: participants)
+                ?? estimatedSpot(item, participants: participants, plan: plan)
         }
         return completed.sorted {
             rankedScore($0, participants: participants)
@@ -323,14 +328,15 @@ enum FairnessRanker {
     /// any route-backed result replaces it through `completeRankings`.
     private static func estimatedSpot(
         _ item: MKMapItem,
-        participants: [Participant]
+        participants: [Participant],
+        plan: MeetupPlan
     ) -> RankedSpot {
         // Honour the plan's travel modes here too. These estimates are what the
         // UI shows FIRST and what every candidate outside the route budget keeps
         // permanently, so leaving this on car speed reproduced the exact
         // "an hour on foot ranked as a fair ten-minute trip" bug the routed path
-        // fixed (audit 2026-08-02).
-        let plan = MeetupPlanStore.current
+        // fixed (audit 2026-08-02). The plan is passed in, not read here — this
+        // runs once per CANDIDATE.
         let etas = participants.map { participant in
             let origin = CLLocation(latitude: participant.latitude, longitude: participant.longitude)
             return ParticipantETA(

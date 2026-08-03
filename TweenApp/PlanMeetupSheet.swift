@@ -182,15 +182,26 @@ struct PlanMeetupSheet: View {
 
     private func save() {
         let previousArrival = plan.arrivalDate
+        let previousSpot = plan.spotName
         plan.arrivalDate = isScheduled ? arrival : nil
         plan.spotName = isScheduled ? spotName : nil
         MeetupPlanStore.save(plan)
-        // Un-scheduling, or moving the time, must retire the pending
-        // notification — otherwise "Time to head out" fires for a meetup that
-        // no longer exists or has moved (audit 2026-08-02). Re-arming is the
-        // reminder button's job, which is explicit.
-        if !isScheduled || previousArrival != plan.arrivalDate {
+
+        // Retire the pending notification whenever what it says would now be
+        // WRONG: un-scheduled, moved in time, or — the case the first version
+        // of this missed — re-planned to a different place.
+        //
+        // Repro that fix closes: plan spot A for 7pm and arm the reminder; open
+        // spot B's card and tap Plan (the sheet inits from the stored plan, so
+        // it opens already scheduled for 7pm) and Save. The arrival is
+        // unchanged, so an arrival-only guard cancelled nothing — and a live
+        // notification kept saying "leave now to reach A", timed off the drive
+        // to A, for a plan that now points at B (audit 2026-08-02).
+        let spotChanged = previousSpot != plan.spotName
+        if !isScheduled || previousArrival != plan.arrivalDate || spotChanged {
             LeaveByReminder.cancel()
+            // Don't keep claiming a reminder that was just retired.
+            if case .done = reminderState { reminderState = .idle }
         }
         onSaved()
     }

@@ -50,6 +50,23 @@ struct Participant: Codable, Equatable, Identifiable, Hashable {
     /// True for a locally-added point (see `manual(label:coordinate:)`).
     var isManual: Bool { id.hasPrefix("manual:") }
 
+    /// The local user as the RANKER sees them.
+    ///
+    /// The id must be `TweenIdentity.stableID`, because a Pro plan keys
+    /// per-person travel modes by participant id and the planning sheet writes
+    /// them under the stable id. When this was built with the display name
+    /// instead, the two namespaces never met, `plan.mode(for:)` always missed,
+    /// and "Any way you travel" silently did nothing (audit 2026-08-02). The
+    /// display name is also mutable; the stable id isn't.
+    ///
+    /// Exists as a factory so that invariant is testable — the previous test
+    /// wrote and read `stableID` directly and would have stayed green through
+    /// the regression it claimed to guard.
+    static func localForRanking(name: String,
+                                coordinate: CLLocationCoordinate2D) -> Participant {
+        Participant(id: TweenIdentity.stableID, name: name, coordinate: coordinate)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case name

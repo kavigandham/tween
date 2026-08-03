@@ -92,8 +92,9 @@ extension OnboardingView {
                 localParticipantID: TweenIdentity.stableID,
                 // Re-rank immediately: arrival time and travel modes only feed
                 // the ranker at rank time, so without this a saved plan left
-                // the list unchanged and looked broken.
-                onSaved: { Task { await rerankCurrentResults() } })
+                // the list unchanged and looked broken. Routed through
+                // `searchTask` so repeated saves supersede rather than race.
+                onSaved: { rerankAfterPlanChange() })
         case .paywall:
             PaywallSheet()
         }

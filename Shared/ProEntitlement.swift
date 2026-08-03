@@ -19,6 +19,11 @@ enum ProEntitlement {
     /// StoreKit's verdict alone, kept separate so a redeemed code isn't wiped
     /// by the next `refresh()` — see `syncUnlockedFlag`.
     private static let purchasedKey = "tween.pro.purchased"
+    /// Whether a redeem code has been accepted on this device. The plain bool
+    /// lives HERE, in Shared, while the digest checking that sets it lives in
+    /// the host-only `ProCode` — otherwise `Shared` would pull CryptoKit into
+    /// the Messages extension for code it can never run (audit 2026-08-02).
+    private static let redeemedKey = "tween.pro.redeemedCode"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
@@ -35,6 +40,22 @@ enum ProEntitlement {
         defaults?.bool(forKey: purchasedKey) ?? false
     }
 
+    /// True once a valid redeem code has been accepted on this device.
+    static var isRedeemed: Bool {
+        defaults?.bool(forKey: redeemedKey) ?? false
+    }
+
+    /// Records (or clears) a redemption and recomputes the gate. Only
+    /// `ProCode.redeem` should call this with `true` — it is the digest gate.
+    static func setRedeemed(_ redeemed: Bool) {
+        if redeemed {
+            defaults?.set(true, forKey: redeemedKey)
+        } else {
+            defaults?.removeObject(forKey: redeemedKey)
+        }
+        syncUnlockedFlag()
+    }
+
     /// Records StoreKit's verdict, then recomputes the gate.
     ///
     /// This USED to write `unlockedKey` directly, which meant every launch's
@@ -49,7 +70,7 @@ enum ProEntitlement {
     /// Recomputes the gate from its two independent sources. Idempotent, and
     /// only posts when the effective value actually changed.
     static func syncUnlockedFlag() {
-        let effective = isPurchased || ProCode.hasRedeemed
+        let effective = isPurchased || isRedeemed
         guard effective != isUnlocked else { return }
         defaults?.set(effective, forKey: unlockedKey)
         // Same contract as every other App Group writer: post so the other
