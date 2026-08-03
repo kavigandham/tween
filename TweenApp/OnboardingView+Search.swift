@@ -288,8 +288,43 @@ extension OnboardingView {
             let rescued = await meetupSearchAttempt(query: rewrite, region: region)
             if !rescued.isEmpty { return (rescued, rewrite) }
         }
-        return ([], nil)
+
+        // Last rung: the same query over the whole METRO, region-hinted rather
+        // than region-required.
+        //
+        // The meetup region is deliberately tight — it's the corridor between
+        // people — which is right for "coffee" and wrong for a named landmark.
+        // From Ashburn you could not find Capital One Arena in DC, 34 miles
+        // away, because `regionPriority = .required` hard-cut it (device report
+        // 2026-08-02: "I can't even look it up").
+        //
+        // Deliberately BOUNDED, not global. The old global fallback is what
+        // answered "unlimited sushi" with Sushi Unlimited in Cebu City (probed
+        // 2026-07-31), which is why it was removed. A metro-scale box keeps a
+        // real place one metro away reachable while still making it impossible
+        // to return a literal name match on another continent.
+        guard !Task.isCancelled else { return ([], nil) }
+        let metro = await meetupSearchAttempt(query: query,
+                                              region: region,
+                                              scope: .metro)
+        return (metro, nil)
     }
+
+    /// How far a search rung is allowed to reach.
+    enum SearchScope {
+        /// The meetup corridor: region-required, tight distance screen. Right
+        /// for category queries where "nearby" is the whole point.
+        case meetup
+        /// The surrounding metro: region-hinted and distance-screened at
+        /// `metroSanityMeters`. Right for a specific place the user named.
+        case metro
+    }
+
+    /// Half-width of the metro rescue box. ~165 km covers a metro area and its
+    /// neighbours generously; far enough for Ashburn→DC, nowhere near far
+    /// enough to reach another country.
+    static let metroSpanDegrees: CLLocationDegrees = 1.5
+    static let metroSanityMeters: CLLocationDistance = 150_000
 
     /// One rung of the meetup search: the strict text pass, merged with the
     /// POI-category engine when the query is category-shaped (typed "tennis
@@ -298,13 +333,24 @@ extension OnboardingView {
     /// when the local set is too thin to rank.
     @MainActor
     private func meetupSearchAttempt(query: String,
-                                     region: MKCoordinateRegion) async -> [MKMapItem] {
+                                     region searchArea: MKCoordinateRegion,
+                                     scope: SearchScope = .meetup) async -> [MKMapItem] {
         guard !Task.isCancelled else { return [] }
-        let sanityMeters = Self.vicinitySanityMeters(for: region)
+        // `.metro` widens the box and drops region-REQUIRED to region-hinted,
+        // so a named landmark one metro away is reachable. Still bounded — see
+        // resolveMeetupPlaces for why this must never become a global search.
+        let region: MKCoordinateRegion = scope == .meetup ? searchArea
+            : MKCoordinateRegion(
+                center: searchArea.center,
+                span: MKCoordinateSpan(latitudeDelta: Self.metroSpanDegrees,
+                                       longitudeDelta: Self.metroSpanDegrees))
+        let sanityMeters = scope == .meetup
+            ? Self.vicinitySanityMeters(for: region)
+            : Self.metroSanityMeters
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = openNowQualified(query)
         request.region = region
-        if #available(iOS 18.0, *) {
+        if #available(iOS 18.0, *), scope == .meetup {
             request.regionPriority = .required
         }
         // iOS 17 has no regionPriority — there the "strict" pass is only a

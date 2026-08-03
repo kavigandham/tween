@@ -191,7 +191,8 @@ struct PlanMeetupSheet: View {
         let previousSpot = plan.spotName
         let previousModes = plan.modes
         plan.arrivalDate = isScheduled ? arrival : nil
-        plan.spotName = isScheduled ? spotName : nil
+        plan.setSpot(name: isScheduled ? spotName : nil,
+                     coordinate: isScheduled ? coordinate : nil)
         MeetupPlanStore.save(plan)
 
         // Retire the pending notification whenever what it says would now be

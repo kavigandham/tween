@@ -30,6 +30,7 @@ extension OnboardingView {
             // Everything else is revealed once the sheet lifts off peek.
             if !isMinimalDetent {
                 if !monitor.isOnline { offlineBanner }
+                plannedMeetupBanner
                 replyBanner
                 mapPanel
             }

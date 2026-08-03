@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import CoreLocation
 
 /// How one person is getting to the meetup.
 ///
@@ -75,12 +76,32 @@ struct MeetupPlan: Codable, Equatable, Sendable {
     /// you get around isn't per-destination.
     var spotName: String?
 
+    /// The planned spot's coordinate, so the plan can be reopened (and its
+    /// calendar event placed) even after the search results that produced it
+    /// are gone. Local planning data — never broadcast (constraint 2).
+    var spotLatitude: Double?
+    var spotLongitude: Double?
+
     init(arrivalDate: Date? = nil,
          modes: [String: TravelMode] = [:],
-         spotName: String? = nil) {
+         spotName: String? = nil,
+         coordinate: CLLocationCoordinate2D? = nil) {
         self.arrivalDate = arrivalDate
         self.modes = modes
         self.spotName = spotName
+        self.spotLatitude = coordinate?.latitude
+        self.spotLongitude = coordinate?.longitude
+    }
+
+    var coordinate: CLLocationCoordinate2D? {
+        guard let spotLatitude, let spotLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: spotLatitude, longitude: spotLongitude)
+    }
+
+    mutating func setSpot(name: String?, coordinate: CLLocationCoordinate2D?) {
+        spotName = name
+        spotLatitude = coordinate?.latitude
+        spotLongitude = coordinate?.longitude
     }
 
     static let none = MeetupPlan()

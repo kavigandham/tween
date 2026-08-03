@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0217EBD2A3E9BDB22A1056AC /* OnboardingView+PlanBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 814B8A08F3A9F2FF521A0295 /* OnboardingView+PlanBanner.swift */; };
 		02855529C5710F5C0A5BD01D /* Participant.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA256CAEB5D69FB5441F7C3 /* Participant.swift */; };
 		033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */; };
 		05E115FF9D163DA1EBC18905 /* LeaveByReminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C2D9A5A2B269E6DE3E1918 /* LeaveByReminder.swift */; };
@@ -259,6 +260,7 @@
 		7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		80EF3F6816D4B76E7BA0822C /* MapRegionDriftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapRegionDriftTests.swift; sourceTree = "<group>"; };
 		80F8536F2549D8B50B27DD29 /* MessagesViewController+Sending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Sending.swift"; sourceTree = "<group>"; };
+		814B8A08F3A9F2FF521A0295 /* OnboardingView+PlanBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+PlanBanner.swift"; sourceTree = "<group>"; };
 		83C7747C92C12454D8BCD60B /* TweenApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TweenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83F9C4EF65F50F284A1000E0 /* ExpandedView+Invitation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpandedView+Invitation.swift"; sourceTree = "<group>"; };
 		86D6C9526CD3DFF1310570DD /* MapsPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsPreference.swift; sourceTree = "<group>"; };
@@ -487,6 +489,7 @@
 				E72299F1DE819612950DE53F /* OnboardingView+FriendsPanel.swift */,
 				27079EA1669C3D99277128EE /* OnboardingView+FriendsSync.swift */,
 				599F65AE96C48934F6E45CA7 /* OnboardingView+HandOff.swift */,
+				814B8A08F3A9F2FF521A0295 /* OnboardingView+PlanBanner.swift */,
 				BFA5ADF3691A225A3572C019 /* OnboardingView+Search.swift */,
 				76BC23D4923182547F265803 /* OnboardingView+SpotSheet.swift */,
 				C03074FC82A06A234A492AD3 /* OnboardingView+Sync.swift */,
@@ -773,6 +776,7 @@
 				9EE13E0A63A55DA2EECFAD19 /* OnboardingView+FriendsPanel.swift in Sources */,
 				6C26509E1F433CC10E583A53 /* OnboardingView+FriendsSync.swift in Sources */,
 				4A4214D010C99E1E835C2EAF /* OnboardingView+HandOff.swift in Sources */,
+				0217EBD2A3E9BDB22A1056AC /* OnboardingView+PlanBanner.swift in Sources */,
 				51470F08E26F5F318DE8CC2E /* OnboardingView+Search.swift in Sources */,
 				8147E368F8F56F3BFF3AFC51 /* OnboardingView+SpotSheet.swift in Sources */,
 				8C7FD4381C8CAE4C026C0344 /* OnboardingView+Sync.swift in Sources */,
