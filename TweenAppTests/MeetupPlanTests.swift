@@ -106,6 +106,21 @@ final class MeetupPlanTests: XCTestCase {
                           "the ranker's local id must not be the display name")
         XCTAssertEqual(MeetupPlanStore.current.mode(for: asRanked.id), .transit,
                        "a mode set in the plan must resolve for the participant the ranker uses")
+
+        // And assert the PRODUCTION construction, not just the factory —
+        // pinning only the factory left this green when the call site was
+        // reverted to an inline `Participant(id: myName, ...)`.
+        let roster = OnboardingView.buildRankingParticipants(
+            selfCoordinate: .init(latitude: 37.78, longitude: -122.41),
+            myName: "A Display Name That Is Not The ID",
+            peerCoordinate: .init(latitude: 37.80, longitude: -122.43),
+            additional: [],
+            manual: [])
+        guard let local = roster?.first else {
+            return XCTFail("expected the local user first in the ranking roster")
+        }
+        XCTAssertEqual(MeetupPlanStore.current.mode(for: local.id), .transit,
+                       "the roster the ranker actually builds must resolve planned modes")
     }
 
     // MARK: Leave-by

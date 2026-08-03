@@ -77,7 +77,19 @@ extension OnboardingView {
     func spotSubSheetContent(_ sub: SpotSubSheet) -> some View {
         switch sub {
         case .plan(let selection):
-            let myETA: TimeInterval? = selection.ranked?.etas
+            // Prefer the LIVE ranking over `selection.ranked`, which is frozen
+            // at present-time and never refreshed. Without this, changing your
+            // mode to walking and saving re-ranks the list but the reminder
+            // still arms off the stale driving ETA — and a deep-linked proposal
+            // (which arrives with `ranked: nil`) could never arm one at all
+            // (audit 2026-08-02).
+            // Same 0.0002° tolerance `isCurrentMeetup` uses to identify a spot.
+            let live = rankedSpots.first { spot in
+                guard let c = spot.item?.placemark.coordinate else { return false }
+                return abs(c.latitude - selection.coordinate.latitude) < 0.0002
+                    && abs(c.longitude - selection.coordinate.longitude) < 0.0002
+            }
+            let myETA: TimeInterval? = (live ?? selection.ranked)?.etas
                 .first { $0.id == TweenIdentity.stableID }?.eta
             // The SAME roster the ranker uses, so the ids a travel mode is
             // keyed by are the ids FairnessRanker looks it up with. Handing the

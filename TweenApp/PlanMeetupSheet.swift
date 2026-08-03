@@ -180,9 +180,16 @@ struct PlanMeetupSheet: View {
 
     // MARK: Actions
 
+    /// @MainActor is explicit, NOT inherited. A plain method on a SwiftUI View
+    /// struct is nonisolated (verified with a type-check probe) — so calling
+    /// this through the `() -> Void` onSaved closure erased isolation and ran
+    /// the re-rank, and these @State writes, off the main thread
+    /// (audit 2026-08-02).
+    @MainActor
     private func save() {
         let previousArrival = plan.arrivalDate
         let previousSpot = plan.spotName
+        let previousModes = plan.modes
         plan.arrivalDate = isScheduled ? arrival : nil
         plan.spotName = isScheduled ? spotName : nil
         MeetupPlanStore.save(plan)
@@ -197,8 +204,15 @@ struct PlanMeetupSheet: View {
         // unchanged, so an arrival-only guard cancelled nothing — and a live
         // notification kept saying "leave now to reach A", timed off the drive
         // to A, for a plan that now points at B (audit 2026-08-02).
+        // Modes matter too: the fire date is arrival − travelTime − buffer, and
+        // travelTime is mode-dependent. Arm while driving (15 min), switch to
+        // walking (90 min), and an arrival+spot-only guard cancelled nothing —
+        // the notification still fired 20 minutes before arrival for a
+        // 90-minute walk. Modes are written straight into `plan` by the picker,
+        // so they can never show up in the other two diffs.
         let spotChanged = previousSpot != plan.spotName
-        if !isScheduled || previousArrival != plan.arrivalDate || spotChanged {
+        let modesChanged = previousModes != plan.modes
+        if !isScheduled || previousArrival != plan.arrivalDate || spotChanged || modesChanged {
             LeaveByReminder.cancel()
             // Don't keep claiming a reminder that was just retired.
             if case .done = reminderState { reminderState = .idle }
@@ -206,6 +220,7 @@ struct PlanMeetupSheet: View {
         onSaved()
     }
 
+    @MainActor
     private func scheduleReminder() async {
         guard let myTravelTime else { return }
         reminderState = .working
@@ -227,6 +242,7 @@ struct PlanMeetupSheet: View {
         }
     }
 
+    @MainActor
     private func addToCalendar() async {
         calendarState = .working
         save()

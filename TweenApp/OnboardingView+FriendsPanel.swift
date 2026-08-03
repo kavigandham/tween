@@ -1064,6 +1064,13 @@ extension OnboardingView {
     func presentSpot(_ selection: SpotSelection) {
         recentSpots = SpotLibrary.recordRecent(storedSpot(for: selection))
         focusMap(on: selection.item)
+        // Disarm the previous spot's child sheet BEFORE swapping. `onDismiss`
+        // covers `activeSheet = nil`, but a `.spot(A)` → `.spot(B)` swap is a
+        // live path (a bubble tap while a spot sheet is already up), and on
+        // iOS 26 that swap's dismiss-then-re-present drops silently — so
+        // onDismiss is not a reliable clearing point there. Without this, B's
+        // card would instantly re-present A's plan sheet (audit 2026-08-02).
+        if spotSubSheet != nil { spotSubSheet = nil }
         activeSheet = .spot(selection)
     }
 

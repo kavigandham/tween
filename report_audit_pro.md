@@ -5,7 +5,31 @@ Read-only audit; every finding below was verified against the code before any fi
 
 Kept separate from `report_audit.md`, which holds an earlier whole-codebase audit.
 
-Status key: **FIXED** in `156b724` · **OPEN** (not yet addressed)
+Status key: **FIXED** in `156b724` · **FIXED²** in `5b25085` (second pass) · **OPEN**
+
+A verification audit of `156b724` confirmed findings 1, 2, 7 and 8 were genuinely
+fixed — including that re-identifying the local participant by stable id did not
+break roster merging, agreement matching, dedupe, or the manual-point paths. It
+also found several fixes incomplete; those were closed in `5b25085`:
+
+- **Reminder named the wrong place.** `save()` cancelled on un-schedule or time
+  change but not on SPOT change, so re-planning to a different place left a live
+  notification naming the old one, timed off the old drive. Now compares spot too,
+  and clears a stale "Reminder set" label.
+- **Three concurrent uncancellable rankings.** `onSaved` spawned a bare `Task`,
+  so the re-rank could neither cancel nor be cancelled, and `save()` is reachable
+  from three places in one sheet session. Now routed through `searchTask`.
+- **`spotSubSheet` armed to ambush.** Never cleared, while `activeSheet` is nilled
+  asynchronously by leave teardown and incoming payloads — the next spot card
+  would re-present the plan for the *old* selection. Cleared in `onDismiss`.
+- **A test that couldn't fail.** `testPlanModeLookupUsesTheRankersParticipantIDs`
+  wrote and read `stableID` directly and stayed green through the regression it
+  named. The roster now builds via `Participant.localForRanking`, and the test
+  asserts against that factory.
+- **Per-candidate plan decode** hoisted out of `estimatedRankings`/`completeRankings`.
+- **CryptoKit out of the extension**: `ProCode` moved to `TweenApp/`, its dependency
+  inverted so the redeemed flag lives in `ProEntitlement`. Verified with `otool`
+  that the appex links none of CryptoKit, EventKit or UserNotifications.
 
 ---
 
@@ -52,7 +76,7 @@ Status key: **FIXED** in `156b724` · **OPEN** (not yet addressed)
 | 3 | Compact view = keyboard height, no text input | **Clean.** The redeem field is host-app only. |
 | 4 | When-In-Use only | **Clean.** No new location APIs. |
 | 5 | No API keys | **Clean.** SHA-256 digests; plaintext codes appear only in comments and tests, neither of which reaches the binary. |
-| 6 | App Group = coordinates + preferences | **Watch — OPEN.** `MeetupPlan.modes` is keyed by participant id, and on the legacy `id == name` decode path those keys are display names — PII outside the sanctioned `FriendRoster`/`GroupStore` exception. |
+| 6 | App Group = coordinates + preferences | **Watch — OPEN, and broader than first recorded.** Two problems: (a) `MeetupPlan.modes` is keyed by participant id, and on the legacy `id == name` decode path those keys are display names; (b) `MeetupPlan.spotName` persists a **named future destination** which, with `arrivalDate`, is "this person will be at Blue Bottle Coffee at 7pm" in plaintext. Neither is a coordinate nor a preference, and neither falls under the sanctioned `FriendRoster`/`GroupStore` exception. Needs a product decision: drop the name in favour of a coordinate, or extend the exception explicitly. |
 | 7 | `@Observable` not `ObservableObject` | **Clean.** |
 | 8 | No server/accounts | **Clean.** Redemption, notifications and calendar writes are all on-device. |
 
@@ -69,7 +93,7 @@ Global-state hygiene is acceptable but fragile: both suites wipe the App Group d
 
 ## Security note
 
-The redeem scheme is what its header comment claims. `normalize()` is safe — uppercasing plus alphanumeric filtering can only widen the set of inputs mapping to a published digest, never mint an unpublished one. There is no bypass; `redeem()` is the only writer and it is digest-gated. The real weakness is disclosed by design: `tween.pro.unlocked` is a plaintext bool in an unencrypted App Group, and two short human-memorable codes are offline-brute-forceable with no rate limit. That is a consequence of having no server, not a defect.
+The redeem scheme is what its header comment claims. `normalize()` is safe — uppercasing plus alphanumeric filtering can only widen the set of inputs mapping to a published digest, never mint an unpublished one. **Correction (5b25085):** `redeem()` is no longer structurally the only writer. Moving the flag into `ProEntitlement.setRedeemed` — which is internal in `Shared`, compiled into both targets — means the digest gate is now convention, not enforcement. No practical change on-device (the scheme was already defeatable), but the earlier claim was too strong. The real weakness is disclosed by design: `tween.pro.unlocked` is a plaintext bool in an unencrypted App Group, and two short human-memorable codes are offline-brute-forceable with no rate limit. That is a consequence of having no server, not a defect.
 
 ## Not yet verified anywhere
 

@@ -416,18 +416,35 @@ extension OnboardingView {
     /// points), so the caller skips ranking and shows plain search results.
     /// Manual points make the app useful alone without pinging anyone.
     var searchRankingParticipants: [Participant]? {
+        Self.buildRankingParticipants(
+            selfCoordinate: savedCoordinate,
+            myName: UserProfile.displayName ?? UserName.fallback,
+            peerCoordinate: peerCoordinate,
+            additional: additionalParticipants,
+            manual: manualParticipants)
+    }
+
+    /// The roster the ranker sees, as a pure function so a test can assert on
+    /// the ACTUAL production construction rather than on the factory it happens
+    /// to call. A test that only pinned `Participant.localForRanking` stayed
+    /// green when this call site was reverted to an inline `id: myName`, which
+    /// is the regression that made travel modes inert (audit 2026-08-02).
+    static func buildRankingParticipants(
+        selfCoordinate: CLLocationCoordinate2D?,
+        myName: String,
+        peerCoordinate: CLLocationCoordinate2D?,
+        additional: [Participant],
+        manual: [Participant]
+    ) -> [Participant]? {
         var participants: [Participant] = []
-        if let me = savedCoordinate {
-            let myName = UserProfile.displayName ?? UserName.fallback
-            // Factory, not an inline init: see Participant.localForRanking for
-            // why the id must be the stable id, and so a test can assert on it.
+        if let me = selfCoordinate {
             participants.append(Participant.localForRanking(name: myName, coordinate: me))
         }
         if let peer = peerCoordinate {
             participants.append(Participant(id: "peer", name: "Friend", coordinate: peer))
         }
-        participants.append(contentsOf: additionalParticipants)
-        participants.append(contentsOf: manualParticipants)
+        participants.append(contentsOf: additional)
+        participants.append(contentsOf: manual)
         return participants.count >= 2 ? participants : nil
     }
 
