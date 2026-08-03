@@ -1005,8 +1005,13 @@ struct OnboardingView: View {
             // freezing until the next "I'm in" or relaunch.
             if phase == .active {
                 // Asks on first foreground rather than waiting for "I'm in",
-                // so the map has your dot the way Maps does.
-                provider.startContinuousAskingIfNeeded()
+                // so the map has your dot the way Maps does — but never over
+                // the tutorial; dismissTutorial() picks it up instead.
+                if showTutorial {
+                    provider.startContinuous()
+                } else {
+                    provider.startContinuousAskingIfNeeded()
+                }
             } else {
                 provider.stopContinuous()
             }

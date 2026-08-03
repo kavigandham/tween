@@ -194,6 +194,12 @@ extension OnboardingView {
         // the launch value, so start it here too). Asks for When-In-Use on the
         // way in — Maps shows your dot on open; Tween used to sit blank until
         // you tapped "I'm in", which is what actually triggered the prompt.
+        // Same rule as scenePhase: never prompt over the tutorial —
+        // dismissTutorial() asks once the guide is gone.
+        if showTutorial {
+            provider.startContinuous()
+            return
+        }
         provider.startContinuousAskingIfNeeded()
         guard !(savedCoordinate != nil && LocationCache.isActive) else { return }
         provider.requestOnce()

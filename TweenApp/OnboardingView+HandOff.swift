@@ -247,6 +247,11 @@ extension OnboardingView {
     func dismissTutorial() {
         OnboardingFlags.hasSeenOnboarding = true
         showTutorial = false
+        // Ask for location the moment the guide is out of the way — never
+        // while it's up. Maps prompts on open because nothing is in front of
+        // it; firing the alert over slide 1 asks for a permission the user has
+        // not yet been told the reason for, and buries the guide behind it.
+        provider.startContinuousAskingIfNeeded()
     }
 
 }

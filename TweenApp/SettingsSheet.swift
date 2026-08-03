@@ -10,6 +10,10 @@ struct SettingsSheet: View {
     /// Child sheet, NOT a swap of this one — swapping `.sheet(item:)` from
     /// inside the presented sheet leaves dead buttons (2026-07 lesson).
     @State private var showPaywall = false
+    /// The guide is reachable here as well as on first run: the people who ask
+    /// "how do you use it?" are exactly the ones who dismissed it at launch and
+    /// had no way back (product decision 2026-08-02).
+    @State private var showGuide = false
     @State private var proUnlocked = ProEntitlement.isUnlocked
     @State private var maxDriveMinutes = DriveTimePreference.maxMinutes
 
@@ -110,6 +114,29 @@ struct SettingsSheet: View {
                 }
 
                 Section {
+                    // Child sheet, NOT a swap of this one (2026-07 lesson).
+                    Button {
+                        showGuide = true
+                    } label: {
+                        HStack {
+                            Label {
+                                Text("How to use Tween")
+                                    .foregroundStyle(Tokens.Palette.textPrimary)
+                            } icon: {
+                                Image(systemName: "questionmark.circle.fill")
+                                    .foregroundStyle(Tokens.Palette.brand)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(Tokens.Typography.caption)
+                                .foregroundStyle(Tokens.Palette.textTertiary)
+                        }
+                    }
+                } footer: {
+                    Text("The five-step guide, including where to find Tween inside Messages.")
+                }
+
+                Section {
                     driveTimeChips
                 } header: {
                     Text("Max drive time")
@@ -129,6 +156,9 @@ struct SettingsSheet: View {
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showPaywall) {
             PaywallSheet()
+        }
+        .sheet(isPresented: $showGuide) {
+            OnboardingTutorialView { showGuide = false }
         }
         .onChange(of: showPaywall) { _, presented in
             if !presented { proUnlocked = ProEntitlement.isUnlocked }

@@ -1,6 +1,12 @@
 import SwiftUI
 
 private enum TutorialVisual {
+    /// Where Tween actually lives: the Messages app drawer. Every other slide
+    /// starts from "tap I'm in", which silently assumes you already found the
+    /// extension — and not knowing that is exactly what produces "what does it
+    /// do?" / "how do you use it?" from new users (product decision
+    /// 2026-08-02). This is Step 1 now.
+    case openInMessages
     case join
     case fairSpot
     case messages
@@ -22,8 +28,16 @@ struct OnboardingTutorialView: View {
 
     private static let slides: [TutorialSlide] = [
         TutorialSlide(
-            id: "join",
+            id: "open",
             eyebrow: "Step 1",
+            title: "Find Tween in Messages",
+            body: "Open any chat, tap the + beside the text box, then pick Tween. Everything happens right there in the conversation — no one has to download anything to see where you're meeting.",
+            accent: Tokens.Palette.accent,
+            visual: .openInMessages
+        ),
+        TutorialSlide(
+            id: "join",
+            eyebrow: "Step 2",
             title: "Tap I'm in",
             body: "Share your current spot, then your friend's spot appears as soon as they join from Messages or the app.",
             accent: Tokens.Palette.pinSelf,
@@ -31,7 +45,7 @@ struct OnboardingTutorialView: View {
         ),
         TutorialSlide(
             id: "fair",
-            eyebrow: "Step 2",
+            eyebrow: "Step 3",
             title: "Pick a fair place",
             body: "Tween looks between both people and ranks places by travel time, so one person is not stuck with the whole drive.",
             accent: Tokens.Palette.pinFair,
@@ -39,7 +53,7 @@ struct OnboardingTutorialView: View {
         ),
         TutorialSlide(
             id: "messages",
-            eyebrow: "Step 3",
+            eyebrow: "Step 4",
             title: "Send it to chat",
             body: "Share the spot back into iMessage. The app and extension keep the same meetup state.",
             accent: Tokens.Palette.accent,
@@ -47,7 +61,7 @@ struct OnboardingTutorialView: View {
         ),
         TutorialSlide(
             id: "directions",
-            eyebrow: "Step 4",
+            eyebrow: "Step 5",
             title: "Go, or tap I'm out",
             body: "Open in Maps launches directions in Apple or Google Maps — pick yours in Settings. If plans change, I'm out clears your side everywhere.",
             accent: Tokens.Palette.pinFriend,
@@ -231,6 +245,10 @@ private struct TutorialVisualCard: View {
     @Binding var demoChosen: Bool
     @Binding var demoSent: Bool
     @Binding var demoDirections: Bool
+    /// Local to this slide's ring pulse. Must NOT reuse `demoJoined` — that
+    /// binding drives the "Try I'm in" demo on the next slide, so animating it
+    /// here would show that slide pre-completed before the user touched it.
+    @State private var drawerHighlighted = false
 
     var body: some View {
         ZStack {
@@ -240,6 +258,8 @@ private struct TutorialVisualCard: View {
                 .strokeBorder(slide.accent.opacity(0.28), lineWidth: 1)
 
             switch slide.visual {
+            case .openInMessages:
+                openInMessagesVisual
             case .join:
                 joinVisual
             case .fairSpot:
@@ -251,6 +271,77 @@ private struct TutorialVisualCard: View {
             }
         }
         .tweenElevation(.sheet)
+    }
+
+    /// A drawn iMessage compose bar. Deliberately NOT a screenshot: this has
+    /// to keep matching whatever Messages looks like, it has to work in light
+    /// and dark, and a captured PNG of someone's chat would go stale and carry
+    /// their conversation with it.
+    private var openInMessagesVisual: some View {
+        VStack(spacing: Tokens.Spacing.s4) {
+            // The app drawer strip, Tween ringed.
+            HStack(spacing: Tokens.Spacing.s3) {
+                ForEach(0..<4, id: \.self) { index in
+                    if index == 1 {
+                        ZStack {
+                            TweenRowIcon(
+                                systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+                                color: Tokens.Palette.brand, size: 44)
+                            Circle()
+                                .strokeBorder(Tokens.Palette.accent, lineWidth: 3)
+                                .frame(width: 56, height: 56)
+                                .opacity(drawerHighlighted ? 1 : 0.55)
+                                .scaleEffect(drawerHighlighted ? 1 : 0.92)
+                        }
+                        .frame(width: 56, height: 56)
+                    } else {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Tokens.Palette.neutralAction)
+                            .frame(width: 44, height: 44)
+                    }
+                }
+            }
+            .accessibilityLabel("Tween in the Messages app drawer")
+
+            Image(systemName: "chevron.up")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Tokens.Palette.textTertiary)
+                .accessibilityHidden(true)
+
+            // The compose row: a "+" then the iMessage field, mirroring what
+            // the user sees at the bottom of any conversation.
+            HStack(spacing: Tokens.Spacing.s2) {
+                ZStack {
+                    Circle()
+                        .fill(Tokens.Palette.neutralAction)
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                    Circle()
+                        .strokeBorder(Tokens.Palette.accent, lineWidth: 3)
+                        .frame(width: 46, height: 46)
+                }
+                .frame(width: 46, height: 46)
+
+                Capsule()
+                    .strokeBorder(Tokens.Palette.textTertiary.opacity(0.4), lineWidth: 1)
+                    .frame(height: 36)
+                    .overlay(alignment: .leading) {
+                        Text("iMessage")
+                            .font(Tokens.Typography.subheadline)
+                            .foregroundStyle(Tokens.Palette.textTertiary)
+                            .padding(.leading, Tokens.Spacing.s3)
+                    }
+            }
+            .padding(.horizontal, Tokens.Spacing.s4)
+            .accessibilityLabel("The plus button beside the iMessage text box")
+        }
+        .padding(.vertical, Tokens.Spacing.s5)
+        .onAppear {
+            guard !drawerHighlighted else { return }
+            withAnimation(Tokens.Motion.spring.delay(0.35)) { drawerHighlighted = true }
+        }
     }
 
     private var joinVisual: some View {
