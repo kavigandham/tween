@@ -178,23 +178,17 @@ struct PaywallSheet: View {
     /// custom licence agreement.
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
-    /// ⚠️ NOT LIVE YET. App Review clicks this, and a dead link is a worse
-    /// rejection than a missing one — so this must resolve before an App Store
-    /// submission. (TestFlight internal testing does not go through review, so
-    /// builds can ship to testers meanwhile.)
+    /// LIVE. GitHub renders `docs/privacy.md` as a readable page at this URL
+    /// with no setup — no GitHub Pages, no admin rights, no hosting to
+    /// maintain. Apple accepts any publicly reachable URL, and this one is
+    /// owned by the same account that owns the app.
     ///
-    /// The page is written and committed at `docs/privacy/index.html`, accurate
-    /// to what the app actually does. It goes live the moment the repo owner
-    /// turns on GitHub Pages: repo Settings → Pages → Source "Deploy from a
-    /// branch" → `main` / `/docs`. Nobody but an admin can enable that.
-    ///
-    /// Hosting it anywhere else is fine — change this ONE constant. A
-    /// zero-setup alternative that works immediately is the rendered file on
-    /// GitHub itself:
-    /// https://github.com/kavigandham/tween/blob/main/docs/privacy/index.html
-    /// (Apple accepts any publicly reachable URL, though a Pages URL reads
-    /// better to a reviewer.)
-    static let privacyURL = URL(string: "https://kavigandham.github.io/tween/privacy/")!
+    /// This deliberately does NOT point at a GitHub Pages URL: enabling Pages
+    /// needs repo-admin, which the build tooling doesn't have, and a link that
+    /// 404s in the purchase flow is a worse App Review outcome than no link.
+    /// If Pages is turned on later, add Jekyll front matter to the Markdown and
+    /// change this ONE constant.
+    static let privacyURL = URL(string: "https://github.com/kavigandham/tween/blob/main/docs/privacy.md")!
 
     private func productButton(_ product: Product) -> some View {
         let isLifetime = product.id == ProEntitlement.lifetimeProductID
