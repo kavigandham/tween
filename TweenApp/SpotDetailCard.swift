@@ -154,6 +154,10 @@ struct SpotDetailCard: View {
     var onSendToChat: () -> Void = {}
     var onAgree: () -> Void = {}
     var onChange: () -> Void = {}
+    /// Pro: open the planning sheet (time, travel modes, reminder, calendar).
+    var onPlan: () -> Void = {}
+    /// Whether a scheduled plan already exists, so the button can say so.
+    var planIsSet = false
 
     /// Metadata for an incoming proposal. Drives the headline + per-message-
     /// type copy variations (a counter reads "suggests instead" rather than
@@ -330,8 +334,28 @@ struct SpotDetailCard: View {
                 primaryActions
             }
 
-            favoriteButton
+            HStack(spacing: Tokens.Spacing.s2) {
+                favoriteButton
+                planButton
+            }
         }
+    }
+
+    /// Pro entry point. Shows for everyone — a locked user taps it and gets the
+    /// paywall, which is how they learn the feature exists at all; hiding it
+    /// would mean the only mention of scheduling is inside a purchase sheet
+    /// they have no reason to open.
+    private var planButton: some View {
+        Button(action: onPlan) {
+            Label(planIsSet ? "Planned" : "Plan",
+                  systemImage: planIsSet ? "calendar.badge.checkmark" : "calendar")
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                .background(Tokens.Palette.brandLight, in: Capsule())
+                .foregroundStyle(Tokens.Palette.accent)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Set a time, travel modes, a leave-by reminder, and a calendar event for \(name)")
     }
 
     private var favoriteButton: some View {

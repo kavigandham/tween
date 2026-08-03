@@ -240,7 +240,15 @@ enum FairnessRanker {
         let etas = await withTaskGroup(of: (Int, ParticipantETA).self) { group -> [ParticipantETA] in
             for (index, participant) in participants.enumerated() {
                 group.addTask {
-                    let (eta, ok) = await Self.eta(from: participant.coordinate, to: item)
+                    // Pro plan (if any) decides this person's mode and the
+                    // arrival time we predict traffic for. With no plan this
+                    // is .driving / nil — byte-for-byte the old behaviour.
+                    let plan = MeetupPlanStore.current
+                    let (eta, ok) = await Self.eta(
+                        from: participant.coordinate,
+                        to: item,
+                        mode: plan.mode(for: participant.id),
+                        arrivalDate: plan.arrivalDate)
                     return (index, ParticipantETA(
                         id: participant.id,
                         name: participant.name,
@@ -262,28 +270,49 @@ enum FairnessRanker {
         return RankedSpot(item: item, etas: etas, confidence: confidence)
     }
 
-    /// Returns the automobile ETA in seconds and whether it came from a real
-    /// route. On any failure, estimates from straight-line distance.
+    /// Returns the ETA in seconds and whether it came from a real route.
+    /// On any failure, estimates from straight-line distance at the mode's
+    /// own speed. Defaults reproduce the original driving-now behaviour.
     private static func eta(
         from origin: CLLocationCoordinate2D,
-        to item: MKMapItem
+        to item: MKMapItem,
+        mode: TravelMode = .driving,
+        arrivalDate: Date? = nil
     ) async -> (TimeInterval, Bool) {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
         request.destination = item
-        request.transportType = .automobile
+        request.transportType = mode.transportType
+        // Predicted traffic for when we'll actually arrive. MapKit ignores a
+        // date in the past, so a stale plan degrades to "now" rather than
+        // returning nothing.
+        if let arrivalDate, arrivalDate > Date() {
+            request.arrivalDate = arrivalDate
+        }
 
         // Timeout-guarded like the extension's MKLocalSearch: a single stalled
         // MKDirections leg would otherwise keep the whole `rank()` task group
         // pending forever, leaving the spinner up (post-push audit). On timeout,
         // error, or no route we fall through to the straight-line estimate.
-        if let response = await calculateRoute(request, timeoutNanoseconds: routeTimeoutNanoseconds),
-           let route = response.routes.first {
+        //
+        // Transit goes through calculateETA, not calculate: Apple does not vend
+        // transit route geometry to third parties, so calculate() errors for
+        // .transit even where transit ETAs are perfectly available. We only
+        // ever want the duration anyway (constraint 2 forbids shipping route
+        // geometry), so the ETA API is the correct call.
+        if mode == .transit {
+            if let seconds = await DeadlinedSearch.eta(
+                for: request,
+                seconds: TimeInterval(routeTimeoutNanoseconds) / 1_000_000_000) {
+                return (seconds, true)
+            }
+        } else if let response = await calculateRoute(request, timeoutNanoseconds: routeTimeoutNanoseconds),
+                  let route = response.routes.first {
             return (route.expectedTravelTime, true)
         }
 
         let from = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-        return (estimatedETA(from: from, to: item), false)
+        return (estimatedETA(from: from, to: item, mode: mode), false)
     }
 
     /// Builds a complete low-confidence spot without making a directions
@@ -304,12 +333,18 @@ enum FairnessRanker {
         return RankedSpot(item: item, etas: etas, confidence: 0.5)
     }
 
-    private static func estimatedETA(from origin: CLLocation, to item: MKMapItem) -> TimeInterval {
+    /// Straight-line fallback. The mode's own speed matters here: inheriting a
+    /// car's speed for a walking leg would rank an hour on foot as a fair
+    /// ten-minute trip.
+    private static func estimatedETA(from origin: CLLocation,
+                                     to item: MKMapItem,
+                                     mode: TravelMode = .driving) -> TimeInterval {
         let destination = item.placemark.coordinate
         let destinationLocation = CLLocation(
             latitude: destination.latitude,
             longitude: destination.longitude)
-        return origin.distance(from: destinationLocation) / fallbackSpeed
+        let speed = mode == .driving ? fallbackSpeed : mode.fallbackMetresPerSecond
+        return origin.distance(from: destinationLocation) / speed
     }
 
     /// Ceiling on a single route calculation before we fall back to the

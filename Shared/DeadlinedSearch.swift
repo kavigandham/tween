@@ -55,6 +55,39 @@ enum DeadlinedSearch {
         }
     }
 
+    /// Duration-only variant, under the same deadline. Used for transit, where
+    /// `calculate()` errors because Apple doesn't vend transit route geometry
+    /// to third parties but `calculateETA()` answers normally. Returns the
+    /// expected travel time in seconds, or nil so callers fall through to the
+    /// straight-line estimate.
+    static func eta(for request: MKDirections.Request,
+                    seconds: TimeInterval = 10) async -> TimeInterval? {
+        let directions = MKDirections(request: request)
+        let box = ContinuationBox<TimeInterval?>()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                box.store(continuation)
+                if Task.isCancelled {
+                    directions.cancel()
+                    box.take()?.resume(returning: nil)
+                    return
+                }
+                directions.calculateETA { response, _ in
+                    box.take()?.resume(returning: response?.expectedTravelTime)
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
+                    guard let continuation = box.take() else { return }
+                    directions.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
+        } onCancel: {
+            guard let continuation = box.take() else { return }
+            directions.cancel()
+            continuation.resume(returning: nil)
+        }
+    }
+
     private static func run(_ search: MKLocalSearch, seconds: TimeInterval) async -> [MKMapItem] {
         let box = ContinuationBox<[MKMapItem]>()
         return await withTaskCancellationHandler {
