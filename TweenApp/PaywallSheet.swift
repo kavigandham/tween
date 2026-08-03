@@ -178,14 +178,23 @@ struct PaywallSheet: View {
     /// custom licence agreement.
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
-    /// ⚠️ MUST resolve to a live page before submitting. App Review clicks
-    /// this, and a dead link is a worse rejection than a missing one.
+    /// ⚠️ NOT LIVE YET. App Review clicks this, and a dead link is a worse
+    /// rejection than a missing one — so this must resolve before an App Store
+    /// submission. (TestFlight internal testing does not go through review, so
+    /// builds can ship to testers meanwhile.)
     ///
-    /// The policy text lives in `docs/privacy.md` in this repo and is accurate
-    /// to what the app actually does. To make this URL live, enable GitHub
-    /// Pages for the repo with `/docs` as the source. If you host it anywhere
-    /// else, change this ONE constant.
-    static let privacyURL = URL(string: "https://kavigandham.github.io/tween/privacy")!
+    /// The page is written and committed at `docs/privacy/index.html`, accurate
+    /// to what the app actually does. It goes live the moment the repo owner
+    /// turns on GitHub Pages: repo Settings → Pages → Source "Deploy from a
+    /// branch" → `main` / `/docs`. Nobody but an admin can enable that.
+    ///
+    /// Hosting it anywhere else is fine — change this ONE constant. A
+    /// zero-setup alternative that works immediately is the rendered file on
+    /// GitHub itself:
+    /// https://github.com/kavigandham/tween/blob/main/docs/privacy/index.html
+    /// (Apple accepts any publicly reachable URL, though a Pages URL reads
+    /// better to a reviewer.)
+    static let privacyURL = URL(string: "https://kavigandham.github.io/tween/privacy/")!
 
     private func productButton(_ product: Product) -> some View {
         let isLifetime = product.id == ProEntitlement.lifetimeProductID
