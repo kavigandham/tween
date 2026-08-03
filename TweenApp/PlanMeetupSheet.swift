@@ -52,13 +52,15 @@ struct PlanMeetupSheet: View {
                 }
 
                 Section {
-                    ForEach(participants) { participant in
+                    ForEach(travelRoster) { participant in
                         travelModeRow(for: participant)
                     }
                 } header: {
                     Text("How everyone travels")
                 } footer: {
-                    Text("Fairness compares each person in their own way of travelling, so a bus rider isn't judged against a driver.")
+                    Text(travelRoster.count > 1
+                         ? "Fairness compares each person in their own way of travelling, so a bus rider isn't judged against a driver."
+                         : "Once friends join, each of them gets their own row here.")
                 }
 
                 if isScheduled {
@@ -83,6 +85,20 @@ struct PlanMeetupSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// Always includes the local user. Planning a meetup you're going to means
+    /// setting YOUR travel mode, and before anyone joins `participants` is
+    /// empty — which rendered a section header and footer wrapped around
+    /// nothing at all (screenshot verify 2026-08-02).
+    private var travelRoster: [Participant] {
+        let localID = localParticipantID ?? TweenIdentity.stableID
+        if participants.contains(where: { $0.id == localID }) { return participants }
+        let me = Participant(
+            id: localID,
+            name: UserProfile.displayName ?? UserName.fallback,
+            coordinate: .init(latitude: 0, longitude: 0))
+        return [me] + participants
     }
 
     private func travelModeRow(for participant: Participant) -> some View {
