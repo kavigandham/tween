@@ -210,3 +210,67 @@ final class MeetupPlanTests: XCTestCase {
                        "Kavi, Hassan, and Sam")
     }
 }
+
+// MARK: - Plan coordinate + reopen (added after the 2026-08-03 audit)
+
+final class MeetupPlanCoordinateTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        UserDefaults(suiteName: LocationCache.appGroup)?
+            .removePersistentDomain(forName: LocationCache.appGroup)
+        ProEntitlement.setUnlocked(true)
+    }
+
+    override func tearDown() {
+        MeetupPlanStore.clear()
+        ProEntitlement.setUnlocked(false)
+        super.tearDown()
+    }
+
+    func testSpotCoordinateRoundTrips() {
+        var plan = MeetupPlan(arrivalDate: Date().addingTimeInterval(3600))
+        plan.setSpot(name: "Blue Bottle", coordinate: .init(latitude: 37.7749, longitude: -122.4194))
+        MeetupPlanStore.save(plan)
+
+        let loaded = MeetupPlanStore.current
+        XCTAssertEqual(loaded.spotName, "Blue Bottle")
+        XCTAssertEqual(loaded.coordinate?.latitude ?? 0, 37.7749, accuracy: 0.00001)
+        XCTAssertEqual(loaded.coordinate?.longitude ?? 0, -122.4194, accuracy: 0.00001)
+    }
+
+    /// Plans saved before the coordinate field existed decode with nil rather
+    /// than a fabricated location — the refresher and calendar export must be
+    /// able to tell "unknown" from "somewhere in Kansas".
+    func testPlanWithoutCoordinateDecodesAsNilNotAFallback() {
+        var plan = MeetupPlan(arrivalDate: Date().addingTimeInterval(3600))
+        plan.spotName = "Somewhere"
+        MeetupPlanStore.save(plan)
+        XCTAssertNil(MeetupPlanStore.current.coordinate)
+    }
+
+    func testClearingASpotClearsItsCoordinate() {
+        var plan = MeetupPlan(arrivalDate: Date().addingTimeInterval(3600))
+        plan.setSpot(name: "Blue Bottle", coordinate: .init(latitude: 1, longitude: 2))
+        plan.setSpot(name: nil, coordinate: nil)
+        XCTAssertNil(plan.spotName)
+        XCTAssertNil(plan.coordinate)
+    }
+
+    /// The refresher bails when the plan changed mid-flight; equality is what
+    /// that guard is built on, so it has to actually notice a moved arrival.
+    func testPlanEqualityDetectsAMovedArrival() {
+        let base = MeetupPlan(arrivalDate: Date(timeIntervalSince1970: 1000),
+                              spotName: "A")
+        let moved = MeetupPlan(arrivalDate: Date(timeIntervalSince1970: 2000),
+                               spotName: "A")
+        XCTAssertNotEqual(base, moved)
+    }
+
+    func testLeaveNowThresholdIsPastWhenTravelExceedsRemainingTime() {
+        // 10 minutes out, a 60-minute drive: the leave-by time is already past,
+        // which is the branch that must notify instead of silently no-op.
+        let arrival = Date().addingTimeInterval(10 * 60)
+        let fire = LeaveByReminder.fireDate(arrivalDate: arrival, travelTime: 60 * 60)
+        XCTAssertLessThan(fire, Date())
+    }
+}

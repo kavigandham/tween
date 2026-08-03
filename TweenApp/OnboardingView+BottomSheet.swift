@@ -46,6 +46,9 @@ extension OnboardingView {
             // its re-focus) fighting the drag whenever the field had text.
             if detent == .height(Tokens.Layout.sheetPeekHeight) { searchFocused = false }
         }
+        // The banner's plan sheet. Presented from the bottom sheet — which is
+        // always on screen — so it works with no spot card open.
+        .sheet(item: $planSheet) { planSheetContent($0) }
         .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)

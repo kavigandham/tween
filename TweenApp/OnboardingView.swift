@@ -153,6 +153,7 @@ struct OnboardingView: View {
     /// message compose). See `FriendsSubSheet` for why this exists.
     @State var friendsSubSheet: FriendsSubSheet?
     @State var spotSubSheet: SpotSubSheet?
+    @State var planSheet: PlanSheetItem?
     /// The "Your Name" prompt, scoped to the FRIENDS sheet — the root prompt
     /// is attached to the permanent sheet's content, which cannot present an
     /// alert while the Friends sheet is up (W13 trap). `ensureNamed` routes.

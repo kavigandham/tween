@@ -51,10 +51,26 @@ enum LeaveByRefresher {
             return nil
         }
 
+        // The plan may have changed while that routing call was in flight —
+        // the user can foreground the app and immediately re-plan. Without
+        // this, a stale in-flight refresh would overwrite the reminder they
+        // just deliberately set, for the OLD time and possibly the old place,
+        // while the sheet still read "Reminder set for …" (audit 2026-08-03).
+        guard MeetupPlanStore.current == plan else { return nil }
+
         let newFire = LeaveByReminder.fireDate(arrivalDate: arrival, travelTime: seconds)
         guard let currentFire = await LeaveByReminder.pendingFireDate(),
               abs(newFire.timeIntervalSince(currentFire)) >= significantDriftSeconds
         else { return nil }
+
+        // Traffic got bad enough that leaving on time is no longer possible.
+        // `schedule` refuses past fire dates and returns nil, which would leave
+        // the original too-late reminder armed and say nothing — the exact
+        // failure this class exists to catch. Tell them instead.
+        guard newFire > Date() else {
+            await LeaveByReminder.notifyLeaveNow(spotName: spotName, arrivalDate: arrival)
+            return nil
+        }
 
         return await LeaveByReminder.schedule(spotName: spotName,
                                               arrivalDate: arrival,

@@ -97,10 +97,31 @@ enum LeaveByReminder {
         return trigger.nextTriggerDate()
     }
 
-    private static let timeFormatter: DateFormatter = {
+    static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter
     }()
+}
+
+extension LeaveByReminder {
+    /// Fires immediately when a re-measurement finds you should ALREADY have
+    /// left. Scheduling a past trigger silently does nothing, so without this
+    /// the worst case — traffic degraded past the point of arriving on time —
+    /// was the one case that produced no notification at all.
+    static func notifyLeaveNow(spotName: String, arrivalDate: Date) async {
+        guard await requestAuthorization() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Leave now"
+        content.body = "Traffic got worse — leave now to reach \(spotName) near \(timeFormatter.string(from: arrivalDate))."
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        try? await center.add(request)
+    }
 }

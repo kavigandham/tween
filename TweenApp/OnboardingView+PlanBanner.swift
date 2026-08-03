@@ -69,23 +69,27 @@ extension OnboardingView {
         return parts.joined(separator: " · ")
     }
 
-    /// Reopens the plan for its spot. Rebuilds the selection from the ranked
-    /// list when that spot is still on screen so the sheet gets a live ETA;
-    /// otherwise opens with what we know, which is enough to edit the time.
+    /// Reopens the plan for its spot.
+    ///
+    /// Presents through the banner's OWN sheet state, not `spotSubSheet`. That
+    /// binding's `.sheet(item:)` is attached inside `spotDetailSheet`, which is
+    /// only in the hierarchy while a spot card is open — and the banner lives
+    /// in the bottom sheet, where `activeSheet` is nil. Setting `spotSubSheet`
+    /// from here presented NOTHING and left it armed: the same dead-affordance
+    /// bug already fixed once for the paywall, reintroduced (audit 2026-08-03).
+    ///
+    /// Also does NOT fabricate a coordinate. The old fallback used
+    /// `Self.defaultCenter` — the geographic centre of Kansas that the search
+    /// code elsewhere treats as "no anchor at all" — which Save would then
+    /// persist as the plan's location and the calendar event's place.
+    /// `PlanMeetupSheet` takes an optional coordinate, so nil is honest and
+    /// safe; only the reminder needs one, and it degrades on its own.
     func reopenPlan(spotName: String) {
-        if let ranked = rankedSpots.first(where: { $0.item?.name == spotName }),
-           let item = ranked.item {
-            spotSubSheet = nil
-            presentSpot(SpotSelection(item: item, ranked: ranked))
-            spotSubSheet = .plan(SpotSelection(item: item, ranked: ranked))
-            return
-        }
-        // Not in the current results — still let them edit or cancel it.
-        let placemark = MKPlacemark(coordinate: MeetupPlanStore.current.coordinate
-                                    ?? Self.defaultCenter)
-        let item = MKMapItem(placemark: placemark)
-        item.name = spotName
-        spotSubSheet = .plan(SpotSelection(item: item, ranked: nil))
+        let ranked = rankedSpots.first { $0.item?.name == spotName }
+        planSheet = PlanSheetItem(
+            spotName: spotName,
+            coordinate: ranked?.item?.placemark.coordinate ?? MeetupPlanStore.current.coordinate,
+            ranked: ranked)
     }
 
     func cancelPlan() {
@@ -93,5 +97,33 @@ extension OnboardingView {
         LeaveByReminder.cancel()
         rerankAfterPlanChange()
         showToast("Plan cancelled")
+    }
+}
+
+/// What the banner presents. Its own type (and its own `.sheet(item:)` on the
+/// bottom-sheet content) because the banner is reachable when NO spot card is
+/// open, so it cannot share `spotSubSheet`'s presenter.
+struct PlanSheetItem: Identifiable {
+    let id = UUID()
+    let spotName: String
+    let coordinate: CLLocationCoordinate2D?
+    let ranked: RankedSpot?
+}
+
+extension OnboardingView {
+    /// The plan sheet presented FROM the bottom sheet — the permanently
+    /// presented surface the banner lives on, so this presenter always exists.
+    @ViewBuilder
+    func planSheetContent(_ item: PlanSheetItem) -> some View {
+        let myETA: TimeInterval? = item.ranked?.etas
+            .first { $0.id == TweenIdentity.stableID }?.eta
+        let roster: [Participant] = searchRankingParticipants ?? currentParticipants
+        PlanMeetupSheet(
+            spotName: item.spotName,
+            coordinate: item.coordinate,
+            myTravelTime: myETA,
+            participants: roster,
+            localParticipantID: TweenIdentity.stableID,
+            onSaved: { rerankAfterPlanChange() })
     }
 }

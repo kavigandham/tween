@@ -30,6 +30,14 @@ struct PaywallSheet: View {
                     } else {
                         purchaseSection
                     }
+                    // OUTSIDE the unlocked/purchase branches on purpose. Nested
+                    // in the loaded-products arm, the renewal terms and both
+                    // links vanished whenever the store was unreachable — and
+                    // vanished permanently once Pro was owned, leaving the app
+                    // with no path to Terms or Privacy at all. An App Review
+                    // device on a flaky network saw the link-free state
+                    // (audit 2026-08-03).
+                    subscriptionDisclosure
                 }
                 .padding(Tokens.Spacing.s5)
             }
@@ -144,8 +152,6 @@ struct PaywallSheet: View {
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                subscriptionDisclosure
             }
             .disabled(purchasing)
         }
@@ -158,6 +164,10 @@ struct PaywallSheet: View {
     ///
     /// Apple's standard EULA is used, which is the correct link when an app
     /// ships no custom licence agreement.
+    ///
+    /// Rendered in EVERY paywall state — loading, store-unreachable, purchasing,
+    /// and already-unlocked — because 3.1.2 expects the links reachable in the
+    /// app, not contingent on a network call succeeding.
     private var subscriptionDisclosure: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             Text("Monthly renews automatically unless cancelled at least 24 hours before the period ends. Manage or cancel in your App Store account settings. Lifetime is a one-time purchase and never renews.")
