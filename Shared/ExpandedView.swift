@@ -633,9 +633,14 @@ struct ExpandedView: View {
                 .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 .background(Tokens.Palette.surfaceSecondary, in: Capsule())
 
-            TweenActionButton(selectedSpot == nil ? "Change" : "Send",
+            TweenActionButton(selectedSpot == nil ? "Pick another" : "Send",
+                              // "Pick another", not "Change": the first tap
+                              // SELECTS the top-ranked alternative and nothing
+                              // sends, so a label promising a change described
+                              // an action that hadn't happened yet. The button
+                              // then becomes a plain Send for what's selected.
                               systemImage: selectedSpot == nil
-                                  ? "arrow.triangle.2.circlepath" : "paperplane.fill",
+                                  ? "list.bullet" : "paperplane.fill",
                               isEnabled: !rankedSpots.isEmpty && !isSending) {
                 sendTick += 1
                 if let spot = selectedSpot {
@@ -667,9 +672,14 @@ struct ExpandedView: View {
             }
             .accessibilityHint("Sends that you agree to meet at \(received.text)")
 
-            TweenActionButton(selectedSpot == nil ? "Change" : "Send",
+            TweenActionButton(selectedSpot == nil ? "Pick another" : "Send",
+                              // "Pick another", not "Change": the first tap
+                              // SELECTS the top-ranked alternative and nothing
+                              // sends, so a label promising a change described
+                              // an action that hadn't happened yet. The button
+                              // then becomes a plain Send for what's selected.
                               systemImage: selectedSpot == nil
-                                  ? "arrow.triangle.2.circlepath" : "paperplane.fill",
+                                  ? "list.bullet" : "paperplane.fill",
                               isEnabled: !rankedSpots.isEmpty && !isSending) {
                 sendTick += 1
                 if let spot = selectedSpot {

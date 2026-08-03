@@ -16,6 +16,45 @@ struct SettingsSheet: View {
     @State private var showGuide = false
     @State private var proUnlocked = ProEntitlement.isUnlocked
     @State private var maxDriveMinutes = DriveTimePreference.maxMinutes
+    @State private var redeemText = ""
+    @State private var redeemFailed = false
+
+    /// Code redemption for friends, testers, and support make-goods. Sits
+    /// above the paywall row so someone holding a code never has to open the
+    /// purchase sheet to find it.
+    @ViewBuilder
+    private var redeemRow: some View {
+        HStack(spacing: Tokens.Spacing.s3) {
+            Image(systemName: "gift.fill")
+                .foregroundStyle(Tokens.Palette.brand)
+            TextField("Have a code?", text: $redeemText)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .onSubmit(applyRedeemCode)
+                .onChange(of: redeemText) { _, _ in redeemFailed = false }
+            if !redeemText.isEmpty {
+                Button("Redeem", action: applyRedeemCode)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Tokens.Palette.accent)
+            }
+        }
+        if redeemFailed {
+            Text("That code isn't valid.")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.destructive)
+        }
+    }
+
+    private func applyRedeemCode() {
+        if ProCode.redeem(redeemText) {
+            redeemText = ""
+            redeemFailed = false
+            proUnlocked = ProEntitlement.isUnlocked
+        } else {
+            redeemFailed = true
+        }
+    }
 
     /// Preset capsules rather than a slider or stepper: this is a coarse
     /// choice, and Maps uses exactly this control for its own coarse filters
@@ -64,6 +103,7 @@ struct SettingsSheet: View {
                                 .foregroundStyle(Tokens.Palette.success)
                         }
                     } else {
+                        redeemRow
                         Button {
                             showPaywall = true
                         } label: {

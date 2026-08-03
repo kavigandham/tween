@@ -14,20 +14,44 @@ enum ProEntitlement {
     static let monthlyProductID = "com.kavigandham.TweenApp.pro.monthly"
     static let productIDs: Set<String> = [lifetimeProductID, monthlyProductID]
 
+    /// The flag both processes gate on: purchased OR redeemed.
     private static let unlockedKey = "tween.pro.unlocked"
+    /// StoreKit's verdict alone, kept separate so a redeemed code isn't wiped
+    /// by the next `refresh()` — see `syncUnlockedFlag`.
+    private static let purchasedKey = "tween.pro.purchased"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
     }
 
-    /// The cached verdict both processes gate on.
+    /// The cached verdict both processes gate on. The extension reads only
+    /// this — it never touches StoreKit or CryptoKit.
     static var isUnlocked: Bool {
         defaults?.bool(forKey: unlockedKey) ?? false
     }
 
-    static func setUnlocked(_ unlocked: Bool) {
-        guard unlocked != isUnlocked else { return }
-        defaults?.set(unlocked, forKey: unlockedKey)
+    /// True when StoreKit says this device owns a Pro product.
+    static var isPurchased: Bool {
+        defaults?.bool(forKey: purchasedKey) ?? false
+    }
+
+    /// Records StoreKit's verdict, then recomputes the gate.
+    ///
+    /// This USED to write `unlockedKey` directly, which meant every launch's
+    /// `refresh()` — computing "not purchased" for anyone who redeemed a code
+    /// rather than paying — would stamp their Pro back off. Redemption lives
+    /// under its own key and is OR-ed in below.
+    static func setUnlocked(_ purchased: Bool) {
+        defaults?.set(purchased, forKey: purchasedKey)
+        syncUnlockedFlag()
+    }
+
+    /// Recomputes the gate from its two independent sources. Idempotent, and
+    /// only posts when the effective value actually changed.
+    static func syncUnlockedFlag() {
+        let effective = isPurchased || ProCode.hasRedeemed
+        guard effective != isUnlocked else { return }
+        defaults?.set(effective, forKey: unlockedKey)
         // Same contract as every other App Group writer: post so the other
         // process (extension ↔ app) picks up the change without polling.
         MeetupSync.post()
