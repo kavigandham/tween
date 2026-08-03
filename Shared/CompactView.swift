@@ -27,10 +27,12 @@ struct CompactView: View {
             }
         }
         // Tight vertical padding: the compact surface is only keyboard height,
-        // and every point of chrome comes out of the content's budget.
+        // and every point of chrome comes out of the content's budget. This is
+        // now the ONLY inset — the states used to add another s3 of their own
+        // on top of it.
         .padding(.horizontal, Tokens.Spacing.s4)
-        .padding(.vertical, Tokens.Spacing.s2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, Tokens.Spacing.s3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Opaque background so the compact strip never reads as transparent
         // against the iMessage keyboard backdrop. systemBackground tracks
         // light/dark mode automatically.
@@ -97,8 +99,12 @@ struct CompactView: View {
                 }
             }
         }
-        .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
+        // NO card background here. The compact surface is ALREADY a card — it
+        // gets systemBackground and Messages rounds its corners — so wrapping
+        // the content in a second rounded rect drew a black frame around a
+        // grey card, and ate ~24pt of a keyboard-height budget doing it
+        // (device report 2026-08-02: "looks bad until it's fully opened").
+        // Apple's own compact Messages apps fill the surface edge to edge.
     }
 
     private var activeMeetupState: some View {

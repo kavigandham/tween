@@ -75,6 +75,40 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// `startContinuous`, but it ALSO asks for When-In-Use the first time.
+    ///
+    /// Open Apple Maps and your blue dot is there — it asks on open and starts
+    /// tracking. Tween made you tap "I'm in" before it would even ask, so the
+    /// map sat on a stale or empty location until you committed to a meetup
+    /// (device report 2026-08-02: "I had to hit I'm in for it to fix my
+    /// location, it needs to be like Maps").
+    ///
+    /// HOST APP ONLY. The extension keeps the silent `startContinuous` — an
+    /// iMessage extension throwing a permission alert the instant you tap its
+    /// icon in the drawer is hostile, and the extension already prompts at the
+    /// point the user asks to share ("I'm in").
+    ///
+    /// Still When-In-Use only (constraint 4). When the user answers, the
+    /// existing `locationManagerDidChangeAuthorization` arm sees
+    /// `continuousRequested` and opens the stream.
+    func startContinuousAskingIfNeeded() {
+        continuousRequested = true
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.startUpdatingLocation()
+            // Authorized but no fix yet (cold launch): ask for one instead of
+            // waiting for the stream's first delivery, which can lag seconds.
+            if case .got = status {} else if status != .requesting {
+                status = .requesting
+                requestFix()
+            }
+        default:
+            break
+        }
+    }
+
     func stopContinuous() {
         continuousRequested = false
         manager.stopUpdatingLocation()

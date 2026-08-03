@@ -119,7 +119,7 @@ extension ExpandedView {
                 .accessibilityHint("Shares where you are for this meetup")
 
                 Button(action: onOpenFullApp) {
-                    Label("Browse spots", systemImage: "magnifyingglass")
+                    Label("Open Tween", systemImage: "magnifyingglass")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))

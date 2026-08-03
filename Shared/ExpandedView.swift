@@ -339,6 +339,34 @@ struct ExpandedView: View {
         .tweenElevation(.sheet)
     }
 
+    /// The headline's two lines. `trailingGlyph` adds the directions mark that
+    /// makes the title read as tappable.
+    func headlineText(trailingGlyph: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: Tokens.Spacing.s1) {
+                Text(statusTitle)
+                    .font(Tokens.Typography.sectionTitle)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if trailingGlyph {
+                    Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            if received != nil {
+                Text(statusEyebrow)
+                    .font(Tokens.Typography.subheadline)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
     /// Eyebrow + title (place name, "Waiting for someone else", …) with an
     /// optional group-progress chip — the panel's single line of context,
     /// replacing the old 120pt status card.
@@ -349,18 +377,25 @@ struct ExpandedView: View {
             // in small grey sentence case. Tween had it inverted — a tiny
             // uppercase eyebrow on top of a 17pt name — which buried the one
             // thing the panel is actually about.
-            VStack(alignment: .leading, spacing: 1) {
-                Text(statusTitle)
-                    .font(Tokens.Typography.sectionTitle)
-                    .foregroundStyle(Tokens.Palette.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                if received != nil {
-                    Text(statusEyebrow)
-                        .font(Tokens.Typography.subheadline)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .lineLimit(1)
+            //
+            // On a place, the whole headline is the directions button. Until
+            // now `directionButtons` only rendered once EVERYONE had agreed,
+            // so the common case — "someone sent me a spot, where is it?" —
+            // had no way to reach a maps app at all (product decision
+            // 2026-08-02). The glyph is what makes it discoverable; a bare
+            // tappable title is an invisible affordance.
+            if let received, received.kind == .place {
+                Button {
+                    sendTick += 1
+                    onOpenInMaps(received)
+                } label: {
+                    headlineText(trailingGlyph: true)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(statusTitle), \(statusEyebrow)")
+                .accessibilityHint("Opens directions to \(received.text) in your maps app")
+            } else {
+                headlineText(trailingGlyph: false)
             }
             Spacer(minLength: 0)
             if let received, let progress = groupProgress(for: received) {
@@ -686,12 +721,12 @@ struct ExpandedView: View {
         } else if isUserIn, received?.kind == .place {
             // "I'm out" lives in the action row on a proposal, so all that's
             // left down here is the escape hatch to the full app.
-            tertiaryAction(title: "Browse spots", systemImage: "magnifyingglass",
+            tertiaryAction(title: "Open Tween", systemImage: "magnifyingglass",
                            tint: Tokens.Palette.accent, action: onOpenFullApp)
                 .accessibilityHint("Opens the full Tween app to search for places")
         } else if isUserIn {
             HStack(spacing: 0) {
-                tertiaryAction(title: "Browse spots", systemImage: "magnifyingglass",
+                tertiaryAction(title: "Open Tween", systemImage: "magnifyingglass",
                                tint: Tokens.Palette.accent, action: onOpenFullApp)
                     .accessibilityHint("Opens the full Tween app to search for places")
                 Divider()
@@ -737,10 +772,10 @@ struct ExpandedView: View {
             // magnifyingglass, not arrow.up.forward.app: an external-link
             // glyph told the user "this leaves Messages" when the useful
             // meaning is "search for places" (screenshot review).
-            // lineLimit(1) + scale: in a 2-up row "Browse spots" wrapped to
+            // lineLimit(1) + scale: in a 2-up row "Open Tween" wrapped to
             // two lines, making the row taller than its neighbour and visibly
             // lopsided (screenshot audit).
-            Label("Browse spots", systemImage: "magnifyingglass")
+            Label("Open Tween", systemImage: "magnifyingglass")
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)

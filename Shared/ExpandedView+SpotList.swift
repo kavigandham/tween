@@ -178,7 +178,7 @@ extension ExpandedView {
         }
         return isRanking
             ? "Hang tight while Tween ranks nearby places."
-            : "Try Browse spots to pick a place manually."
+            : "Try Open Tween to pick a place manually."
     }
 
     /// Single point of truth for selection. Updates `selectedSpotID`, which

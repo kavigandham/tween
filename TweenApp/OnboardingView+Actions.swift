@@ -191,9 +191,10 @@ extension OnboardingView {
     func requestInitialLocation() {
         // The continuous stream keeps the pin moving with the user for the
         // whole foreground session (scenePhase's onChange doesn't fire for
-        // the launch value, so start it here too — startContinuous never
-        // prompts and arms itself if authorization hasn't landed yet).
-        provider.startContinuous()
+        // the launch value, so start it here too). Asks for When-In-Use on the
+        // way in — Maps shows your dot on open; Tween used to sit blank until
+        // you tapped "I'm in", which is what actually triggered the prompt.
+        provider.startContinuousAskingIfNeeded()
         guard !(savedCoordinate != nil && LocationCache.isActive) else { return }
         provider.requestOnce()
     }

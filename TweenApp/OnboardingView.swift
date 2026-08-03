@@ -1004,7 +1004,9 @@ struct OnboardingView: View {
             // moving users see their pin travel with them instead of it
             // freezing until the next "I'm in" or relaunch.
             if phase == .active {
-                provider.startContinuous()
+                // Asks on first foreground rather than waiting for "I'm in",
+                // so the map has your dot the way Maps does.
+                provider.startContinuousAskingIfNeeded()
             } else {
                 provider.stopContinuous()
             }
