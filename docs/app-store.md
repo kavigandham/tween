@@ -74,8 +74,10 @@ them isn't a compromise, and Tween says so.
 NO ACCOUNT. NO SERVER. NO TRACKING.
 
 There's nothing to sign up for. Tween has no backend at all — your location
-never touches a server we run, because we don't run one. Everything stays on
-your device and travels only inside the iMessage conversations you choose.
+never touches a server we run, because we don't run one. Your friends, plans,
+and history stay on your device, and where you are travels only inside the
+iMessage conversations you choose. Place searches and travel times go to Apple
+Maps, the same as they would in Maps itself.
 
 Location is requested only while you're using the app, never in the background.
 

@@ -226,7 +226,7 @@ extension OnboardingView {
             return Participant.manual(label: friend.name, coordinate: coordinate)
         }
         guard !based.isEmpty else {
-            showToast("No home bases in \(group.name) yet — swipe a friend to set one")
+            showToast("No addresses in \(group.name) yet — open it to set them")
             return
         }
         manualParticipants = based
@@ -322,25 +322,38 @@ extension OnboardingView {
     /// with them — so the user names it and can set addresses in one pass
     /// rather than rebuilding the roster by hand.
     func saveCurrentMeetupAsGroup(_ participants: [Participant]) {
-        var roster = FriendRoster.load()
-        for participant in participants {
-            let already = roster.contains { $0.name.compare(
-                participant.name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
-            guard !already else { continue }
-            // No handle: these people came from a Messages conversation, not
-            // Contacts. The name is what we have, and it's enough to group by.
-            FriendRoster.add(TweenFriend(name: participant.name))
+        let plan = MeetupGroupBuilder.build(participants: participants,
+                                            existing: FriendRoster.load())
+        guard plan.memberIDs.count >= 2 else {
+            showToast("Need two people with names to make a group")
+            return
         }
-        roster = FriendRoster.load()
-        friends = roster
 
-        let memberIDs = participants.compactMap { participant in
-            roster.first { $0.name.compare(
-                participant.name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }?.id
+        // These people came from a Messages conversation, not Contacts, so they
+        // have no handle — enough to group by, not enough to ping.
+        for friend in plan.newFriends { FriendRoster.add(friend) }
+        friends = FriendRoster.load()
+
+        // Remember what we just created so Cancel can undo it. Creating friends
+        // is a side effect of a button that promises a GROUP; leaving them
+        // behind when the user backs out is not the bargain (audit 2026-08-04).
+        pendingGroupFriendIDs = plan.newFriends.map(\.id)
+
+        if plan.skipped > 0 {
+            showToast("Skipped \(plan.skipped) without a name")
         }
         // Straight into the editor, unsaved, so the name is deliberate and
         // addresses can be filled in before it's committed.
-        friendsSubSheet = .groupEditor(FriendGroup(name: "", memberIDs: memberIDs))
+        friendsSubSheet = .groupEditor(FriendGroup(name: "", memberIDs: plan.memberIDs))
+    }
+
+    /// Removes friends that `saveCurrentMeetupAsGroup` created when the user
+    /// backs out of the editor without saving a group.
+    func rollBackPendingGroupFriends() {
+        guard !pendingGroupFriendIDs.isEmpty else { return }
+        for id in pendingGroupFriendIDs { FriendRoster.delete(id: id) }
+        friends = FriendRoster.load()
+        pendingGroupFriendIDs = []
     }
 
     /// Identity-based "is this the local user" test (audit F2 step 4). The old

@@ -10,6 +10,12 @@ struct GroupEditorSheet: View {
     var group: FriendGroup?
     var onSave: (FriendGroup) -> Void = { _ in }
     var onDelete: (UUID) -> Void = { _ in }
+    /// Backing out. The parent uses this to undo friends it created just to
+    /// populate this editor.
+    var onCancel: () -> Void = {}
+    /// Fired whenever this sheet writes to FriendRoster (setting an address),
+    /// so the parent's copy doesn't go stale while the editor is open.
+    var onRosterChanged: () -> Void = {}
     /// Search region + resolver for the inline address picker, so a member's
     /// home base can be set WITHOUT leaving the group you're building.
     var searchRegion: MKCoordinateRegion = MKCoordinateRegion(
@@ -31,6 +37,8 @@ struct GroupEditorSheet: View {
     init(group: FriendGroup? = nil, friends: [TweenFriend],
          onSave: @escaping (FriendGroup) -> Void = { _ in },
          onDelete: @escaping (UUID) -> Void = { _ in },
+         onCancel: @escaping () -> Void = {},
+         onRosterChanged: @escaping () -> Void = {},
          searchRegion: MKCoordinateRegion = MKCoordinateRegion(
             center: .init(latitude: 39.8283, longitude: -98.5795),
             span: .init(latitudeDelta: 0.5, longitudeDelta: 0.5)),
@@ -38,6 +46,8 @@ struct GroupEditorSheet: View {
         self.group = group
         self.onSave = onSave
         self.onDelete = onDelete
+        self.onCancel = onCancel
+        self.onRosterChanged = onRosterChanged
         self.searchRegion = searchRegion
         self.resolvePlace = resolvePlace
         _friends = State(initialValue: friends)
@@ -87,6 +97,7 @@ struct GroupEditorSheet: View {
                                         .foregroundStyle(Tokens.Palette.textTertiary)
                                 }
                             }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(selected.contains(friend.id) ? .isSelected : [])
@@ -139,6 +150,10 @@ struct GroupEditorSheet: View {
                                                  label: point.name)
                         // Reload so the row updates without closing the group.
                         friends = FriendRoster.load()
+                        // Tell the parent too — its `friends` copy is what
+                        // openGroup reads, and a stale copy made the whole
+                        // feature refuse to open (audit 2026-08-04).
+                        onRosterChanged()
                         addressTarget = nil
                     }
             }
@@ -146,7 +161,7 @@ struct GroupEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { onCancel(); dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {

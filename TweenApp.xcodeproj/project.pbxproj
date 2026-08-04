@@ -33,6 +33,7 @@
 		2CABE4970402650FE4F62332 /* MapLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC52AECB9B816328EF102D1 /* MapLinks.swift */; };
 		2E470EF5697C6A87AD218BEE /* FriendGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6E282CCED22FDC2848B58C /* FriendGroupTests.swift */; };
 		3607C423A0ED457F9747A0DE /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */; };
+		36D444D9037A5B0DF63A6B0E /* MeetupGroupBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76BE539CE89BAC4D20CBD5F /* MeetupGroupBuilderTests.swift */; };
 		38EBE426E101BAF907787082 /* TweenState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511AABEF75C39947CC371A4 /* TweenState.swift */; };
 		38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
 		3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
@@ -302,6 +303,7 @@
 		CD18DEC6E910F4EBA9CD557F /* TweenAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TweenAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TweenAppApp.swift; sourceTree = "<group>"; };
 		D3C440EB69DC883032023978 /* NameIntegrityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameIntegrityTests.swift; sourceTree = "<group>"; };
+		D76BE539CE89BAC4D20CBD5F /* MeetupGroupBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetupGroupBuilderTests.swift; sourceTree = "<group>"; };
 		DA2032FA19D11B0E2BF32A4F /* BubbleCaptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleCaptionTests.swift; sourceTree = "<group>"; };
 		DEA256CAEB5D69FB5441F7C3 /* Participant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Participant.swift; sourceTree = "<group>"; };
 		DFCF1CC3526049ACE9FE7DF5 /* ConversationMeetupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationMeetupStore.swift; sourceTree = "<group>"; };
@@ -375,6 +377,7 @@
 				5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */,
 				FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */,
 				80EF3F6816D4B76E7BA0822C /* MapRegionDriftTests.swift */,
+				D76BE539CE89BAC4D20CBD5F /* MeetupGroupBuilderTests.swift */,
 				68FADF7D597B726A663E010E /* MeetupPlanTests.swift */,
 				D3C440EB69DC883032023978 /* NameIntegrityTests.swift */,
 				E15CF56FE50B018B94AC888B /* OutgoingDraftTests.swift */,
@@ -830,6 +833,7 @@
 				033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */,
 				434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */,
 				57C845AEF3D58DE1E696993E /* MapRegionDriftTests.swift in Sources */,
+				36D444D9037A5B0DF63A6B0E /* MeetupGroupBuilderTests.swift in Sources */,
 				FD1FEFF2C48B78702A18E45D /* MeetupPlanTests.swift in Sources */,
 				68A4E065B88A3147AB2F4FAE /* NameIntegrityTests.swift in Sources */,
 				4D1FAC1F0D865B4502793D8F /* OutgoingDraftTests.swift in Sources */,

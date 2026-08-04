@@ -84,6 +84,15 @@ extension OnboardingView {
             onSave: { saved in
                 GroupStore.upsert(saved)
                 groups = GroupStore.load()
+                // Reload the ROSTER too. Addresses set inside the editor are
+                // written straight to FriendRoster, and without this the
+                // parent kept its pre-edit copy — so openGroup still saw
+                // `homeBase == nil` and refused with "no home bases yet",
+                // telling the user to do the thing they had just done. The
+                // path this replaced did reload; dropping that line made the
+                // whole feature inert (audit 2026-08-04).
+                friends = FriendRoster.load()
+                pendingGroupFriendIDs = []
                 friendsSubSheet = nil
             },
             onDelete: { id in
@@ -91,6 +100,15 @@ extension OnboardingView {
                 groups = GroupStore.load()
                 friendsSubSheet = nil
             },
+            onCancel: {
+                // Backing out undoes friends this flow created, but NOT any
+                // address set along the way — that's per-friend data the user
+                // deliberately saved, same as the friends-list path.
+                rollBackPendingGroupFriends()
+                friends = FriendRoster.load()
+                friendsSubSheet = nil
+            },
+            onRosterChanged: { friends = FriendRoster.load() },
             searchRegion: searchRegion,
             resolvePlace: resolvePlace)
     }
