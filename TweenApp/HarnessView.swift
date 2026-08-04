@@ -1,6 +1,7 @@
 #if DEBUG
 import SwiftUI
 import CoreLocation
+import MapKit
 
 /// A DEBUG-only screenshot harness for the Messages extension surfaces.
 ///
@@ -208,6 +209,68 @@ enum HarnessFocus: Equatable {
     }
 }
 
+/// Chrome-free, full-screen renders of the extension surfaces, for App Store
+/// screenshots.
+///
+/// `HarnessView` wraps each surface in a labelled section at a fixed height —
+/// fine for eyeballing a layout, useless as a screenshot: the captures it
+/// produced carried a debug title bar, and `DebugLaunchSeed.rankedSpots` passes
+/// `item: nil`, so every row rendered as the literal word "Spot".
+///
+/// This renders ONE surface edge to edge, exactly as Messages presents it, and
+/// the ranking is REAL — a live `MKLocalSearch` around the midpoint of the two
+/// seeded participants, ranked by the shipping `FairnessRanker`. Real place
+/// names, real drive times, both people's minutes.
+struct HarnessShotView: View {
+    var focus: HarnessFocus = .all
+    var category: MessagesSearchCategory = .coffee
+
+    @State private var spots: [RankedSpot] = []
+    @State private var isRanking = true
+
+    private var state: TweenState {
+        switch focus {
+        case .meetup: return DebugLaunchSeed.agreed
+        case .invite:  return DebugLaunchSeed.invite
+        default:       return DebugLaunchSeed.browsing
+        }
+    }
+
+    var body: some View {
+        ExpandedView(
+            received: state,
+            selfCoord: DebugLaunchSeed.selfCoordinate,
+            rankedSpots: spots,
+            isUserIn: true,
+            totalSeats: 2,
+            isRanking: isRanking,
+            localParticipantID: DebugLaunchSeed.localParticipantID,
+            onImIn: {},
+            onSelectSpot: { _ in },
+            selectedSearchCategory: category)
+            .task { await rank() }
+    }
+
+    private func rank() async {
+        let participants = state.participants.isEmpty
+            ? DebugLaunchSeed.browsing.participants
+            : state.participants
+        let midpoint = CLLocationCoordinate2D(
+            latitude: participants.map(\.latitude).reduce(0, +) / Double(participants.count),
+            longitude: participants.map(\.longitude).reduce(0, +) / Double(participants.count))
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = category.mapKitQuery
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: category.poiCategories)
+        request.region = MKCoordinateRegion(center: midpoint,
+                                            latitudinalMeters: 12_000,
+                                            longitudinalMeters: 12_000)
+        let items = (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
+        spots = await FairnessRanker.rank(candidates: items, participants: participants, cap: 5)
+        isRanking = false
+    }
+}
+
 /// Hardcoded fixtures that drive the harness. Kept separate from the view so the
 /// seed is easy to reuse and obviously test-only. DEBUG builds only.
 enum DebugLaunchSeed {
@@ -237,10 +300,31 @@ enum DebugLaunchSeed {
         ]
     )
 
+    /// Both people in, browsing spots — the state the ranked list renders in.
+    /// Coordinates are the two seeds below, so a real search around their
+    /// midpoint returns places that are genuinely between them.
+    static let browsing = TweenState(
+        text: "Finding fair spots",
+        latitude: friendCoordinate.latitude,
+        longitude: friendCoordinate.longitude,
+        senderName: "Kavi Gandham",
+        senderID: "remote-kavi",
+        kind: .participant,
+        senderCoordinate: friendCoordinate,
+        messageType: .invite,
+        participants: [
+            Participant(id: "remote-kavi", name: "Kavi", coordinate: friendCoordinate),
+            Participant(id: localParticipantID, name: "You", coordinate: selfCoordinate)
+        ]
+    )
+
+    // Palo Alto — BETWEEN the two seeds. It used to sit in South Carolina while
+    // both participants were in California, which forced the snapshot map to
+    // frame the continental US and made every capture unusable.
     static let agreed = TweenState(
-        text: "Shell",
-        latitude: 33.8536,
-        longitude: -79.4812,
+        text: "Philz Coffee",
+        latitude: 37.4419,
+        longitude: -122.1430,
         senderName: "You",
         kind: .place,
         senderCoordinate: selfCoordinate,

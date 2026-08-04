@@ -18,6 +18,9 @@ struct ContentView: View {
             || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
             || CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP") {
             OnboardingView()
+        } else if CommandLine.arguments.contains("-HARNESS_SHOT") {
+            // Chrome-free, full-screen, real ranking — App Store captures.
+            HarnessShotView(focus: HarnessFocus.current)
         } else if CommandLine.arguments.contains("-HARNESS") {
             HarnessView(focus: HarnessFocus.current)
         } else {
