@@ -59,16 +59,22 @@ enum LeaveByReminder {
         content.body = "Leave now to reach \(spotName) by \(Self.timeFormatter.string(from: arrivalDate))."
         content.sound = .default
 
-        let components = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute], from: fire)
+        // Interval, not calendar components. A calendar trigger built from
+        // [.year…​.minute] truncates seconds, so a fire date under 60s out
+        // rounds INTO THE PAST and never fires — while `add` still reports
+        // success, so the UI claimed a reminder that could not arrive. Calendar
+        // components are also wall-clock, so crossing a timezone shifted the
+        // reminder. An interval is neither (2026-08-04).
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,
-            trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))
+            trigger: UNTimeIntervalNotificationTrigger(
+                timeInterval: max(fire.timeIntervalSince(now), 1), repeats: false))
 
         do {
             let center = UNUserNotificationCenter.current()
-            center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            // Add FIRST, remove after: the old order retired a working
+            // reminder and then had nothing to replace it with if `add` threw.
             try await center.add(request)
             return fire
         } catch {
@@ -91,10 +97,14 @@ enum LeaveByReminder {
     /// far enough to be worth rescheduling.
     static func pendingFireDate() async -> Date? {
         let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
-        guard let request = pending.first(where: { $0.identifier == identifier }),
-              let trigger = request.trigger as? UNCalendarNotificationTrigger
+        guard let request = pending.first(where: { $0.identifier == identifier })
         else { return nil }
-        return trigger.nextTriggerDate()
+        if let interval = request.trigger as? UNTimeIntervalNotificationTrigger {
+            return interval.nextTriggerDate()
+        }
+        // Reminders scheduled by a build before 2026-08-04 still carry a
+        // calendar trigger; keep reading them so an upgrade doesn't orphan one.
+        return (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
     }
 
     static let timeFormatter: DateFormatter = {

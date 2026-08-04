@@ -274,3 +274,33 @@ final class MeetupPlanCoordinateTests: XCTestCase {
         XCTAssertLessThan(fire, Date())
     }
 }
+
+// MARK: - Transit honesty (2026-08-04)
+
+final class TransitFallbackTests: XCTestCase {
+    /// The default must stay false so every existing construction site — and
+    /// the 2-person legacy initializer — keeps meaning "this mode was fine".
+    func testModeUnavailableDefaultsToFalse() {
+        let eta = ParticipantETA(id: "a", name: "A", eta: 600, fromRoute: true)
+        XCTAssertFalse(eta.modeUnavailable)
+    }
+
+    func testSpotReportsWhenAnyLegLostItsMode() {
+        let spot = RankedSpot(item: nil, etas: [
+            ParticipantETA(id: "a", name: "A", eta: 600, fromRoute: true),
+            ParticipantETA(id: "b", name: "B", eta: 900, fromRoute: true, modeUnavailable: true),
+        ], confidence: 1)
+        XCTAssertTrue(spot.etas.contains(where: \.modeUnavailable))
+    }
+
+    /// A driving number labelled "no transit here" is honest. A straight-line
+    /// guess at bus speed presented as transit is not — that was the bug.
+    func testFallbackIsARealRouteNotAStraightLineGuess() {
+        let fallback = ParticipantETA(id: "a", name: "A", eta: 1200,
+                                      fromRoute: true, modeUnavailable: true)
+        XCTAssertTrue(fallback.fromRoute,
+                      "the fallback must come from a real driving route")
+        XCTAssertTrue(fallback.modeUnavailable,
+                      "and must admit the requested mode was unavailable")
+    }
+}

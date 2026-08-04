@@ -124,6 +124,16 @@ extension ExpandedView {
     /// A spot past the user's max-drive-time preference says so first, so a
     /// demoted row explains its own position instead of looking mis-sorted.
     func spotRowSubtitle(_ spot: RankedSpot) -> String {
+        // Say it plainly when a planned mode couldn't be answered. Apple only
+        // returns transit times where it has coverage; these numbers are the
+        // real driving route instead, and presenting them as transit would be
+        // a lie the user can't detect (2026-08-04).
+        if spot.etas.contains(where: \.modeUnavailable) {
+            let people = spot.etas.prefix(3).map { eta in
+                "\(SpotETADisplay.shortName(for: eta.name)) \(Int((eta.eta / 60).rounded()))"
+            }
+            return (["No transit here — driving"] + people).joined(separator: " · ")
+        }
         let verdict = spot.exceedsDriveLimit
             ? "Over your limit"
             : SpotETADisplay.qualityWord(for: spot, bestWorstETA: spotBestWorstETA)

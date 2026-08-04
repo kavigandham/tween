@@ -97,16 +97,24 @@ struct PlanMeetupSheet: View {
     /// nothing at all (screenshot verify 2026-08-02).
     private var travelRoster: [Participant] {
         let localID = localParticipantID ?? TweenIdentity.stableID
-        if participants.contains(where: { $0.id == localID }) { return participants }
-        let me = Participant(
+        let me = LocalParticipantContext(id: localID,
+                                         name: UserProfile.displayName ?? UserName.fallback)
+        // `matches`, not raw id equality: a roster decoded from a legacy
+        // payload carries `id == name`, so an id-only test missed the local
+        // user and the sheet listed them TWICE — once as "You" and once under
+        // their own name, with the mode set on the wrong one (2026-08-04).
+        if participants.contains(where: { $0.matches(me) }) { return participants }
+        let synthesized = Participant(
             id: localID,
-            name: UserProfile.displayName ?? UserName.fallback,
+            name: me.name,
             coordinate: .init(latitude: 0, longitude: 0))
-        return [me] + participants
+        return [synthesized] + participants
     }
 
     private func travelModeRow(for participant: Participant) -> some View {
-        let isMe = participant.id == localParticipantID
+        let isMe = participant.matches(LocalParticipantContext(
+            id: localParticipantID ?? TweenIdentity.stableID,
+            name: UserProfile.displayName ?? UserName.fallback))
         return Picker(selection: Binding(
             get: { plan.mode(for: participant.id) },
             set: { plan.setMode($0, for: participant.id) }

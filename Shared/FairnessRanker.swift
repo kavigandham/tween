@@ -8,12 +8,23 @@ struct ParticipantETA: Identifiable, Equatable {
     let name: String
     let eta: TimeInterval    // seconds
     let fromRoute: Bool      // true → MKDirections succeeded; false → straight-line fallback
+    /// True when the planned travel mode could not be answered at all and this
+    /// number is for DRIVING instead.
+    ///
+    /// Transit is the case that matters: Apple only answers transit ETAs where
+    /// it has coverage, and the old code responded to "no transit here" by
+    /// inventing a straight-line time at bus speed — presenting a confident
+    /// "22 min by transit" in a town with no buses. A real driving number,
+    /// labelled, beats a fabricated transit one (2026-08-04).
+    let modeUnavailable: Bool
 
-    init(id: String, name: String, eta: TimeInterval, fromRoute: Bool) {
+    init(id: String, name: String, eta: TimeInterval,
+         fromRoute: Bool, modeUnavailable: Bool = false) {
         self.id = id
         self.name = name
         self.eta = eta
         self.fromRoute = fromRoute
+        self.modeUnavailable = modeUnavailable
     }
 }
 
@@ -252,7 +263,7 @@ enum FairnessRanker {
         let etas = await withTaskGroup(of: (Int, ParticipantETA).self) { group -> [ParticipantETA] in
             for (index, participant) in participants.enumerated() {
                 group.addTask {
-                    let (eta, ok) = await Self.eta(
+                    let (eta, ok, modeMissing) = await Self.eta(
                         from: participant.coordinate,
                         to: item,
                         mode: plan.mode(for: participant.id),
@@ -261,7 +272,8 @@ enum FairnessRanker {
                         id: participant.id,
                         name: participant.name,
                         eta: eta,
-                        fromRoute: ok
+                        fromRoute: ok,
+                        modeUnavailable: modeMissing
                     ))
                 }
             }
@@ -286,7 +298,7 @@ enum FairnessRanker {
         to item: MKMapItem,
         mode: TravelMode = .driving,
         arrivalDate: Date? = nil
-    ) async -> (TimeInterval, Bool) {
+    ) async -> (TimeInterval, Bool, Bool) {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
         request.destination = item
@@ -312,15 +324,30 @@ enum FairnessRanker {
             if let seconds = await DeadlinedSearch.eta(
                 for: request,
                 seconds: TimeInterval(routeTimeoutNanoseconds) / 1_000_000_000) {
-                return (seconds, true)
+                return (seconds, true, false)
             }
+            // No transit answer. Do NOT invent one at bus speed — ask for a
+            // real driving route and say the mode was unavailable. A wrong
+            // label on a true number is recoverable; a confident fabricated
+            // number is not.
+            let driving = MKDirections.Request()
+            driving.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
+            driving.destination = item
+            driving.transportType = .automobile
+            if let arrivalDate, arrivalDate > Date() { driving.arrivalDate = arrivalDate }
+            if let response = await calculateRoute(driving, timeoutNanoseconds: routeTimeoutNanoseconds),
+               let route = response.routes.first {
+                return (route.expectedTravelTime, true, true)
+            }
+            let from = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
+            return (estimatedETA(from: from, to: item, mode: .driving), false, true)
         } else if let response = await calculateRoute(request, timeoutNanoseconds: routeTimeoutNanoseconds),
                   let route = response.routes.first {
-            return (route.expectedTravelTime, true)
+            return (route.expectedTravelTime, true, false)
         }
 
         let from = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-        return (estimatedETA(from: from, to: item, mode: mode), false)
+        return (estimatedETA(from: from, to: item, mode: mode), false, false)
     }
 
     /// Builds a complete low-confidence spot without making a directions
