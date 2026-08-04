@@ -296,10 +296,15 @@ extension OnboardingView {
         // Only worth offering for a real group, and only for people we can
         // save — the local user isn't a "friend", and manual points aren't
         // people at all.
-        let savable = activeParticipantsForDisplay.filter {
-            !isLocalParticipant($0) && !$0.isManual
-        }
-        if savable.count >= 2 {
+        let savable = activeParticipantsForDisplay.filter { !isLocalParticipant($0) }
+        // Ask the BUILDER, not the raw count. Counting participants it will
+        // skip (unnamed) or merge (same name) produced a button that appeared,
+        // promised "save these 2", and then always refused — with a toast
+        // rendered behind the Friends sheet, so the tap looked dead
+        // (audit 2026-08-04).
+        let plan = MeetupGroupBuilder.build(participants: savable,
+                                            existing: FriendRoster.load())
+        if plan.memberIDs.count >= 2 {
             Button {
                 guard ProEntitlement.isUnlocked else {
                     friendsSubSheet = .paywall
@@ -307,7 +312,7 @@ extension OnboardingView {
                 }
                 saveCurrentMeetupAsGroup(savable)
             } label: {
-                Label("Save these \(savable.count) as a group", systemImage: "person.3.fill")
+                Label("Save these \(plan.memberIDs.count) as a group", systemImage: "person.3.fill")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.accent)
                     .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
@@ -324,11 +329,6 @@ extension OnboardingView {
     func saveCurrentMeetupAsGroup(_ participants: [Participant]) {
         let plan = MeetupGroupBuilder.build(participants: participants,
                                             existing: FriendRoster.load())
-        guard plan.memberIDs.count >= 2 else {
-            showToast("Need two people with names to make a group")
-            return
-        }
-
         // These people came from a Messages conversation, not Contacts, so they
         // have no handle — enough to group by, not enough to ping.
         for friend in plan.newFriends { FriendRoster.add(friend) }
@@ -339,12 +339,12 @@ extension OnboardingView {
         // behind when the user backs out is not the bargain (audit 2026-08-04).
         pendingGroupFriendIDs = plan.newFriends.map(\.id)
 
-        if plan.skipped > 0 {
-            showToast("Skipped \(plan.skipped) without a name")
-        }
         // Straight into the editor, unsaved, so the name is deliberate and
         // addresses can be filled in before it's committed.
-        friendsSubSheet = .groupEditor(FriendGroup(name: "", memberIDs: plan.memberIDs))
+        // group: nil — this one has never been saved, so the editor must open
+        // as "New Group" without a destructive Delete section for something
+        // that doesn't exist yet.
+        friendsSubSheet = .groupEditorDraft(plan.memberIDs)
     }
 
     /// Removes friends that `saveCurrentMeetupAsGroup` created when the user

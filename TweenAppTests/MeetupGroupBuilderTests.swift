@@ -74,13 +74,26 @@ final class MeetupGroupBuilderTests: XCTestCase {
         XCTAssertEqual(result.memberIDs, [b.id, a.id])
     }
 
-    func testEveryMemberIDIsResolvableAfterTheNewFriendsAreAdded() {
+    /// The MIXED case: some participants already friends, some new, with a
+    /// repeat spanning both. With `existing: []` this assertion is structurally
+    /// guaranteed and proves nothing — that version was near-tautological
+    /// (audit 2026-08-04).
+    func testEveryMemberIDResolvesAcrossExistingAndNewFriends() {
+        let ann = TweenFriend(name: "Ann")
         let result = MeetupGroupBuilder.build(
-            participants: [p("Kavi"), p("Maya")], existing: [])
-        let pool = result.newFriends
+            participants: [p("Ann"), p("Bo"), p("ann"), p("Cy")],
+            existing: [ann])
+
+        XCTAssertEqual(result.newFriends.map(\.name), ["Bo", "Cy"])
+        XCTAssertEqual(result.memberIDs.count, 3, "Ann must appear once, not twice")
+        XCTAssertEqual(result.memberIDs.first, ann.id)
+
+        // Every id must resolve against the roster as it will exist after the
+        // new friends are added — a member id with nothing behind it makes a
+        // silently smaller group.
+        let pool = [ann] + result.newFriends
         for id in result.memberIDs {
-            XCTAssertTrue(pool.contains { $0.id == id },
-                          "a member id with no friend behind it makes a silently smaller group")
+            XCTAssertTrue(pool.contains { $0.id == id })
         }
     }
 }

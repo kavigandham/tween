@@ -334,6 +334,11 @@ struct OnboardingView: View {
         case homeBase(TweenFriend)
         /// Pro: create (nil) or edit a group.
         case groupEditor(FriendGroup?)
+        /// Pro: a group pre-populated from the current meetup but NEVER saved.
+        /// Distinct from `.groupEditor(FriendGroup(...))` so the editor opens as
+        /// "New Group" instead of offering to delete something that doesn't
+        /// exist yet (audit 2026-08-04).
+        case groupEditorDraft([UUID])
         /// The Tween Pro paywall, shown when a locked user taps a Pro affordance.
         case paywall
 
@@ -344,6 +349,7 @@ struct OnboardingView: View {
             case .message(let m):    return "message-\(m.id)"
             case .homeBase(let f):   return "homeBase-\(f.id)"
             case .groupEditor(let g): return "groupEditor-\(g?.id.uuidString ?? "new")"
+            case .groupEditorDraft:  return "groupEditorDraft"
             case .paywall:           return "paywall"
             }
         }
@@ -844,7 +850,20 @@ struct OnboardingView: View {
                         // then-represent silently drops on iOS 26; the
                         // Invite/Add Friend/ping buttons were dead on device).
                         // Bonus: closing a child lands back on Friends free.
-                        .sheet(item: $friendsSubSheet) { sub in
+                        .sheet(item: $friendsSubSheet, onDismiss: {
+                            // ANY dismissal — Cancel, Delete, or an
+                            // interactive swipe — undoes friends the
+                            // save-as-group flow created. Hanging the rollback
+                            // off the toolbar Cancel alone left the pending
+                            // list armed for the whole session after a swipe:
+                            // a LATER, unrelated Cancel then deleted those
+                            // friends, by which point they could have home
+                            // bases and group memberships attached. That was
+                            // strictly worse than the orphans it replaced
+                            // (audit 2026-08-04). Save clears the list first,
+                            // so this is a no-op on the happy path.
+                            rollBackPendingGroupFriends()
+                        }) { sub in
                             switch sub {
                             case .contacts:
                                 ContactSearchView { friend in
@@ -879,6 +898,8 @@ struct OnboardingView: View {
                                 }
                             case .groupEditor(let group):
                                 groupEditorSheet(group)
+                            case .groupEditorDraft(let memberIDs):
+                                groupEditorSheet(nil, draftMemberIDs: memberIDs)
                             case .paywall:
                                 PaywallSheet()
                             }

@@ -77,9 +77,11 @@ extension OnboardingView {
     /// and place resolver through (so a member's address can be set without
     /// leaving the group) pushed that expression past the type-checker's limit.
     @ViewBuilder
-    func groupEditorSheet(_ group: FriendGroup?) -> some View {
+    func groupEditorSheet(_ group: FriendGroup?,
+                          draftMemberIDs: [UUID] = []) -> some View {
         GroupEditorSheet(
             group: group,
+            draftMemberIDs: draftMemberIDs,
             friends: friends,
             onSave: { saved in
                 GroupStore.upsert(saved)
@@ -101,11 +103,13 @@ extension OnboardingView {
                 friendsSubSheet = nil
             },
             onCancel: {
-                // Backing out undoes friends this flow created, but NOT any
-                // address set along the way — that's per-friend data the user
-                // deliberately saved, same as the friends-list path.
-                rollBackPendingGroupFriends()
-                friends = FriendRoster.load()
+                // Backing out undoes friends this flow created — INCLUDING any
+                // address set on them, because the friend row itself goes. (An
+                // earlier comment here claimed addresses survived; they don't,
+                // and saying so was simply wrong. Addresses on PRE-EXISTING
+                // friends do survive, since those rows are untouched.)
+                // The real rollback lives in the sheet's onDismiss so a swipe
+                // is covered too; this just closes.
                 friendsSubSheet = nil
             },
             onRosterChanged: { friends = FriendRoster.load() },

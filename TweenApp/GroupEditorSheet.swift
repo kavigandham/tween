@@ -8,6 +8,9 @@ import MapKit
 struct GroupEditorSheet: View {
     /// nil = creating a new group.
     var group: FriendGroup?
+    /// Members for a group being created from an existing meetup. Used only
+    /// when `group` is nil, so the sheet still reads as "New Group".
+    var draftMemberIDs: [UUID] = []
     var onSave: (FriendGroup) -> Void = { _ in }
     var onDelete: (UUID) -> Void = { _ in }
     /// Backing out. The parent uses this to undo friends it created just to
@@ -34,7 +37,9 @@ struct GroupEditorSheet: View {
     /// this one (the iOS 26 dismiss-then-re-present drops silently).
     @State private var addressTarget: TweenFriend?
 
-    init(group: FriendGroup? = nil, friends: [TweenFriend],
+    init(group: FriendGroup? = nil,
+         draftMemberIDs: [UUID] = [],
+         friends: [TweenFriend],
          onSave: @escaping (FriendGroup) -> Void = { _ in },
          onDelete: @escaping (UUID) -> Void = { _ in },
          onCancel: @escaping () -> Void = {},
@@ -44,6 +49,7 @@ struct GroupEditorSheet: View {
             span: .init(latitudeDelta: 0.5, longitudeDelta: 0.5)),
          resolvePlace: @escaping (String, MKCoordinateRegion) async -> [MKMapItem] = { _, _ in [] }) {
         self.group = group
+        self.draftMemberIDs = draftMemberIDs
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -52,7 +58,7 @@ struct GroupEditorSheet: View {
         self.resolvePlace = resolvePlace
         _friends = State(initialValue: friends)
         _name = State(initialValue: group?.name ?? "")
-        _selected = State(initialValue: Set(group?.memberIDs ?? []))
+        _selected = State(initialValue: Set(group?.memberIDs ?? draftMemberIDs))
     }
 
     private var canSave: Bool {
