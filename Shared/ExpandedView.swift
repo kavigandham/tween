@@ -633,12 +633,13 @@ struct ExpandedView: View {
                 .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 .background(Tokens.Palette.surfaceSecondary, in: Capsule())
 
-            TweenActionButton(selectedSpot == nil ? "Pick another" : "Send",
-                              // "Pick another", not "Change": the first tap
-                              // SELECTS the top-ranked alternative and nothing
-                              // sends, so a label promising a change described
-                              // an action that hadn't happened yet. The button
-                              // then becomes a plain Send for what's selected.
+            TweenActionButton(selectedSpot == nil ? "Others" : "Send",
+                              // "Others", not "Change": the first tap SELECTS the
+                              // top-ranked alternative and nothing sends, so a
+                              // label promising a change described an action
+                              // that hadn't happened yet. Short enough to survive
+                              // a 4-up row — "Pick another" truncated to
+                              // "Pick anot…" (App Store capture, 2026-08-03).
                               systemImage: selectedSpot == nil
                                   ? "list.bullet" : "paperplane.fill",
                               isEnabled: !rankedSpots.isEmpty && !isSending) {
@@ -672,12 +673,13 @@ struct ExpandedView: View {
             }
             .accessibilityHint("Sends that you agree to meet at \(received.text)")
 
-            TweenActionButton(selectedSpot == nil ? "Pick another" : "Send",
-                              // "Pick another", not "Change": the first tap
-                              // SELECTS the top-ranked alternative and nothing
-                              // sends, so a label promising a change described
-                              // an action that hadn't happened yet. The button
-                              // then becomes a plain Send for what's selected.
+            TweenActionButton(selectedSpot == nil ? "Others" : "Send",
+                              // "Others", not "Change": the first tap SELECTS the
+                              // top-ranked alternative and nothing sends, so a
+                              // label promising a change described an action
+                              // that hadn't happened yet. Short enough to survive
+                              // a 4-up row — "Pick another" truncated to
+                              // "Pick anot…" (App Store capture, 2026-08-03).
                               systemImage: selectedSpot == nil
                                   ? "list.bullet" : "paperplane.fill",
                               isEnabled: !rankedSpots.isEmpty && !isSending) {
