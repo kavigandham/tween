@@ -152,6 +152,9 @@ struct OnboardingView: View {
     /// Child sheet of the Friends sheet (contacts picker, invite share,
     /// message compose). See `FriendsSubSheet` for why this exists.
     @State var friendsSubSheet: FriendsSubSheet?
+    /// Work a Friends CHILD sheet handed back to be run once it is off screen,
+    /// because running it inline would re-point `friendsSubSheet` mid-present.
+    @State var pendingFriendSheetAction: (() -> Void)?
     @State var spotSubSheet: SpotSubSheet?
     @State var planSheet: PlanSheetItem?
     /// Friends created by "save this meetup as a group", pending the editor
@@ -333,9 +336,7 @@ struct OnboardingView: View {
         case contacts
         case invite
         case message(PendingMessage)
-        /// Pro: pick a friend's home base (place search → saved on the roster).
-        case homeBase(TweenFriend)
-        /// Pro: one friend's saved addresses — Home, Work, anywhere.
+        /// One friend's saved addresses — Home, Work, anywhere — plus ping.
         case friendPlaces(TweenFriend)
         /// Pro: create (nil) or edit a group.
         case groupEditor(FriendGroup?)
@@ -352,7 +353,6 @@ struct OnboardingView: View {
             case .contacts:          return "contacts"
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
-            case .homeBase(let f):   return "homeBase-\(f.id)"
             case .friendPlaces(let f): return "friendPlaces-\(f.id)"
             case .groupEditor(let g): return "groupEditor-\(g?.id.uuidString ?? "new")"
             case .groupEditorDraft:  return "groupEditorDraft"
@@ -879,6 +879,15 @@ struct OnboardingView: View {
                             // (audit 2026-08-04). Save clears the list first,
                             // so this is a no-op on the happy path.
                             rollBackPendingGroupFriends()
+                            // Anything a child sheet asked us to present in its
+                            // place (ping's composer, the paywall) runs HERE —
+                            // the binding is nil and the presentation is over,
+                            // so the next assignment is a fresh present rather
+                            // than a swap.
+                            if let action = pendingFriendSheetAction {
+                                pendingFriendSheetAction = nil
+                                Task { @MainActor in action() }
+                            }
                         }) { sub in
                             switch sub {
                             case .contacts:
@@ -900,24 +909,18 @@ struct OnboardingView: View {
                                         pending.onCancelled?()
                                     }
                                 }
-                            case .homeBase(let friend):
-                                AddPointSheet(
-                                    title: "\(friend.name)'s home base",
-                                    prompt: "The place they usually start from",
-                                    region: searchRegion,
-                                    resolvePlace: resolvePlace) { point in
-                                        FriendRoster.setHomeBase(id: friend.id,
-                                                                 coordinate: point.coordinate,
-                                                                 label: point.name)
-                                        friends = FriendRoster.load()
-                                        friendsSubSheet = nil
-                                }
                             case .friendPlaces(let friend):
                                 FriendPlacesSheet(
                                     friend: friend,
                                     searchRegion: searchRegion,
                                     resolvePlace: resolvePlace,
-                                    onPing: { pingFriend(friend) },
+                                    proUnlocked: ProEntitlement.isUnlocked,
+                                    // Parked, not run: both of these present
+                                    // through THIS binding, and doing that
+                                    // while the sheet is still up is the iOS 26
+                                    // item-swap drop.
+                                    onPing: { pendingFriendSheetAction = { pingFriend(friend) } },
+                                    onUpgrade: { pendingFriendSheetAction = { friendsSubSheet = .paywall } },
                                     onChanged: { friends = FriendRoster.load() })
                             case .groupEditor(let group):
                                 groupEditorSheet(group)

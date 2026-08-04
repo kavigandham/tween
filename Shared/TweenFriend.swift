@@ -76,10 +76,17 @@ struct TweenFriend: Identifiable, Codable, Equatable {
     /// surfacing it here (rather than migrating on write) means an older build
     /// reading the same App Group still finds what it expects, and nothing has
     /// to be rewritten on upgrade.
+    ///
+    /// The synthesized place borrows the FRIEND's id rather than minting one.
+    /// A fresh `UUID()` per read meant the id a view captured never matched the
+    /// id the next read produced, so deleting a migrated address silently did
+    /// nothing — every upgrading user's first swipe-to-delete was a no-op
+    /// (audit 2026-08-04). Place ids are only ever compared within one
+    /// friend's list, so reusing the friend's id collides with nothing.
     var places: [FriendPlace] {
         if let savedPlaces, !savedPlaces.isEmpty { return savedPlaces }
         guard let homeBase else { return [] }
-        return [FriendPlace(label: homeBaseLabel ?? "Home", coordinate: homeBase)]
+        return [FriendPlace(id: id, label: homeBaseLabel ?? "Home", coordinate: homeBase)]
     }
 
     /// The one a group search uses when it needs a single point for this
@@ -118,10 +125,14 @@ enum FriendRoster {
 
     /// Adds or refreshes a friend. Contacts can be selected more than once from
     /// the picker, so match stable identifiers/handles before appending. A
-    /// re-pick keeps the EXISTING row's id and home base — the id keys the
-    /// ping history and the home base is a Pro declaration; both were lost
+    /// re-pick keeps the EXISTING row's id and saved addresses — the id keys
+    /// the ping history and the addresses are a Pro declaration; both were lost
     /// when the whole struct (with a freshly minted UUID) replaced the row
     /// (post-push audit).
+    ///
+    /// EVERY carried field has to be listed here. `savedPlaces` was added and
+    /// not: re-picking a saved contact collapsed Home/Work/Gym down to
+    /// whichever one the legacy columns mirrored (audit 2026-08-04).
     static func add(_ friend: TweenFriend) {
         var friends = load()
         if let index = friends.firstIndex(where: { $0.representsSamePerson(as: friend) }) {
@@ -133,7 +144,8 @@ enum FriendRoster {
                 handle: friend.handle ?? existing.handle,
                 homeBaseLatitude: friend.homeBaseLatitude ?? existing.homeBaseLatitude,
                 homeBaseLongitude: friend.homeBaseLongitude ?? existing.homeBaseLongitude,
-                homeBaseLabel: friend.homeBaseLabel ?? existing.homeBaseLabel)
+                homeBaseLabel: friend.homeBaseLabel ?? existing.homeBaseLabel,
+                savedPlaces: friend.savedPlaces ?? existing.savedPlaces)
             save(friends)
             return
         }
@@ -141,13 +153,14 @@ enum FriendRoster {
         save(friends)
     }
 
-    /// Sets (or replaces) a friend's home base in place, keeping the id.
-    static func setHomeBase(id: UUID, coordinate: CLLocationCoordinate2D, label: String?) {
-        addPlace(id: id, label: label ?? "Home", coordinate: coordinate)
-    }
-
     /// Adds a labelled address. Re-using a label replaces that address rather
     /// than stacking a second "Home".
+    ///
+    /// This is the ONLY way to write an address. A `setHomeBase(coordinate:
+    /// label:)` convenience used to sit on top of it, and every caller passed
+    /// the searched place's NAME as the label — which never matched twice, so
+    /// "change this friend's address" appended a row and the old address stayed
+    /// in force (audit 2026-08-04). Callers pick a real label.
     static func addPlace(id: UUID, label: String, coordinate: CLLocationCoordinate2D) {
         var friends = load()
         guard let index = friends.firstIndex(where: { $0.id == id }) else { return }

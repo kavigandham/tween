@@ -33,9 +33,9 @@ struct GroupEditorSheet: View {
     /// the parent's `friends` array is a value passed in at present time and
     /// won't reflect a write made from inside this sheet.
     @State private var friends: [TweenFriend]
-    /// The member whose address we're picking. A child sheet, not a swap of
-    /// this one (the iOS 26 dismiss-then-re-present drops silently).
-    @State private var addressTarget: TweenFriend?
+    /// The member whose addresses we're editing, pushed onto this sheet's own
+    /// navigation stack.
+    @State private var addressTarget: UUID?
 
     init(group: FriendGroup? = nil,
          draftMemberIDs: [UUID] = [],
@@ -91,8 +91,8 @@ struct GroupEditorSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(friend.name)
                                         .foregroundStyle(Tokens.Palette.textPrimary)
-                                    if let label = friend.homeBaseLabel, friend.homeBase != nil {
-                                        Label(label, systemImage: "house.fill")
+                                    if let primary = friend.primaryPlace {
+                                        Label(primary.label, systemImage: "house.fill")
                                             .font(Tokens.Typography.caption)
                                             .foregroundStyle(Tokens.Palette.textSecondary)
                                     } else {
@@ -120,18 +120,32 @@ struct GroupEditorSheet: View {
                         // one — hiding it behind a gesture nobody thinks to try
                         // is the same as not shipping it (device report
                         // 2026-08-03).
-                        Button { addressTarget = friend } label: {
-                            Image(systemName: friend.homeBase == nil
-                                  ? "house.badge.plus" : "house.fill")
+                        //
+                        // PUSHES the shared address list rather than owning a
+                        // second, subtly different editor. The one that lived
+                        // here wrote each new place under the searched place's
+                        // NAME, which never matched the previous label, so
+                        // "Change address" appended a row and left the old
+                        // address in force — inert on every use after the first
+                        // (audit 2026-08-04).
+                        //
+                        // A programmatic push, not a `NavigationLink`: a link
+                        // inside a List row makes the List draw its own
+                        // disclosure chevron, which collided with the row's
+                        // selection control and read as two competing
+                        // affordances (sim check 2026-08-04).
+                        Button { addressTarget = friend.id } label: {
+                            Image(systemName: friend.primaryPlace == nil
+                                  ? "plus.circle.fill" : "house.fill")
                                 .font(Tokens.Typography.headline)
-                                .foregroundStyle(friend.homeBase == nil
+                                .foregroundStyle(friend.primaryPlace == nil
                                                  ? Tokens.Palette.brand : Tokens.Palette.textTertiary)
                                 .frame(width: Tokens.Layout.minTapTarget,
                                        height: Tokens.Layout.minTapTarget)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(friend.homeBase == nil
+                        .accessibilityLabel(friend.primaryPlace == nil
                                             ? "Set \(friend.name)'s address"
                                             : "Change \(friend.name)'s address")
                       }
@@ -152,23 +166,24 @@ struct GroupEditorSheet: View {
                     }
                 }
             }
-            .sheet(item: $addressTarget) { friend in
-                AddPointSheet(
-                    title: "\(friend.name)'s address",
-                    prompt: "Where they usually start from",
-                    region: searchRegion,
-                    resolvePlace: resolvePlace) { point in
-                        FriendRoster.setHomeBase(id: friend.id,
-                                                 coordinate: point.coordinate,
-                                                 label: point.name)
-                        // Reload so the row updates without closing the group.
-                        friends = FriendRoster.load()
-                        // Tell the parent too — its `friends` copy is what
-                        // openGroup reads, and a stale copy made the whole
-                        // feature refuse to open (audit 2026-08-04).
-                        onRosterChanged()
-                        addressTarget = nil
-                    }
+            // Keyed on the ID, not the struct: the destination has to rebuild
+            // from the RELOADED roster after a write, or the pushed list keeps
+            // showing the addresses the row had when it was tapped.
+            .navigationDestination(item: $addressTarget) { id in
+                if let friend = friends.first(where: { $0.id == id }) {
+                    FriendPlacesList(
+                        friend: friend,
+                        searchRegion: searchRegion,
+                        resolvePlace: resolvePlace,
+                        onChanged: {
+                            // Reload so the row updates without closing the
+                            // group; tell the parent too — its copy is what
+                            // openGroup reads, and a stale one made the whole
+                            // feature refuse to open.
+                            friends = FriendRoster.load()
+                            onRosterChanged()
+                        })
+                }
             }
             .navigationTitle(group == nil ? "New Group" : "Edit Group")
             .navigationBarTitleDisplayMode(.inline)

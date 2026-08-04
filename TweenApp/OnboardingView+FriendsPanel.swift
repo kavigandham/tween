@@ -73,7 +73,7 @@ extension OnboardingView {
                         // lives one tap deeper, alongside them (2026-08-04).
                         .onTapGesture { openFriend(friend) }
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Opens \(friend.name)'s addresses")
+                        .accessibilityHint("Opens \(friend.name)'s addresses and ping")
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 deleteFriend(friend)
@@ -245,15 +245,14 @@ extension OnboardingView {
         showToast("\(group.name) is on the map — pick a category to find fair spots")
     }
 
-    /// Pro gate for the per-friend home-base picker.
-    func setHomeBase(for friend: TweenFriend) {
-        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
-        friendsSubSheet = .homeBase(friend)
-    }
-
     /// Opens one friend: their saved addresses, and ping.
+    ///
+    /// Deliberately NOT Pro-gated. Ping is a free feature and lives in here, so
+    /// gating the whole sheet put a paywall on the row's only tap and left free
+    /// users with a swipe as the sole route to ping — the "hidden behind a
+    /// gesture is the same as unshipped" trap, again. The gate sits on SAVING
+    /// an address instead, which is the part Pro actually buys.
     func openFriend(_ friend: TweenFriend) {
-        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
         friendsSubSheet = .friendPlaces(friend)
     }
 

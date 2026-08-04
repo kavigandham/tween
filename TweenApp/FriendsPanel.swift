@@ -62,17 +62,22 @@ struct FriendRow: View {
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                     .lineLimit(1)
-                // Pro home base — where group searches place this friend.
-                if let label = friend.homeBaseLabel, friend.homeBase != nil {
-                    Label(label, systemImage: "house.fill")
+                // Pro addresses — where group searches place this friend.
+                if let primary = friend.primaryPlace {
+                    let extras = friend.places.count - 1
+                    Label(extras > 0 ? "\(primary.label) +\(extras)" : primary.label,
+                          systemImage: "house.fill")
                         .font(Tokens.Typography.caption)
                         .foregroundStyle(Tokens.Palette.accent)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
-            Image(systemName: "paperplane.fill")
-                .foregroundStyle(Tokens.Palette.textSecondary)
+            // A chevron, not a paperplane: the tap opens the friend now. The
+            // send glyph promised an action the row no longer performs.
+            Image(systemName: "chevron.right")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
         }
         .padding(.vertical, Tokens.Spacing.s1)
         .frame(minHeight: Tokens.Layout.minTapTarget)

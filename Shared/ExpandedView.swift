@@ -247,6 +247,20 @@ struct ExpandedView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The pill belongs to ALL THREE states, not just browse. It used to
+        // hang off `browseLayout` alone, so the two hero states — an invite
+        // bubble and an agreed meetup, the first thing most recipients ever
+        // see — had no way to report anything. Tap "I'm in" with location
+        // denied, or "Open in Maps" offline, and you got a brief spinner and
+        // then silence (audit 2026-08-04). Every layout here is
+        // `mapSection` + a bottom inset, so the top overlay lands identically
+        // in each.
+        .overlay(alignment: .top) {
+            if let pill = statusPill {
+                statusPillView(pill.text, isError: pill.isError)
+                    .padding(.top, Tokens.Spacing.s3)
+            }
+        }
         // Opaque background for the expanded surface for the same reason
         // CompactView sets one — never read as transparent against the
         // iMessage host.
@@ -261,13 +275,8 @@ struct ExpandedView: View {
         // ABOVE it and frames its content there — the old full-bleed-behind-panel
         // layout hid the map's lower half under the panel and read as "cut off"
         // (device feedback). The panel keeps its floating material look.
+        // The status pill lives on `body` so all three layouts get it.
         mapSection
-            .overlay(alignment: .top) {
-                if let pill = statusPill {
-                    statusPillView(pill.text, isError: pill.isError)
-                        .padding(.top, Tokens.Spacing.s3)
-                }
-            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 browsePanel
             }

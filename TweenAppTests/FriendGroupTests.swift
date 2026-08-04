@@ -22,9 +22,9 @@ final class FriendGroupTests: XCTestCase {
     func testHomeBaseRoundTrips() {
         let friend = TweenFriend(name: "Kavi")
         FriendRoster.save([friend])
-        FriendRoster.setHomeBase(id: friend.id,
-                                 coordinate: CLLocationCoordinate2D(latitude: 37.33, longitude: -121.89),
-                                 label: "Kavi's place")
+        FriendRoster.addPlace(id: friend.id,
+                              label: "Kavi's place",
+                              coordinate: CLLocationCoordinate2D(latitude: 37.33, longitude: -121.89))
         let loaded = FriendRoster.load()
         XCTAssertEqual(loaded.first?.homeBase?.latitude, 37.33)
         XCTAssertEqual(loaded.first?.homeBaseLabel, "Kavi's place")
@@ -49,9 +49,12 @@ final class FriendGroupTests: XCTestCase {
     func testContactRepickPreservesIdentityAndHomeBase() {
         let original = TweenFriend(name: "Kavi", contactIdentifier: "CN-1", handle: "555-0101")
         FriendRoster.add(original)
-        FriendRoster.setHomeBase(id: original.id,
-                                 coordinate: CLLocationCoordinate2D(latitude: 37.33, longitude: -121.89),
-                                 label: "Kavi's place")
+        FriendRoster.addPlace(id: original.id,
+                              label: "Kavi's place",
+                              coordinate: CLLocationCoordinate2D(latitude: 37.33, longitude: -121.89))
+        FriendRoster.addPlace(id: original.id,
+                              label: "Work",
+                              coordinate: CLLocationCoordinate2D(latitude: 37.44, longitude: -121.99))
         // The picker mints a fresh UUID for the same human.
         FriendRoster.add(TweenFriend(name: "Kavi G", contactIdentifier: "CN-1", handle: "555-0101"))
 
@@ -60,6 +63,9 @@ final class FriendGroupTests: XCTestCase {
         XCTAssertEqual(loaded.first?.id, original.id)
         XCTAssertEqual(loaded.first?.name, "Kavi G")
         XCTAssertEqual(loaded.first?.homeBaseLabel, "Kavi's place")
+        // EVERY address, not just the one the legacy columns mirror. Re-picking
+        // a saved contact used to collapse the list down to one (audit).
+        XCTAssertEqual(loaded.first?.places.map(\.label), ["Kavi's place", "Work"])
     }
 
     // 4. GroupStore upsert replaces by id; delete removes; order stable.
@@ -149,6 +155,26 @@ final class FriendPlacesTests: XCTestCase {
                                  homeBaseLabel: "Maya's place")
         XCTAssertEqual(legacy.places.map(\.label), ["Maya's place"])
         XCTAssertEqual(legacy.primaryPlace?.latitude ?? 0, 37.5, accuracy: 0.001)
+    }
+
+    /// The id a view captured has to be the id the next read produces.
+    /// Synthesizing the migrated place with a fresh `UUID()` per read meant
+    /// `removePlace` never matched, so an upgrading user's first swipe-to-delete
+    /// silently did nothing and the row stayed put (audit 2026-08-04).
+    func testMigratedLegacyPlaceHasAStableIDAndCanBeDeleted() {
+        let legacy = TweenFriend(name: "Maya",
+                                 homeBaseLatitude: 37.5, homeBaseLongitude: -122,
+                                 homeBaseLabel: "Maya's place")
+        FriendRoster.save([legacy])
+
+        let firstRead = FriendRoster.load().first?.places.first?.id
+        let secondRead = FriendRoster.load().first?.places.first?.id
+        XCTAssertEqual(firstRead, secondRead)
+
+        FriendRoster.removePlace(id: legacy.id, placeID: firstRead!)
+        let loaded = FriendRoster.load().first
+        XCTAssertTrue(loaded?.places.isEmpty ?? false)
+        XCTAssertNil(loaded?.homeBase)
     }
 
     func testRemovingTheLastPlaceLeavesNoHomeBase() {
