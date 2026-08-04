@@ -875,17 +875,7 @@ struct OnboardingView: View {
                                         friendsSubSheet = nil
                                 }
                             case .groupEditor(let group):
-                                GroupEditorSheet(group: group, friends: friends,
-                                                 onSave: { saved in
-                                                     GroupStore.upsert(saved)
-                                                     groups = GroupStore.load()
-                                                     friendsSubSheet = nil
-                                                 },
-                                                 onDelete: { id in
-                                                     GroupStore.delete(id: id)
-                                                     groups = GroupStore.load()
-                                                     friendsSubSheet = nil
-                                                 })
+                                groupEditorSheet(group)
                             case .paywall:
                                 PaywallSheet()
                             }

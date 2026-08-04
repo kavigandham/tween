@@ -279,8 +279,68 @@ extension OnboardingView {
                     }
                 }
                 .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+
+                saveAsGroupButton
             }
         }
+    }
+
+    /// Turn whoever is already in this meetup into a saved group (Pro).
+    ///
+    /// Groups previously had to be assembled by hand from the friends list,
+    /// which is backwards: the people you actually meet with are already
+    /// standing right there in the roster. This is the moment the group is
+    /// obvious (device report 2026-08-03).
+    @ViewBuilder
+    var saveAsGroupButton: some View {
+        // Only worth offering for a real group, and only for people we can
+        // save — the local user isn't a "friend", and manual points aren't
+        // people at all.
+        let savable = activeParticipantsForDisplay.filter {
+            !isLocalParticipant($0) && !$0.isManual
+        }
+        if savable.count >= 2 {
+            Button {
+                guard ProEntitlement.isUnlocked else {
+                    friendsSubSheet = .paywall
+                    return
+                }
+                saveCurrentMeetupAsGroup(savable)
+            } label: {
+                Label("Save these \(savable.count) as a group", systemImage: "person.3.fill")
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.accent)
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                    .background(Tokens.Palette.neutralAction, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Saves everyone in this meetup as a reusable group")
+        }
+    }
+
+    /// Adds anyone not already a friend, then opens the group editor prefilled
+    /// with them — so the user names it and can set addresses in one pass
+    /// rather than rebuilding the roster by hand.
+    func saveCurrentMeetupAsGroup(_ participants: [Participant]) {
+        var roster = FriendRoster.load()
+        for participant in participants {
+            let already = roster.contains { $0.name.compare(
+                participant.name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+            guard !already else { continue }
+            // No handle: these people came from a Messages conversation, not
+            // Contacts. The name is what we have, and it's enough to group by.
+            FriendRoster.add(TweenFriend(name: participant.name))
+        }
+        roster = FriendRoster.load()
+        friends = roster
+
+        let memberIDs = participants.compactMap { participant in
+            roster.first { $0.name.compare(
+                participant.name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }?.id
+        }
+        // Straight into the editor, unsaved, so the name is deliberate and
+        // addresses can be filled in before it's committed.
+        friendsSubSheet = .groupEditor(FriendGroup(name: "", memberIDs: memberIDs))
     }
 
     /// Identity-based "is this the local user" test (audit F2 step 4). The old

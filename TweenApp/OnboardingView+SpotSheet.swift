@@ -73,6 +73,28 @@ extension OnboardingView {
         }
     }
 
+    /// Extracted from the friends sub-sheet switch: passing the search region
+    /// and place resolver through (so a member's address can be set without
+    /// leaving the group) pushed that expression past the type-checker's limit.
+    @ViewBuilder
+    func groupEditorSheet(_ group: FriendGroup?) -> some View {
+        GroupEditorSheet(
+            group: group,
+            friends: friends,
+            onSave: { saved in
+                GroupStore.upsert(saved)
+                groups = GroupStore.load()
+                friendsSubSheet = nil
+            },
+            onDelete: { id in
+                GroupStore.delete(id: id)
+                groups = GroupStore.load()
+                friendsSubSheet = nil
+            },
+            searchRegion: searchRegion,
+            resolvePlace: resolvePlace)
+    }
+
     @ViewBuilder
     func spotSubSheetContent(_ sub: SpotSubSheet) -> some View {
         switch sub {

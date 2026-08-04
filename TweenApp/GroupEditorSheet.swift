@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 /// Create or edit a friend group (Pro): name the group, tick its members.
 /// Rows surface each friend's home-base status because the group's whole
@@ -7,21 +8,39 @@ import SwiftUI
 struct GroupEditorSheet: View {
     /// nil = creating a new group.
     var group: FriendGroup?
-    let friends: [TweenFriend]
     var onSave: (FriendGroup) -> Void = { _ in }
     var onDelete: (UUID) -> Void = { _ in }
+    /// Search region + resolver for the inline address picker, so a member's
+    /// home base can be set WITHOUT leaving the group you're building.
+    var searchRegion: MKCoordinateRegion = MKCoordinateRegion(
+        center: .init(latitude: 39.8283, longitude: -98.5795),
+        span: .init(latitudeDelta: 0.5, longitudeDelta: 0.5))
+    var resolvePlace: (String, MKCoordinateRegion) async -> [MKMapItem] = { _, _ in [] }
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var selected: Set<UUID>
+    /// Local copy so a freshly-set address shows immediately in this list —
+    /// the parent's `friends` array is a value passed in at present time and
+    /// won't reflect a write made from inside this sheet.
+    @State private var friends: [TweenFriend]
+    /// The member whose address we're picking. A child sheet, not a swap of
+    /// this one (the iOS 26 dismiss-then-re-present drops silently).
+    @State private var addressTarget: TweenFriend?
 
     init(group: FriendGroup? = nil, friends: [TweenFriend],
          onSave: @escaping (FriendGroup) -> Void = { _ in },
-         onDelete: @escaping (UUID) -> Void = { _ in }) {
+         onDelete: @escaping (UUID) -> Void = { _ in },
+         searchRegion: MKCoordinateRegion = MKCoordinateRegion(
+            center: .init(latitude: 39.8283, longitude: -98.5795),
+            span: .init(latitudeDelta: 0.5, longitudeDelta: 0.5)),
+         resolvePlace: @escaping (String, MKCoordinateRegion) async -> [MKMapItem] = { _, _ in [] }) {
         self.group = group
-        self.friends = friends
         self.onSave = onSave
         self.onDelete = onDelete
+        self.searchRegion = searchRegion
+        self.resolvePlace = resolvePlace
+        _friends = State(initialValue: friends)
         _name = State(initialValue: group?.name ?? "")
         _selected = State(initialValue: Set(group?.memberIDs ?? []))
     }
@@ -43,6 +62,7 @@ struct GroupEditorSheet: View {
                             .foregroundStyle(Tokens.Palette.textSecondary)
                     }
                     ForEach(friends) { friend in
+                      HStack(spacing: Tokens.Spacing.s2) {
                         Button { toggle(friend.id) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -53,7 +73,7 @@ struct GroupEditorSheet: View {
                                             .font(Tokens.Typography.caption)
                                             .foregroundStyle(Tokens.Palette.textSecondary)
                                     } else {
-                                        Text("No home base yet")
+                                        Text("No address yet")
                                             .font(Tokens.Typography.caption)
                                             .foregroundStyle(Tokens.Palette.textTertiary)
                                     }
@@ -68,7 +88,29 @@ struct GroupEditorSheet: View {
                                 }
                             }
                         }
+                        .buttonStyle(.plain)
                         .accessibilityAddTraits(selected.contains(friend.id) ? .isSelected : [])
+
+                        // VISIBLE, not a swipe action. Setting an address is
+                        // the whole reason you're in here for a member without
+                        // one — hiding it behind a gesture nobody thinks to try
+                        // is the same as not shipping it (device report
+                        // 2026-08-03).
+                        Button { addressTarget = friend } label: {
+                            Image(systemName: friend.homeBase == nil
+                                  ? "house.badge.plus" : "house.fill")
+                                .font(Tokens.Typography.headline)
+                                .foregroundStyle(friend.homeBase == nil
+                                                 ? Tokens.Palette.brand : Tokens.Palette.textTertiary)
+                                .frame(width: Tokens.Layout.minTapTarget,
+                                       height: Tokens.Layout.minTapTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(friend.homeBase == nil
+                                            ? "Set \(friend.name)'s address"
+                                            : "Change \(friend.name)'s address")
+                      }
                     }
                 } header: {
                     Text("Members")
@@ -85,6 +127,20 @@ struct GroupEditorSheet: View {
                         }
                     }
                 }
+            }
+            .sheet(item: $addressTarget) { friend in
+                AddPointSheet(
+                    title: "\(friend.name)'s address",
+                    prompt: "Where they usually start from",
+                    region: searchRegion,
+                    resolvePlace: resolvePlace) { point in
+                        FriendRoster.setHomeBase(id: friend.id,
+                                                 coordinate: point.coordinate,
+                                                 label: point.name)
+                        // Reload so the row updates without closing the group.
+                        friends = FriendRoster.load()
+                        addressTarget = nil
+                    }
             }
             .navigationTitle(group == nil ? "New Group" : "Edit Group")
             .navigationBarTitleDisplayMode(.inline)
