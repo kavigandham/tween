@@ -357,7 +357,7 @@ extension OnboardingView {
         // that now CONTAINS the friends the first tap made, so newFriends comes
         // back empty and the assignment below would wipe the undo record,
         // stranding them permanently (audit 2026-08-04).
-        guard pendingGroupFriendIDs.isEmpty else { return }
+        guard !pendingGroupFriends.isArmed else { return }
         let plan = MeetupGroupBuilder.build(participants: participants,
                                             existing: FriendRoster.load())
         // These people came from a Messages conversation, not Contacts, so they
@@ -368,7 +368,7 @@ extension OnboardingView {
         // Remember what we just created so Cancel can undo it. Creating friends
         // is a side effect of a button that promises a GROUP; leaving them
         // behind when the user backs out is not the bargain (audit 2026-08-04).
-        pendingGroupFriendIDs = plan.newFriends.map(\.id)
+        pendingGroupFriends.arm(plan.newFriends.map(\.id))
 
         // Straight into the editor, unsaved, so the name is deliberate and
         // addresses can be filled in before it's committed.
@@ -381,10 +381,10 @@ extension OnboardingView {
     /// Removes friends that `saveCurrentMeetupAsGroup` created when the user
     /// backs out of the editor without saving a group.
     func rollBackPendingGroupFriends() {
-        guard !pendingGroupFriendIDs.isEmpty else { return }
-        for id in pendingGroupFriendIDs { FriendRoster.delete(id: id) }
+        let ids = pendingGroupFriends.takeForRollback()
+        guard !ids.isEmpty else { return }
+        for id in ids { FriendRoster.delete(id: id) }
         friends = FriendRoster.load()
-        pendingGroupFriendIDs = []
     }
 
     /// Identity-based "is this the local user" test (audit F2 step 4). The old

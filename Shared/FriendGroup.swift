@@ -123,3 +123,43 @@ enum MeetupGroupBuilder {
         return result
     }
 }
+
+/// The undo record for friends created speculatively by "save this meetup as a
+/// group": they must exist for the editor to show them, but must not survive
+/// the user backing out.
+///
+/// A plain value type with no SwiftUI in it, because the last three defects in
+/// this feature were all in view-layer state that no test could reach — a bare
+/// `@State var [UUID]` that could be double-armed, cleared on one dismissal
+/// route but not another, and read after its flow was gone. The pure mapping
+/// beside it (`MeetupGroupBuilder`) has had no such trouble. Same treatment:
+///
+///     arm(_:)            once — a second call is refused, not overwritten
+///     commit()           the group was saved; forget them, don't delete
+///     takeForRollback()  hand back the ids AND disarm, so it cannot fire twice
+struct PendingGroupFriends: Equatable {
+    private(set) var ids: [UUID] = []
+
+    var isArmed: Bool { !ids.isEmpty }
+
+    /// Records friends to undo. Returns false when already armed — a second
+    /// tap re-runs the builder against a roster that now contains the first
+    /// tap's friends, so it yields nothing and would otherwise WIPE the undo
+    /// record, stranding them permanently.
+    @discardableResult
+    mutating func arm(_ newIDs: [UUID]) -> Bool {
+        guard !isArmed else { return false }
+        ids = newIDs
+        return true
+    }
+
+    /// The group was saved: these friends are keepers.
+    mutating func commit() { ids = [] }
+
+    /// Ids to delete, disarming in the same step so a later dismissal of an
+    /// unrelated sheet can't delete them a second time.
+    mutating func takeForRollback() -> [UUID] {
+        defer { ids = [] }
+        return ids
+    }
+}

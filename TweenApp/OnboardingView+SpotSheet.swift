@@ -94,7 +94,7 @@ extension OnboardingView {
                 // path this replaced did reload; dropping that line made the
                 // whole feature inert (audit 2026-08-04).
                 friends = FriendRoster.load()
-                pendingGroupFriendIDs = []
+                pendingGroupFriends.commit()
                 friendsSubSheet = nil
             },
             onDelete: { id in

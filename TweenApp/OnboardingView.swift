@@ -154,9 +154,12 @@ struct OnboardingView: View {
     @State var friendsSubSheet: FriendsSubSheet?
     @State var spotSubSheet: SpotSubSheet?
     @State var planSheet: PlanSheetItem?
-    /// Friends created by "save this meetup as a group", pending the
-    /// editor being saved. Cleared on save, rolled back on cancel.
-    @State var pendingGroupFriendIDs: [UUID] = []
+    /// Friends created by "save this meetup as a group", pending the editor
+    /// being saved. A value type rather than a bare array so arm-once,
+    /// commit, and take-and-disarm are enforced by `PendingGroupFriends`
+    /// itself — three defects in a row came from call sites forgetting one of
+    /// those (audit 2026-08-04).
+    @State var pendingGroupFriends = PendingGroupFriends()
     /// The "Your Name" prompt, scoped to the FRIENDS sheet — the root prompt
     /// is attached to the permanent sheet's content, which cannot present an
     /// alert while the Friends sheet is up (W13 trap). `ensureNamed` routes.
