@@ -335,6 +335,8 @@ struct OnboardingView: View {
         case message(PendingMessage)
         /// Pro: pick a friend's home base (place search → saved on the roster).
         case homeBase(TweenFriend)
+        /// Pro: one friend's saved addresses — Home, Work, anywhere.
+        case friendPlaces(TweenFriend)
         /// Pro: create (nil) or edit a group.
         case groupEditor(FriendGroup?)
         /// Pro: a group pre-populated from the current meetup but NEVER saved.
@@ -351,6 +353,7 @@ struct OnboardingView: View {
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
             case .homeBase(let f):   return "homeBase-\(f.id)"
+            case .friendPlaces(let f): return "friendPlaces-\(f.id)"
             case .groupEditor(let g): return "groupEditor-\(g?.id.uuidString ?? "new")"
             case .groupEditorDraft:  return "groupEditorDraft"
             case .paywall:           return "paywall"
@@ -909,6 +912,13 @@ struct OnboardingView: View {
                                         friends = FriendRoster.load()
                                         friendsSubSheet = nil
                                 }
+                            case .friendPlaces(let friend):
+                                FriendPlacesSheet(
+                                    friend: friend,
+                                    searchRegion: searchRegion,
+                                    resolvePlace: resolvePlace,
+                                    onPing: { pingFriend(friend) },
+                                    onChanged: { friends = FriendRoster.load() })
                             case .groupEditor(let group):
                                 groupEditorSheet(group)
                             case .groupEditorDraft(let memberIDs):

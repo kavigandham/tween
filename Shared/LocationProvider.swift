@@ -96,6 +96,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
+            // Arm the watchdog HERE too. With Location Services off
+            // system-wide, iOS shows "Turn On Location Services?" — and
+            // declining leaves authorization at .notDetermined with no
+            // callback ever arriving. `status` then sat at .requesting
+            // forever, which disables the primary CTA: a permanent spinner
+            // recoverable only by force-quitting (audit 2026-08-04). The
+            // deadline is generous because the user may be reading the alert.
+            armAuthorizationWatchdog()
         case .authorizedWhenInUse, .authorizedAlways:
             manager.startUpdatingLocation()
             // Authorized but no fix yet (cold launch): ask for one instead of
@@ -136,6 +144,18 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
 
+    /// Fails the request if authorization never resolves. Cancelled by the
+    /// authorization delegate on any real answer, including denial.
+    private func armAuthorizationWatchdog() {
+        fixWatchdog?.cancel()
+        fixWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled, let self, self.status == .requesting,
+                  self.manager.authorizationStatus == .notDetermined else { return }
+            self.status = .failed
+        }
+    }
+
     private func requestFix() {
         manager.requestLocation()
         fixWatchdog?.cancel()
@@ -168,6 +188,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
             // transition (via settle) — this delegate can be called off-main, and
             // a bare `status =` here was an off-main write to @Observable state.
             Task { @MainActor in
+                self.fixWatchdog?.cancel()
                 if self.status == .requesting || self.status == .denied {
                     self.status = .requesting
                     self.requestFix()

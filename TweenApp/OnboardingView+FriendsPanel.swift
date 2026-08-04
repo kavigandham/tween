@@ -66,9 +66,14 @@ extension OnboardingView {
                 ForEach(friends) { friend in
                     FriendRow(friend: friend, pingTick: pingTick)
                         .contentShape(Rectangle())
-                        .onTapGesture { pingFriend(friend) }
+                        // Opens the friend rather than firing a ping. A single
+                        // tap sending a message is an irreversible action on
+                        // the row's most obvious gesture, and there was nowhere
+                        // to manage a friend's addresses at all — ping now
+                        // lives one tap deeper, alongside them (2026-08-04).
+                        .onTapGesture { openFriend(friend) }
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Pings \(friend.name) to meet up")
+                        .accessibilityHint("Opens \(friend.name)'s addresses")
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 deleteFriend(friend)
@@ -81,10 +86,10 @@ extension OnboardingView {
                             .tint(Tokens.Palette.pinSelf)
                         }
                         .swipeActions(edge: .leading) {
-                            // Pro: declare where this friend usually starts
-                            // from, so groups can search without live shares.
-                            Button { setHomeBase(for: friend) } label: {
-                                Label("Home Base", systemImage: "house.fill")
+                            // Ping keeps a one-gesture route now that the tap
+                            // opens the friend instead.
+                            Button { pingFriend(friend) } label: {
+                                Label("Ping", systemImage: "paperplane.fill")
                             }
                             .tint(Tokens.Palette.accent)
                         }
@@ -244,6 +249,12 @@ extension OnboardingView {
     func setHomeBase(for friend: TweenFriend) {
         guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
         friendsSubSheet = .homeBase(friend)
+    }
+
+    /// Opens one friend: their saved addresses, and ping.
+    func openFriend(_ friend: TweenFriend) {
+        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
+        friendsSubSheet = .friendPlaces(friend)
     }
 
     var meetupStatusSection: some View {

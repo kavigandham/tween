@@ -110,9 +110,16 @@ enum ProEntitlement {
         updatesTask = Task {
             await refresh()
             for await update in Transaction.updates {
-                guard case .verified(let transaction) = update else { continue }
-                await transaction.finish()
-                await refresh()
+                // Finish BOTH outcomes. `continue` on unverified left the
+                // transaction unfinished, so StoreKit re-delivered it on every
+                // launch for the life of the install (audit 2026-08-04).
+                switch update {
+                case .verified(let transaction):
+                    await transaction.finish()
+                    await refresh()
+                case .unverified(let transaction, _):
+                    await transaction.finish()
+                }
             }
         }
     }

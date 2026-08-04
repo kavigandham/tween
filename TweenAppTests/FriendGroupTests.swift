@@ -91,3 +91,75 @@ final class FriendGroupTests: XCTestCase {
         XCTAssertEqual(group.members(in: FriendRoster.load()).map(\.name), ["Kavi"])
     }
 }
+
+// MARK: - Labelled addresses (2026-08-04)
+
+final class FriendPlacesTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        UserDefaults(suiteName: LocationCache.appGroup)?
+            .removePersistentDomain(forName: LocationCache.appGroup)
+    }
+
+    private func coord(_ lat: Double) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: lat, longitude: -122)
+    }
+
+    func testAddsSeveralLabelledAddresses() {
+        let friend = TweenFriend(name: "Kavi")
+        FriendRoster.save([friend])
+        FriendRoster.addPlace(id: friend.id, label: "Home", coordinate: coord(37.1))
+        FriendRoster.addPlace(id: friend.id, label: "Work", coordinate: coord(37.2))
+
+        let loaded = FriendRoster.load().first
+        XCTAssertEqual(loaded?.places.map(\.label), ["Home", "Work"])
+    }
+
+    /// Re-using a label replaces that address rather than stacking a second
+    /// "Home" the user can't tell apart.
+    func testSameLabelReplacesRatherThanDuplicates() {
+        let friend = TweenFriend(name: "Kavi")
+        FriendRoster.save([friend])
+        FriendRoster.addPlace(id: friend.id, label: "Home", coordinate: coord(37.1))
+        FriendRoster.addPlace(id: friend.id, label: "home", coordinate: coord(37.9))
+
+        let places = FriendRoster.load().first?.places ?? []
+        XCTAssertEqual(places.count, 1)
+        XCTAssertEqual(places.first?.latitude ?? 0, 37.9, accuracy: 0.001)
+    }
+
+    /// Groups need ONE point per person; Home is what people mean by "where
+    /// they start from".
+    func testGroupsPreferHomeOverOtherAddresses() {
+        let friend = TweenFriend(name: "Kavi")
+        FriendRoster.save([friend])
+        FriendRoster.addPlace(id: friend.id, label: "Work", coordinate: coord(37.2))
+        FriendRoster.addPlace(id: friend.id, label: "Home", coordinate: coord(37.1))
+
+        let loaded = FriendRoster.load().first
+        XCTAssertEqual(loaded?.primaryPlace?.label, "Home")
+        XCTAssertEqual(loaded?.homeBase?.latitude ?? 0, 37.1, accuracy: 0.001)
+    }
+
+    /// A roster written before labelled places has only the old columns; it
+    /// must still surface as one address rather than none.
+    func testLegacyHomeBaseSurfacesAsAPlace() {
+        let legacy = TweenFriend(name: "Maya",
+                                 homeBaseLatitude: 37.5, homeBaseLongitude: -122,
+                                 homeBaseLabel: "Maya's place")
+        XCTAssertEqual(legacy.places.map(\.label), ["Maya's place"])
+        XCTAssertEqual(legacy.primaryPlace?.latitude ?? 0, 37.5, accuracy: 0.001)
+    }
+
+    func testRemovingTheLastPlaceLeavesNoHomeBase() {
+        let friend = TweenFriend(name: "Kavi")
+        FriendRoster.save([friend])
+        FriendRoster.addPlace(id: friend.id, label: "Home", coordinate: coord(37.1))
+        let placeID = FriendRoster.load().first?.places.first?.id
+        FriendRoster.removePlace(id: friend.id, placeID: placeID!)
+
+        let loaded = FriendRoster.load().first
+        XCTAssertTrue(loaded?.places.isEmpty ?? false)
+        XCTAssertNil(loaded?.homeBase)
+    }
+}

@@ -104,15 +104,25 @@ struct SettingsSheet: View {
                         }
                     } else {
                         redeemRow
-                        Button {
-                            showPaywall = true
-                        } label: {
+                    }
+                    // ALWAYS present, unlocked or not. The paywall holds the
+                    // app's only Restore Purchases button and its only Terms
+                    // and Privacy links, and every route to it used to be
+                    // gated on NOT being unlocked — so unlocking Pro removed
+                    // them permanently. The review notes tell a reviewer to
+                    // redeem a code first, which walked them straight into
+                    // that state (audit 2026-08-04).
+                    Button {
+                        showPaywall = true
+                    } label: {
                             HStack {
                                 Label {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Tween Pro")
+                                        Text(proUnlocked ? "Manage Tween Pro" : "Tween Pro")
                                             .foregroundStyle(Tokens.Palette.textPrimary)
-                                        Text("Plan-ahead meetups, transit fairness, reminders")
+                                        Text(proUnlocked
+                                             ? "Restore purchases, Terms, Privacy Policy"
+                                             : "Plan-ahead meetups, transit fairness, reminders")
                                             .font(Tokens.Typography.caption)
                                             .foregroundStyle(Tokens.Palette.textSecondary)
                                     }
@@ -125,7 +135,6 @@ struct SettingsSheet: View {
                                     .font(Tokens.Typography.caption)
                                     .foregroundStyle(Tokens.Palette.textTertiary)
                             }
-                        }
                     }
                 }
                 Section {

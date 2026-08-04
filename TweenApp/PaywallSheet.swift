@@ -37,6 +37,7 @@ struct PaywallSheet: View {
                     // with no path to Terms or Privacy at all. An App Review
                     // device on a flaky network saw the link-free state
                     // (audit 2026-08-03).
+                    restoreAndErrors
                     subscriptionDisclosure
                 }
                 .padding(Tokens.Spacing.s5)
@@ -138,16 +139,6 @@ struct PaywallSheet: View {
                 ForEach(loaded, id: \.id) { product in
                     productButton(product)
                 }
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.destructive)
-                }
-                Button("Restore Purchases") {
-                    Task { await restore() }
-                }
-                .font(Tokens.Typography.subheadline)
-                .foregroundStyle(Tokens.Palette.accent)
                 Text("One purchase unlocks Pro on every device signed into your App Store account. No account, no tracking — Tween stays serverless.")
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textTertiary)
@@ -155,6 +146,26 @@ struct PaywallSheet: View {
             }
             .disabled(purchasing)
         }
+    }
+
+    /// Restore and any error, OUTSIDE the products-loaded branch. Nested in it,
+    /// a user whose App Store was unreachable had no Restore button and saw no
+    /// error text — the two things they need most in exactly that state
+    /// (audit 2026-08-04).
+    @ViewBuilder
+    private var restoreAndErrors: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.destructive)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        Button("Restore Purchases") {
+            Task { await restore() }
+        }
+        .font(Tokens.Typography.subheadline)
+        .foregroundStyle(Tokens.Palette.accent)
+        .disabled(purchasing)
     }
 
     /// Required for the auto-renewable monthly product. App Review guideline
@@ -245,10 +256,20 @@ struct PaywallSheet: View {
         do {
             switch try await purchase(product) {
             case .success(let verification):
-                if case .verified(let transaction) = verification {
+                switch verification {
+                case .verified(let transaction):
                     await transaction.finish()
+                    unlocked = await ProEntitlement.refresh()
+                case .unverified(let transaction, _):
+                    // Charged, but StoreKit could not verify the signature.
+                    // Finish it anyway — an unfinished transaction is
+                    // re-delivered on EVERY launch forever — and say something.
+                    // This used to fall through silently, leaving the user
+                    // billed and staring at a sheet that did nothing
+                    // (audit 2026-08-04).
+                    await transaction.finish()
+                    errorMessage = "That purchase couldn't be verified. If you were charged, tap Restore Purchases."
                 }
-                unlocked = await ProEntitlement.refresh()
             case .pending:
                 // Ask-to-Buy etc. — the Transaction.updates listener started
                 // at app launch unlocks whenever approval lands.

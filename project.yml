@@ -43,7 +43,7 @@ targets:
       properties:
         CFBundleDisplayName: Tween
         CFBundleShortVersionString: "1.0.1"
-        CFBundleVersion: "1"
+        CFBundleVersion: "2"
         CFBundleIconName: AppIcon
         CFBundleURLTypes:
           - CFBundleURLName: com.kavigandham.TweenApp
@@ -86,7 +86,7 @@ targets:
       properties:
         CFBundleDisplayName: Tween
         CFBundleShortVersionString: "1.0.1"
-        CFBundleVersion: "1"
+        CFBundleVersion: "2"
         MSMessagesExtensionStoreIconName: iMessage App Icon
         NSExtension:
           NSExtensionPointIdentifier: com.apple.message-payload-provider
