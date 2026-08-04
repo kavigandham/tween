@@ -61,8 +61,15 @@ struct GroupEditorSheet: View {
         _selected = State(initialValue: Set(group?.memberIDs ?? draftMemberIDs))
     }
 
+    /// Members that actually resolve against the roster. `selected` alone is
+    /// not enough: a draft seeds it from ids whose rows the rollback may have
+    /// deleted, which let Save write a silently EMPTY group (audit 2026-08-04).
+    private var resolvedMembers: [UUID] {
+        friends.filter { selected.contains($0.id) }.map(\.id)
+    }
+
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && !selected.isEmpty
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && !resolvedMembers.isEmpty
     }
 
     var body: some View {
@@ -173,7 +180,7 @@ struct GroupEditorSheet: View {
                     Button("Save") {
                         let trimmed = name.trimmingCharacters(in: .whitespaces)
                         // Keep the roster's order so the group renders stably.
-                        let members = friends.filter { selected.contains($0.id) }.map(\.id)
+                        let members = resolvedMembers
                         onSave(FriendGroup(id: group?.id ?? UUID(), name: trimmed, memberIDs: members))
                         dismiss()
                     }

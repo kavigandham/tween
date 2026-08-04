@@ -226,7 +226,12 @@ extension OnboardingView {
             return Participant.manual(label: friend.name, coordinate: coordinate)
         }
         guard !based.isEmpty else {
-            showToast("No addresses in \(group.name) yet — open it to set them")
+            // NOT a toast: toastView is an overlay on the bottom sheet, which
+            // the Friends sheet covers — so this branch was a visibly dead tap.
+            // Open the editor instead, which is where the addresses are set.
+            // Save-as-group creates friends with no address by construction, so
+            // this is one tap downstream of that flow (audit 2026-08-04).
+            friendsSubSheet = .groupEditor(group)
             return
         }
         manualParticipants = based
@@ -296,14 +301,23 @@ extension OnboardingView {
         // Only worth offering for a real group, and only for people we can
         // save — the local user isn't a "friend", and manual points aren't
         // people at all.
-        let savable = activeParticipantsForDisplay.filter { !isLocalParticipant($0) }
+        // `!$0.isManual` is load-bearing even though no path reaches it today:
+        // a `manual:` point is a PLACE, and letting one through would write a
+        // place name into the roster as a person.
+        let savable = activeParticipantsForDisplay.filter {
+            !isLocalParticipant($0) && !$0.isManual
+        }
         // Ask the BUILDER, not the raw count. Counting participants it will
         // skip (unnamed) or merge (same name) produced a button that appeared,
         // promised "save these 2", and then always refused — with a toast
         // rendered behind the Friends sheet, so the tap looked dead
         // (audit 2026-08-04).
-        let plan = MeetupGroupBuilder.build(participants: savable,
-                                            existing: FriendRoster.load())
+        // `friends`, not FriendRoster.load(): this runs on every evaluation of
+        // the row, and a UserDefaults read plus JSON decode in a view body is
+        // the anti-pattern already logged against RankedSpot.score.
+        let plan = savable.count >= 2
+            ? MeetupGroupBuilder.build(participants: savable, existing: friends)
+            : MeetupGroupBuilder.Result()
         if plan.memberIDs.count >= 2 {
             Button {
                 guard ProEntitlement.isUnlocked else {
@@ -320,6 +334,18 @@ extension OnboardingView {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Saves everyone in this meetup as a reusable group")
+
+            if plan.skipped > 0 {
+                // Inline, not a toast: raised from inside the Friends sheet a
+                // toast is invisible. Somebody on screen is about to be left
+                // out of the group; saying nothing was the wrong trade.
+                Text(plan.skipped == 1
+                     ? "1 person without a name can't be saved"
+                     : "\(plan.skipped) people without names can't be saved")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -327,6 +353,11 @@ extension OnboardingView {
     /// with them — so the user names it and can set addresses in one pass
     /// rather than rebuilding the roster by hand.
     func saveCurrentMeetupAsGroup(_ participants: [Participant]) {
+        // Re-entrancy guard. A second tap re-runs the builder against a roster
+        // that now CONTAINS the friends the first tap made, so newFriends comes
+        // back empty and the assignment below would wipe the undo record,
+        // stranding them permanently (audit 2026-08-04).
+        guard pendingGroupFriendIDs.isEmpty else { return }
         let plan = MeetupGroupBuilder.build(participants: participants,
                                             existing: FriendRoster.load())
         // These people came from a Messages conversation, not Contacts, so they

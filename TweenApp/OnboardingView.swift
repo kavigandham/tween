@@ -807,6 +807,16 @@ struct OnboardingView: View {
                     // ambush" failure this commit fixed for the paywall
                     // (audit 2026-08-02).
                     if spotSubSheet != nil { spotSubSheet = nil }
+                    // Same for the Friends chain. A deep-linked bubble sets
+                    // activeSheet = .spot, tearing down Friends and any draft
+                    // group editor under it — and the pending rollback is
+                    // @State on THIS view, so it survives. Roll back BEFORE
+                    // clearing: assigning nil to an already-unpresented item
+                    // fires no onDismiss, so clearing first would strand the
+                    // pending list armed for the session. Third door into the
+                    // same bug (audit 2026-08-04).
+                    rollBackPendingGroupFriends()
+                    if friendsSubSheet != nil { friendsSubSheet = nil }
                 }) { sheet in
                     switch sheet {
                     case .friends:
