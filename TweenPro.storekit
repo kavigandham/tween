@@ -1,66 +1,56 @@
 {
-  "identifier" : "A1B2C3D4",
-  "nonRenewingSubscriptions" : [
-
-  ],
-  "products" : [
+  "identifier": "A1B2C3D4",
+  "nonRenewingSubscriptions": [],
+  "products": [
     {
-      "displayPrice" : "7.99",
-      "familyShareable" : false,
-      "internalID" : "PRO_LIFETIME",
-      "localizations" : [
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "PRO_LIFETIME",
+      "localizations": [
         {
-          "description" : "Every Pro feature, forever. Pay once.",
-          "displayName" : "Tween Pro — Lifetime",
-          "locale" : "en_US"
+          "description": "Every Pro feature, forever. Pay once.",
+          "displayName": "Tween Pro \u2014 Lifetime",
+          "locale": "en_US"
         }
       ],
-      "productID" : "com.kavigandham.TweenApp.pro.lifetime",
-      "referenceName" : "Tween Pro Lifetime",
-      "type" : "NonConsumable"
+      "productID": "com.kavigandham.TweenApp.pro.lifetime",
+      "referenceName": "Tween Pro Lifetime",
+      "type": "NonConsumable"
     }
   ],
-  "settings" : {
-
-  },
-  "subscriptionGroups" : [
+  "settings": {},
+  "subscriptionGroups": [
     {
-      "id" : "PRO_GROUP",
-      "localizations" : [
-
-      ],
-      "name" : "Tween Pro",
-      "subscriptions" : [
+      "id": "PRO_GROUP",
+      "localizations": [],
+      "name": "Tween Pro",
+      "subscriptions": [
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "1.99",
-          "familyShareable" : false,
-          "groupNumber" : 1,
-          "internalID" : "PRO_MONTHLY",
-          "introductoryOffer" : null,
-          "localizations" : [
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "1.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "PRO_MONTHLY",
+          "introductoryOffer": null,
+          "localizations": [
             {
-              "description" : "Every Pro feature, billed monthly.",
-              "displayName" : "Tween Pro — Monthly",
-              "locale" : "en_US"
+              "description": "Every Pro feature, billed monthly.",
+              "displayName": "Tween Pro \u2014 Monthly",
+              "locale": "en_US"
             }
           ],
-          "productID" : "com.kavigandham.TweenApp.pro.monthly",
-          "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Tween Pro Monthly",
-          "subscriptionGroupID" : "PRO_GROUP",
-          "type" : "RecurringSubscription"
+          "productID": "com.kavigandham.TweenApp.pro.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Tween Pro Monthly",
+          "subscriptionGroupID": "PRO_GROUP",
+          "type": "RecurringSubscription"
         }
       ]
     }
   ],
-  "version" : {
-    "major" : 3,
-    "minor" : 0
+  "version": {
+    "major": 3,
+    "minor": 0
   }
 }
