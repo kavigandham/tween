@@ -12,12 +12,15 @@ extension OnboardingView {
     /// Hands off to Google Maps: app scheme first (opens the app directly when
     /// installed), Google's universal `/maps/dir/` link otherwise (opens the
     /// app via universal link, or the web version — never a dead end).
-    func openGoogleMapsExternally(name: String, coordinate: CLLocationCoordinate2D) {
+    func openGoogleMapsExternally(name: String, coordinate: CLLocationCoordinate2D,
+                                  mode: TravelMode = .driving) {
         showToast("Opening Google Maps…")
-        guard let appURL = MapLinks.googleMapsURL(name: name, coordinate: coordinate) else { return }
+        guard let appURL = MapLinks.googleMapsURL(
+            name: name, coordinate: coordinate, mode: mode) else { return }
         UIApplication.shared.open(appURL) { opened in
             guard !opened,
-                  let webURL = MapLinks.googleMapsWebURL(name: name, coordinate: coordinate) else { return }
+                  let webURL = MapLinks.googleMapsWebURL(
+                    name: name, coordinate: coordinate, mode: mode) else { return }
             DispatchQueue.main.async {
                 UIApplication.shared.open(webURL)
             }

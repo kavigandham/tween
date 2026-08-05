@@ -256,7 +256,12 @@ struct SpotDetailCard: View {
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
-        .task { await fetchETAIfNeeded() }
+        // Keyed on the mode: the card stays mounted across a context-menu
+        // change, so an unkeyed task left the old number under the new glyph.
+        .task(id: myTravelMode) {
+            fetchedETA = nil
+            await fetchETAIfNeeded()
+        }
         #if DEBUG
         // -DEMO_SPOT_SHEET_GROW: auto-switch medium → large after the sheet
         // settles, exercising the exact resize path a user's drag takes (a
@@ -451,9 +456,6 @@ struct SpotDetailCard: View {
     /// mode, so its icon has to match: a hardcoded `car.fill` sat next to a
     /// walking ETA and told the user they were driving — the display half of
     /// the "an hour away from stuff right next to me" report (2026-08-05).
-    /// The action itself is mode-agnostic (MapLinks hands off to the user's
-    /// maps app, which picks its own default), so the hint no longer says
-    /// "driving" either.
     private var myDisplayName: String {
         UserProfile.displayName ?? UserName.fallback
     }
@@ -476,7 +478,13 @@ struct SpotDetailCard: View {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
         request.destination = mapItem ?? MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
-        request.transportType = .automobile
+        // The PLANNED mode, not .automobile. Hardcoded, this fetched a
+        // driving time and rendered it under the tile's transit or walking
+        // glyph on every spot arriving without a ranking — which is EVERY
+        // incoming friend proposal. A previous commit claimed to have fixed
+        // this and did not: the edit targeted the wrong indentation and
+        // silently no-opped (audit 2026-08-05).
+        request.transportType = myTravelMode.transportType
         guard let response = try? await MKDirections(request: request).calculateETA(),
               !Task.isCancelled else { return }
         fetchedETA = response.expectedTravelTime
@@ -578,7 +586,7 @@ struct SpotDetailCard: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.tweenPrimary())
-            .accessibilityHint("Opens driving directions to \(name) in your maps app")
+            .accessibilityHint("Opens directions to \(name) in your maps app")
         } else {
             HStack(spacing: Tokens.Spacing.s2) {
                 Button {
@@ -599,7 +607,7 @@ struct SpotDetailCard: View {
                         .lineLimit(1)
                 }
                 .buttonStyle(.tweenPrimary(.subtle))
-                .accessibilityHint("Opens driving directions to \(name) in your maps app")
+                .accessibilityHint("Opens directions to \(name) in your maps app")
             }
             .sensoryFeedback(.impact, trigger: sendTick)
         }
@@ -705,7 +713,8 @@ struct SpotDetailCard: View {
             name: name, coordinate: coordinate, mode: myTravelMode) else { return }
         UIApplication.shared.open(appURL) { opened in
             guard !opened,
-                  let webURL = MapLinks.googleMapsWebURL(name: name, coordinate: coordinate) else { return }
+                  let webURL = MapLinks.googleMapsWebURL(
+                    name: name, coordinate: coordinate, mode: myTravelMode) else { return }
             DispatchQueue.main.async {
                 UIApplication.shared.open(webURL)
             }

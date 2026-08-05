@@ -230,17 +230,24 @@ extension OnboardingView {
         return participants
     }
 
-    /// Opens driving directions to the chosen spot in the user's preferred
-    /// maps app (Settings → Apple/Google).
+    /// Opens directions to the chosen spot in the user's preferred maps app
+    /// (Settings → Apple/Google), in their PLANNED travel mode.
+    ///
+    /// Hardcoded to driving, this contradicted the place card one screen away:
+    /// the card honoured Walking while the friends panel's Directions button
+    /// opened a drive for the same spot and the same plan, with nothing to say
+    /// which was right (audit 2026-08-05).
     func openDirections(to item: MKMapItem) {
+        let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
         switch MapsPreference.current {
         case .apple:
             item.openInMaps(launchOptions: [
-                MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+                MKLaunchOptionsDirectionsModeKey: SpotDetailCard.appleDirectionsMode(mode)
             ])
         case .google:
             openGoogleMapsExternally(name: item.name ?? "Spot",
-                                     coordinate: item.placemark.coordinate)
+                                     coordinate: item.placemark.coordinate,
+                                     mode: mode)
         }
     }
 

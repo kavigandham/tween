@@ -18,13 +18,17 @@ struct PaywallSheet: View {
     @State private var purchasing = false
     @State private var unlocked = ProEntitlement.isUnlocked
     @State private var errorMessage: String?
+    /// Which plan the CTA buys. Lifetime by default: at five months it costs
+    /// less than the monthly, so it is the honest recommendation rather than
+    /// the one that maximises revenue.
+    @State private var selectedProductID = ProEntitlement.lifetimeProductID
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s6) {
                     header
-                    featureList
+                    comparisonTable
                     if unlocked {
                         unlockedBadge
                     } else {
@@ -70,36 +74,96 @@ struct PaywallSheet: View {
         }
     }
 
-    private var featureList: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
-            featureRow(icon: "person.3.fill", title: "Groups & home bases",
-                       detail: "Save where friends usually start from, then open a group for instant fair spots — no live locations needed.")
-            featureRow(icon: "calendar.badge.clock", title: "Pick a day and time",
-                       detail: "Fair spots ranked by predicted traffic for when you'll actually meet.")
-            featureRow(icon: "tram.fill", title: "Any way you travel",
-                       detail: "Fairness by driving, transit, or walking — even mixed per person.")
-            featureRow(icon: "bell.badge.fill", title: "Leave-by reminders",
-                       detail: "A nudge when it's time to head out, based on live drive time.")
-            featureRow(icon: "calendar.badge.plus", title: "Calendar sync",
-                       detail: "Drop the meetup — spot, time, and friends — into your calendar.")
+    /// What Free already does versus what Pro adds.
+    ///
+    /// EVERY Pro row is a real `ProEntitlement.isUnlocked` gate in the code —
+    /// groups and saved addresses (OnboardingView+FriendsPanel), the plan sheet
+    /// (OnboardingView+SpotSheet), per-person travel modes
+    /// (OnboardingView+GroupBar), and the reminder/calendar actions inside the
+    /// plan. The group panel that shows everyone's ETA is deliberately NOT
+    /// listed: it renders for free users too, and claiming it would be selling
+    /// something they already have.
+    private var comparisonTable: some View {
+        VStack(spacing: 0) {
+            comparisonHeader
+            ForEach(Array(Self.comparisonRows.enumerated()), id: \.offset) { index, row in
+                if index > 0 {
+                    Rectangle()
+                        .fill(Tokens.Palette.textPrimary.opacity(0.08))
+                        .frame(height: 0.5)
+                }
+                comparisonRow(row)
+            }
+        }
+        .background(Tokens.Palette.elevated,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.group, style: .continuous))
+    }
+
+    private var comparisonHeader: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Spacer(minLength: 0)
+            Text("Free")
+                .frame(width: 52)
+            Text("Pro")
+                .foregroundStyle(Tokens.Palette.accent)
+                .frame(width: 52)
+        }
+        .font(Tokens.Typography.captionBold)
+        .foregroundStyle(Tokens.Palette.textSecondary)
+        .padding(.horizontal, Tokens.Spacing.s4)
+        .padding(.top, Tokens.Spacing.s3)
+        .padding(.bottom, Tokens.Spacing.s2)
+    }
+
+    private func comparisonRow(_ row: ComparisonRow) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Text(row.title)
+                .font(Tokens.Typography.subheadline)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            mark(included: row.free, isPro: false)
+                .frame(width: 52)
+            mark(included: true, isPro: true)
+                .frame(width: 52)
+        }
+        .padding(.horizontal, Tokens.Spacing.s4)
+        .padding(.vertical, Tokens.Spacing.s3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.free
+                            ? "\(row.title), included in Free and Pro"
+                            : "\(row.title), Pro only")
+    }
+
+    @ViewBuilder
+    private func mark(included: Bool, isPro: Bool) -> some View {
+        if included {
+            Image(systemName: "checkmark")
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(isPro ? Tokens.Palette.accent : Tokens.Palette.textSecondary)
+        } else {
+            // An em dash, not a red cross: Free isn't broken, it just stops here.
+            Text("—")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
         }
     }
 
-    private func featureRow(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Spacing.s3) {
-            Image(systemName: icon)
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.accent)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-                Text(title)
-                    .font(Tokens.Typography.headline)
-                Text(detail)
-                    .font(Tokens.Typography.subheadline)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-            }
-        }
+    struct ComparisonRow {
+        let title: String
+        /// Whether the FREE tier includes it. Pro includes every row.
+        let free: Bool
     }
+
+    static let comparisonRows: [ComparisonRow] = [
+        .init(title: "Fair spots by everyone's drive time", free: true),
+        .init(title: "Share and agree inside iMessage", free: true),
+        .init(title: "See everyone's travel time", free: true),
+        .init(title: "Groups and saved addresses", free: false),
+        .init(title: "Pick a day and time", free: false),
+        .init(title: "Transit and walking per person", free: false),
+        .init(title: "Leave-by reminders", free: false),
+        .init(title: "Add the meetup to your calendar", free: false),
+    ]
 
     // MARK: - Purchase
 
@@ -134,17 +198,82 @@ struct PaywallSheet: View {
             .frame(maxWidth: .infinity)
         case .some(let loaded):
             VStack(spacing: Tokens.Spacing.s3) {
-                // Lifetime leads — the recommended buy for a serverless app
-                // with no recurring cost to justify a subscription.
-                ForEach(loaded, id: \.id) { product in
-                    productButton(product)
+                HStack(spacing: Tokens.Spacing.s3) {
+                    ForEach(loaded, id: \.id) { product in
+                        planCard(product)
+                    }
                 }
+                continueButton(loaded)
                 Text("One purchase unlocks Pro on every device signed into your App Store account. No account, no tracking — Tween stays serverless.")
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(purchasing)
+        }
+    }
+
+    /// Two side-by-side cards with ONE buy button underneath, rather than a
+    /// button per product. Two primary buttons make the user compare and commit
+    /// in a single motion; picking then confirming is the shape every iOS
+    /// paywall uses, and it leaves room to mark the better deal.
+    private func planCard(_ product: Product) -> some View {
+        let isLifetime = product.id == ProEntitlement.lifetimeProductID
+        let isSelected = product.id == selectedProductID
+        return Button {
+            selectedProductID = product.id
+        } label: {
+            VStack(spacing: Tokens.Spacing.s1) {
+                Text(isLifetime ? "Lifetime" : "Monthly")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                Text(product.displayPrice)
+                    .font(Tokens.Typography.title2)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text(isLifetime ? "pay once" : "per month")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+                if isLifetime {
+                    Text("Best value")
+                        .font(Tokens.Typography.caption2Bold)
+                        .foregroundStyle(Tokens.Palette.onBrand)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .padding(.vertical, 2)
+                        .background(Tokens.Palette.brand, in: Capsule())
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Tokens.Spacing.s3)
+            .background(isSelected ? Tokens.Palette.brandLight : Tokens.Palette.elevated,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
+                    .strokeBorder(isSelected ? Tokens.Palette.accent : .clear, lineWidth: 2)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityLabel(isLifetime
+                            ? "Lifetime, \(product.displayPrice) once, best value"
+                            : "Monthly, \(product.displayPrice) per month")
+    }
+
+    @ViewBuilder
+    private func continueButton(_ loaded: [Product]) -> some View {
+        // Falls back to the first product if the selected id somehow isn't in
+        // the loaded set — a dead CTA would be worse than buying the default.
+        let product = loaded.first { $0.id == selectedProductID } ?? loaded.first
+        if let product {
+            Button {
+                Task { await buy(product) }
+            } label: {
+                Text(product.id == ProEntitlement.lifetimeProductID
+                     ? "Unlock Pro — \(product.displayPrice)"
+                     : "Subscribe — \(product.displayPrice)/mo")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.tweenPrimary())
         }
     }
 
@@ -214,36 +343,6 @@ struct PaywallSheet: View {
 
     /// The App Store support URL, same host and same reasoning.
     static let supportURL = URL(string: "https://n1tr029.github.io/tween-legal/support.html")!
-
-    private func productButton(_ product: Product) -> some View {
-        let isLifetime = product.id == ProEntitlement.lifetimeProductID
-        return Button {
-            Task { await buy(product) }
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isLifetime ? "Lifetime" : "Monthly")
-                        .font(Tokens.Typography.headline)
-                    Text(isLifetime ? "Pay once, keep forever" : "Cancel anytime")
-                        .font(Tokens.Typography.caption)
-                        .opacity(0.8)
-                }
-                Spacer()
-                Text(isLifetime ? product.displayPrice : "\(product.displayPrice)/mo")
-                    .font(Tokens.Typography.headline)
-            }
-            .padding(.horizontal, Tokens.Spacing.s4)
-            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
-            .background(
-                isLifetime ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.neutralAction),
-                in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-            .foregroundStyle(isLifetime ? Tokens.Palette.onBrand : Tokens.Palette.accent)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isLifetime
-                            ? "Tween Pro lifetime, \(product.displayPrice) once"
-                            : "Tween Pro monthly, \(product.displayPrice) per month")
-    }
 
     // MARK: - StoreKit
 

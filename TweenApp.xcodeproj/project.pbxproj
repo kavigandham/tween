@@ -99,6 +99,7 @@
 		81EEFA1975D18E27C165400A /* ProCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B9573A54BC448178A4FDE74 /* ProCode.swift */; };
 		83043CC695A5C485E3AA03EC /* MapsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6C9526CD3DFF1310570DD /* MapsPreference.swift */; };
 		84A31A91645BECB2A436AED2 /* SearchCompleter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECF02EB2138B0F7429E735F /* SearchCompleter.swift */; };
+		8607472D3526B3393D52D91E /* TravelModeHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54BC91D82C97B1CE006E9450 /* TravelModeHandoffTests.swift */; };
 		86F28AC3BB8B6FF2963DDB0D /* PinRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0067B4ABA39E2D1A7F95AD27 /* PinRenderTests.swift */; };
 		879EF9C24C3C1213479D86EA /* BubbleCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = A618C73F525063A2FDDFE457 /* BubbleCaption.swift */; };
 		87BC63ED55A22A574627BC14 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F1AE4B186C366F4408259C /* PaywallSheet.swift */; };
@@ -250,6 +251,7 @@
 		4FD1436B490AA1B23EA02D4A /* StoreKitTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKitTest.framework; path = System/Library/Frameworks/StoreKitTest.framework; sourceTree = SDKROOT; };
 		53A451BC1486986EC8CB5CC2 /* OnboardingView+DeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+DeepLinks.swift"; sourceTree = "<group>"; };
 		541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Decoding.swift"; sourceTree = "<group>"; };
+		54BC91D82C97B1CE006E9450 /* TravelModeHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelModeHandoffTests.swift; sourceTree = "<group>"; };
 		599F65AE96C48934F6E45CA7 /* OnboardingView+HandOff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+HandOff.swift"; sourceTree = "<group>"; };
 		5A359B5F837A194FD6CA1DD8 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
 		5B28E66B6709A8726D778E16 /* BubbleImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleImageRenderer.swift; sourceTree = "<group>"; };
@@ -409,6 +411,7 @@
 				94170265B17C5C25E3D41963 /* SpotCategoryMarkTests.swift */,
 				8C4AE34164C6ECD1128C471A /* SpotETADisplayTests.swift */,
 				23539900371CA1A88AD6BF3C /* SpotVicinityTests.swift */,
+				54BC91D82C97B1CE006E9450 /* TravelModeHandoffTests.swift */,
 				0E2E77B58710A5FDAA904F82 /* TweenAppTests.swift */,
 			);
 			path = TweenAppTests;
@@ -884,6 +887,7 @@
 				5F28D9F1F3A74D73ADF2C59F /* SpotCategoryMarkTests.swift in Sources */,
 				511EFAD003280373599B7F48 /* SpotETADisplayTests.swift in Sources */,
 				F50F0766230DB7ABC0E6904F /* SpotVicinityTests.swift in Sources */,
+				8607472D3526B3393D52D91E /* TravelModeHandoffTests.swift in Sources */,
 				276BB914D139DC0A8AEC8D10 /* TweenAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

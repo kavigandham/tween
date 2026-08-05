@@ -722,7 +722,12 @@ struct OnboardingView: View {
             // a hardcoded top padding is the guessed-inset habit this file's
             // own comment warns against.
             topMapChrome
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // .topLEADING. Plain `.top` centres horizontally, and the VStack
+                // only spans the full width when `viewModeToggle` renders — it
+                // returns nothing until a search is active. So the panel sat
+                // centred on launch and jumped to the left edge the moment you
+                // searched (device report 2026-08-05).
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // The pill hangs off the sheet's MEASURED global top edge (see
             // searchHerePillBottomPadding); the GeometryReader supplies this
             // ZStack's own global frame for the same coordinate space.
