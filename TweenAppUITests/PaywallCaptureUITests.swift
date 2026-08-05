@@ -4,20 +4,22 @@ import StoreKitTest
 /// Captures the paywall with REAL product prices, for App Store Connect's
 /// "Review Information → Screenshot" field on each in-app purchase.
 ///
-/// Why a UI test and not `simctl`: `TweenPro.storekit` is attached to the
-/// scheme's *run* action, and only an Xcode run applies it. `simctl launch`
-/// ignores it entirely, so a scripted capture renders "The App Store isn't
-/// reachable right now" where the prices belong — useless as a review asset.
-/// `SKTestSession` enables the same local store programmatically, so the
-/// capture works headlessly and can be re-run whenever prices change.
+/// RUN THIS FROM XCODE (Cmd-U), not from `xcodebuild test`.
 ///
-/// Run it with:
-///   xcodebuild test -project TweenApp.xcodeproj -scheme TweenApp \
-///     -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
-///     -only-testing:TweenAppUITests/PaywallCaptureUITests
+/// Getting the local store into the app under test has exactly one working
+/// route, after three that don't (all verified 2026-08-05):
 ///
-/// The PNG lands as an XCTest attachment in the .xcresult bundle; the test
-/// prints the exact `xcrun xcresulttool` line to pull it out.
+///  1. `simctl launch` ignores the scheme's StoreKit configuration entirely.
+///  2. `SKTestSession` configures the process that CREATES it. A UI test drives
+///     the app in a SEPARATE process, so it never reaches it.
+///  3. xcodegen silently drops `storeKitConfiguration` from a scheme's `test`
+///     action, and hand-adding `StoreKitConfigurationFileReference` to the
+///     generated `.xcscheme` didn't help either — `xcodebuild test` still
+///     launched the app with no store.
+///
+/// So headlessly this SKIPS. From Xcode, where the scheme's run configuration
+/// applies, it captures the real paywall with real prices. The PNG lands as an
+/// XCTest attachment in the .xcresult bundle.
 final class PaywallCaptureUITests: XCTestCase {
 
     func testCapturePaywallForAppReview() throws {
@@ -50,12 +52,14 @@ final class PaywallCaptureUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
 
+        // SKIP, don't fail. Running headlessly the app launches without a local
+        // store, and that is an environment limitation, not a defect — a red
+        // test for it just trains people to ignore the suite.
         if !loaded {
-            let tree = XCTAttachment(string: app.debugDescription)
-            tree.name = "element-tree"
-            tree.lifetime = .keepAlways
-            add(tree)
+            throw XCTSkip(
+                "No StoreKit products: the app launched without the local store. "
+                + "Expected under `xcodebuild test`. Run this from Xcode (Cmd-U), "
+                + "or capture by hand with Cmd-R, then ⋯ → Settings → Tween Pro.")
         }
-        XCTAssertTrue(loaded, "Products never loaded — SKTestSession did not attach")
     }
 }
