@@ -199,17 +199,21 @@ struct PaywallSheet: View {
     /// custom licence agreement.
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
-    /// LIVE. GitHub renders `docs/privacy.md` as a readable page at this URL
-    /// with no setup — no GitHub Pages, no admin rights, no hosting to
-    /// maintain. Apple accepts any publicly reachable URL, and this one is
-    /// owned by the same account that owns the app.
+    /// LIVE, and deliberately NOT in the main source repo.
     ///
-    /// This deliberately does NOT point at a GitHub Pages URL: enabling Pages
-    /// needs repo-admin, which the build tooling doesn't have, and a link that
-    /// 404s in the purchase flow is a worse App Review outcome than no link.
-    /// If Pages is turned on later, add Jekyll front matter to the Markdown and
-    /// change this ONE constant.
-    static let privacyURL = URL(string: "https://github.com/kavigandham/tween/blob/main/docs/privacy.md")!
+    /// This used to point at `kavigandham/tween/blob/main/docs/privacy.md`,
+    /// which works only while that repo stays public — a setting owned by
+    /// someone who isn't shipping this app. The moment it flips private, the
+    /// only privacy link in the purchase flow 404s, which is a guideline 3.1.2
+    /// rejection on a LIVE listing (2026-08-04).
+    ///
+    /// `N1tr029/tween-legal` exists to hold these two pages and nothing else,
+    /// served by GitHub Pages as plain HTML (`.nojekyll`, no build step). Keep
+    /// it public. `support.html` in the same repo is the App Store support URL.
+    static let privacyURL = URL(string: "https://n1tr029.github.io/tween-legal/privacy.html")!
+
+    /// The App Store support URL, same host and same reasoning.
+    static let supportURL = URL(string: "https://n1tr029.github.io/tween-legal/support.html")!
 
     private func productButton(_ product: Product) -> some View {
         let isLifetime = product.id == ProEntitlement.lifetimeProductID

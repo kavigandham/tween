@@ -126,9 +126,9 @@ real travel time, with no account and no server.
 
 | Field | Value |
 |---|---|
-| Support URL | `https://github.com/kavigandham/tween/issues` |
+| Support URL | `https://n1tr029.github.io/tween-legal/support.html` |
 | Marketing URL | *(optional — leave blank until there's a real landing page)* |
-| Privacy Policy URL | `https://github.com/kavigandham/tween/blob/main/docs/privacy.md` |
+| Privacy Policy URL | `https://n1tr029.github.io/tween-legal/privacy.html` |
 
 ## App Privacy answers (App Store Connect questionnaire)
 

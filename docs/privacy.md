@@ -85,4 +85,8 @@ If this policy changes, the "last updated" date above will change with it.
 ## Contact
 
 Questions about this policy: open an issue at
-<https://github.com/kavigandham/tween/issues>.
+<https://github.com/N1tr029/tween-legal/issues>.
+
+The published copy of this policy lives at
+<https://n1tr029.github.io/tween-legal/privacy.html> — that is the URL the App
+Store listing and the in-app purchase flow link to. Keep the two in step.
