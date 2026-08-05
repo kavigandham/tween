@@ -693,8 +693,22 @@ struct OnboardingView: View {
             mapLayer
             topMapToolbar
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            viewModeToggle
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // The toggle and the group bar share ONE vertical stack so the bar
+            // sits under whatever height the toggle actually is. Overlaying the
+            // bar at .topLeading instead put it level with the centred toggle,
+            // which covered every chip after the first — and clearing that with
+            // a hardcoded top padding is the guessed-inset habit this file's
+            // own comment warns against.
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+                viewModeToggle
+                    .frame(maxWidth: .infinity, alignment: .center)
+                // Chips scroll under the trailing toolbar pill rather than
+                // stopping short of it — content passing beneath floating
+                // chrome is the Maps behaviour; a hard gutter reads as a bug.
+                GroupStatusBar(members: groupBarMembers, onCycleMode: cycleTravelMode)
+                    .padding(.leading, Tokens.Spacing.s3)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // The pill hangs off the sheet's MEASURED global top edge (see
             // searchHerePillBottomPadding); the GeometryReader supplies this
             // ZStack's own global frame for the same coordinate space.

@@ -1148,9 +1148,17 @@ extension OnboardingView {
     }
 
     func selection(for stored: StoredSpot) -> SpotSelection {
-        SpotSelection(
-            item: mapItem(for: stored),
-            ranked: nil,
+        // `rankedMatch`, not nil. Opening a Recent or a Favorite built its
+        // selection with no ranking, so the detail card showed the place with
+        // NO participant times at all — "when i hit it i don't see my eta or
+        // anything" (device report 2026-08-05). `rankedMatch` returns the
+        // completed ranking when the place is already in it and an on-demand
+        // estimate otherwise, which is exactly the boundary its own doc
+        // comment says every detail sheet goes through.
+        let item = mapItem(for: stored)
+        return SpotSelection(
+            item: item,
+            ranked: rankedMatch(for: item),
             addressOverride: stored.address)
     }
 
@@ -1168,7 +1176,7 @@ extension OnboardingView {
             : nil
         return SpotSelection(
             item: item,
-            ranked: nil,
+            ranked: rankedMatch(for: item),
             incoming: incoming,
             addressOverride: stored?.address)
     }

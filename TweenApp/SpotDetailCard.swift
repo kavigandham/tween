@@ -381,10 +381,10 @@ struct SpotDetailCard: View {
             .flatMap { URL(string: "tel:\($0.filter { !$0.isWhitespace })") }
         let webURL = mapItem?.url
         return HStack(spacing: Tokens.Spacing.s2) {
-            actionTile(icon: "car.fill", label: driveLabel) {
+            actionTile(icon: myTravelMode.systemImage, label: driveLabel) {
                 openInPreferredMaps()
             }
-            .accessibilityHint("Opens driving directions to \(name) in your maps app")
+            .accessibilityHint("Opens directions to \(name) in your maps app")
             if let phoneURL {
                 actionTile(icon: "phone.fill", label: "Call") { openURL(phoneURL) }
                     .accessibilityHint("Calls \(name)")
@@ -415,6 +415,17 @@ struct SpotDetailCard: View {
     /// Label for every Directions control — the drive time when known (Apple
     /// Maps puts the ETA on the drive button), otherwise "Directions".
     /// `formatETA` keeps hour-long drives reading "1h 5m", not "65 min".
+    /// The local user's planned mode. The tile's NUMBER is computed in this
+    /// mode, so its icon has to match: a hardcoded `car.fill` sat next to a
+    /// walking ETA and told the user they were driving — the display half of
+    /// the "an hour away from stuff right next to me" report (2026-08-05).
+    /// The action itself is mode-agnostic (MapLinks hands off to the user's
+    /// maps app, which picks its own default), so the hint no longer says
+    /// "driving" either.
+    private var myTravelMode: TravelMode {
+        MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
+    }
+
     private var driveLabel: String {
         guard let myDriveETA else { return "Directions" }
         return formatETA(myDriveETA)

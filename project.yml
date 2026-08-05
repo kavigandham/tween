@@ -116,6 +116,11 @@ targets:
     platform: iOS
     sources:
       - path: TweenAppUITests
+      # SKTestSession(configurationFileNamed:) resolves against the TEST
+      # bundle, so the paywall capture test needs its own copy — the scheme's
+      # run-action storeKitConfiguration below doesn't reach xcodebuild test.
+      - path: TweenPro.storekit
+        buildPhase: resources
     dependencies:
       - target: TweenApp
     settings:
