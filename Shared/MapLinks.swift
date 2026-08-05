@@ -2,6 +2,17 @@ import Foundation
 import CoreLocation
 
 enum MapLinks {
+    /// Google's URL vocabulary for a travel mode. Apple's side uses
+    /// `MKLaunchOptionsDirectionsMode*` instead, so the mapping lives at each
+    /// call rather than on `TravelMode` itself.
+    static func googleTravelMode(_ mode: TravelMode) -> String {
+        switch mode {
+        case .driving: return "driving"
+        case .transit: return "transit"
+        case .walking: return "walking"
+        }
+    }
+
     static func appleMapsURL(name: String, coordinate: CLLocationCoordinate2D) -> URL? {
         // https so more clients auto-linkify it in the plain-text SMS body.
         var components = URLComponents(string: "https://maps.apple.com/")
@@ -12,10 +23,14 @@ enum MapLinks {
         return components?.url
     }
 
-    /// Google Maps app scheme — driving directions straight to the spot
-    /// (matches the button's promise and the Apple Maps path). Only works when
-    /// the app is installed; callers fall back to `googleMapsWebURL`.
-    static func googleMapsURL(name: String, coordinate: CLLocationCoordinate2D) -> URL? {
+    /// Google Maps app scheme — directions straight to the spot in the
+    /// caller's travel mode. Only works when the app is installed; callers fall
+    /// back to `googleMapsWebURL`.
+    ///
+    /// `mode` defaults to driving so the message-body links (which have no
+    /// per-recipient mode to speak of) are unchanged.
+    static func googleMapsURL(name: String, coordinate: CLLocationCoordinate2D,
+                              mode: TravelMode = .driving) -> URL? {
         var components = URLComponents()
         components.scheme = "comgooglemaps"
         components.host = ""
@@ -23,7 +38,7 @@ enum MapLinks {
         // Google Maps into search mode instead of routing.
         components.queryItems = [
             URLQueryItem(name: "daddr", value: coordinatePair(coordinate)),
-            URLQueryItem(name: "directionsmode", value: "driving")
+            URLQueryItem(name: "directionsmode", value: googleTravelMode(mode))
         ]
         return components.url
     }
@@ -31,12 +46,13 @@ enum MapLinks {
     /// Google's official Maps URLs form (`/maps/dir/?api=1`) — a universal
     /// link, so a device WITH Google Maps opens the app and one without opens
     /// the web version. Works for any recipient, no app required.
-    static func googleMapsWebURL(name: String, coordinate: CLLocationCoordinate2D) -> URL? {
+    static func googleMapsWebURL(name: String, coordinate: CLLocationCoordinate2D,
+                                 mode: TravelMode = .driving) -> URL? {
         var components = URLComponents(string: "https://www.google.com/maps/dir/")
         components?.queryItems = [
             URLQueryItem(name: "api", value: "1"),
             URLQueryItem(name: "destination", value: coordinatePair(coordinate)),
-            URLQueryItem(name: "travelmode", value: "driving")
+            URLQueryItem(name: "travelmode", value: googleTravelMode(mode))
         ]
         return components?.url
     }

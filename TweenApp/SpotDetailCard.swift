@@ -427,8 +427,20 @@ struct SpotDetailCard: View {
 
     /// The user's own drive time to this spot: their leg of the fairness
     /// ranking when the spot was ranked, otherwise the one-shot fetched ETA.
+    /// MATCHED BY ID. `etas.first` is positional, and the roster starts with
+    /// the PEER when the local user has no coordinate yet
+    /// (buildRankingParticipants), so index 0 could be someone else's time
+    /// shown as yours — the exact thing GroupStatusBarTests pins for the bar.
     private var myDriveETA: TimeInterval? {
-        if let ranked, let mine = ranked.etas.first { return mine.eta }
+        if let ranked {
+            if let mine = ranked.etas.first(where: { $0.id == TweenIdentity.stableID }) {
+                return mine.eta
+            }
+            // A legacy roster keys the local user by name, not by stable id.
+            if let mine = ranked.etas.first(where: { $0.name == myDisplayName }) {
+                return mine.eta
+            }
+        }
         return fetchedETA
     }
 
@@ -442,6 +454,10 @@ struct SpotDetailCard: View {
     /// The action itself is mode-agnostic (MapLinks hands off to the user's
     /// maps app, which picks its own default), so the hint no longer says
     /// "driving" either.
+    private var myDisplayName: String {
+        UserProfile.displayName ?? UserName.fallback
+    }
+
     private var myTravelMode: TravelMode {
         MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
     }
@@ -487,12 +503,25 @@ struct SpotDetailCard: View {
         .buttonStyle(.plain)
     }
 
-    /// Opens driving directions to the actual map item (keeps the place
-    /// identity, unlike a bare coordinate deep link).
+    /// Opens directions to the actual map item (keeps the place identity,
+    /// unlike a bare coordinate deep link) in the user's PLANNED mode.
+    ///
+    /// This was hardcoded to driving while the tile above it drew a live,
+    /// mode-aware icon — so holding the tile, picking Walking, then tapping it
+    /// opened driving directions under a walking glyph. A comment here even
+    /// claimed the action was "mode-agnostic"; it never was (audit 2026-08-05).
     private func openDirectionsInline(_ item: MKMapItem) {
         item.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+            MKLaunchOptionsDirectionsModeKey: Self.appleDirectionsMode(myTravelMode)
         ])
+    }
+
+    static func appleDirectionsMode(_ mode: TravelMode) -> String {
+        switch mode {
+        case .driving: return MKLaunchOptionsDirectionsModeDriving
+        case .transit: return MKLaunchOptionsDirectionsModeTransit
+        case .walking: return MKLaunchOptionsDirectionsModeWalking
+        }
     }
 
     /// Shown above the actions when this card represents an incoming
@@ -672,7 +701,8 @@ struct SpotDetailCard: View {
     /// unhandled, so fall back to the universal `/maps/dir/` link (opens the
     /// web version) instead of silently doing nothing.
     private func openGoogleMaps() {
-        guard let appURL = MapLinks.googleMapsURL(name: name, coordinate: coordinate) else { return }
+        guard let appURL = MapLinks.googleMapsURL(
+            name: name, coordinate: coordinate, mode: myTravelMode) else { return }
         UIApplication.shared.open(appURL) { opened in
             guard !opened,
                   let webURL = MapLinks.googleMapsWebURL(name: name, coordinate: coordinate) else { return }

@@ -139,7 +139,15 @@ schemes:
         TweenApp: all
     run:
       config: Debug
-      storeKitConfiguration: TweenPro.storekit
+      # The leading `../` is NOT a typo, and removing it silently breaks the
+      # local store. XcodeGen writes this identifier relative to the .xcscheme
+      # (TweenApp.xcodeproj/xcshareddata/xcschemes/), which is THREE levels
+      # below the repo root. Plain `TweenPro.storekit` emitted
+      # `../../TweenPro.storekit`, pointing inside the .xcodeproj at a file
+      # that does not exist — so Xcode ran with no StoreKit configuration and
+      # the paywall showed "The App Store isn't reachable right now" on every
+      # Cmd-R (2026-08-05).
+      storeKitConfiguration: ../TweenPro.storekit
     test:
       config: Debug
       targets:
