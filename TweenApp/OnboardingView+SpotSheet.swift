@@ -64,6 +64,7 @@ extension OnboardingView {
             onPlan: {
                 spotSubSheet = ProEntitlement.isUnlocked ? .plan(selection) : .paywall
             },
+            onSetTravelMode: { setLocalTravelMode($0) },
             // Scoped to THIS spot: the flag used to be global, so every card in
             // the list read "Planned" once anything was scheduled.
             planIsSet: MeetupPlanStore.isScheduled(for: selection.name)

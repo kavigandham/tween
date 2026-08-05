@@ -156,6 +156,12 @@ struct SpotDetailCard: View {
     var onChange: () -> Void = {}
     /// Pro: open the planning sheet (time, travel modes, reminder, calendar).
     var onPlan: () -> Void = {}
+    /// Changes the LOCAL user's travel mode and re-ranks. Hooked to a
+    /// hold-to-change menu on the directions tile: that tile already shows the
+    /// mode's icon and the time computed in it, so it is the control nearest to
+    /// the thing it affects — the Plan sheet was two taps away and nobody found
+    /// it (device report 2026-08-05).
+    var onSetTravelMode: (TravelMode) -> Void = { _ in }
     /// Whether a scheduled plan already exists, so the button can say so.
     var planIsSet = false
 
@@ -384,7 +390,21 @@ struct SpotDetailCard: View {
             actionTile(icon: myTravelMode.systemImage, label: driveLabel) {
                 openInPreferredMaps()
             }
-            .accessibilityHint("Opens directions to \(name) in your maps app")
+            // Tap still opens directions; HOLD changes how you're getting
+            // there. A context menu rather than a cycling tap because the tile
+            // has one primary action already, and a menu names all three modes
+            // instead of making the user tap through them.
+            .contextMenu {
+                Picker("How you're getting there", selection: Binding(
+                    get: { myTravelMode },
+                    set: { onSetTravelMode($0) }
+                )) {
+                    ForEach(TravelMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+            }
+            .accessibilityHint("Opens directions to \(name) in your maps app. Touch and hold to change how you're getting there.")
             if let phoneURL {
                 actionTile(icon: "phone.fill", label: "Call") { openURL(phoneURL) }
                     .accessibilityHint("Calls \(name)")

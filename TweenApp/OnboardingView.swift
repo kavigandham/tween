@@ -591,6 +591,28 @@ struct OnboardingView: View {
         _position = State(initialValue: Self.cameraPosition(for: initialCoords))
     }
 
+    /// The toggle and the group panel share ONE vertical stack so the panel
+    /// sits under whatever height the toggle actually is. Overlaying it at
+    /// .topLeading instead put it level with the centred toggle, which covered
+    /// every row after the first — and clearing that with a hardcoded top
+    /// padding is the guessed-inset habit this file's own comment warns against.
+    ///
+    /// Extracted from `body`'s ZStack: inline, it pushed that expression past
+    /// the type-checker's limit ("unable to type-check in reasonable time").
+    var topMapChrome: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
+            viewModeToggle
+                .frame(maxWidth: .infinity, alignment: .center)
+            // The panel passes beneath the trailing toolbar pill rather than
+            // stopping short of it — content under floating chrome is the Maps
+            // behaviour; a hard gutter reads as a bug.
+            GroupStatusBar(members: groupBarMembers,
+                           onCycleMode: cycleTravelMode,
+                           onSetMode: { setTravelMode($1, for: $0) })
+                .padding(.leading, Tokens.Spacing.s3)
+        }
+    }
+
     /// The full-bleed map plus its annotations. Safe-area-dependent chrome does
     /// NOT live here — it's layered on in `body`, where it can respect the real
     /// device insets instead of guessing them with hardcoded paddings.
@@ -699,16 +721,8 @@ struct OnboardingView: View {
             // which covered every chip after the first — and clearing that with
             // a hardcoded top padding is the guessed-inset habit this file's
             // own comment warns against.
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-                viewModeToggle
-                    .frame(maxWidth: .infinity, alignment: .center)
-                // Chips scroll under the trailing toolbar pill rather than
-                // stopping short of it — content passing beneath floating
-                // chrome is the Maps behaviour; a hard gutter reads as a bug.
-                GroupStatusBar(members: groupBarMembers, onCycleMode: cycleTravelMode)
-                    .padding(.leading, Tokens.Spacing.s3)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            topMapChrome
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // The pill hangs off the sheet's MEASURED global top edge (see
             // searchHerePillBottomPadding); the GeometryReader supplies this
             // ZStack's own global frame for the same coordinate space.

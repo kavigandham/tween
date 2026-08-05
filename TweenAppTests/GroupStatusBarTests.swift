@@ -122,7 +122,43 @@ final class GroupStatusBarTests: XCTestCase {
         XCTAssertTrue(members[0].needsRide)
     }
 
-    // 8. The cycle covers all three and returns to the start.
+    // 8. First names only — the panel is a few characters wide, and a full
+    //    "Belal Elmeswari" pushes the time (the thing you're reading) off it.
+    func testLabelsUseFirstNamesOnly() {
+        XCTAssertEqual(
+            OnboardingView.shortLabels(for: ["Belal Elmeswari", "Hamza Rasheed"]),
+            ["Belal", "Hamza"])
+    }
+
+    // 9. A possessive from a manual point reads as the person, not the place.
+    func testPossessivePlaceNameBecomesTheName() {
+        XCTAssertEqual(OnboardingView.shortLabels(for: ["Kavi's place"]), ["Kavi"])
+    }
+
+    // 10. Two people sharing a first name each gain an initial — and ONLY then.
+    func testSharedFirstNameGainsAnInitial() {
+        XCTAssertEqual(
+            OnboardingView.shortLabels(for: ["Hamza Rasheed", "Hamza Elmeswari", "Adam Cole"]),
+            ["Hamza R.", "Hamza E.", "Adam"])
+    }
+
+    // 11. Same first name AND same initial falls back to full names: two rows
+    //     that read identically are worse than two long ones.
+    func testIdenticalInitialsFallBackToFullNames() {
+        XCTAssertEqual(
+            OnboardingView.shortLabels(for: ["Sam Rivera", "Sam Ruiz"]),
+            ["Sam Rivera", "Sam Ruiz"])
+    }
+
+    // 12. A one-word duplicate has no initial to add, so it keeps its name
+    //     rather than rendering as "Sam ." — the crash-adjacent formatting bug.
+    func testDuplicateSingleWordNamesDoNotProduceADanglingDot() {
+        let labels = OnboardingView.shortLabels(for: ["Sam", "Sam"])
+        XCTAssertFalse(labels.contains { $0.hasSuffix(" .") })
+        XCTAssertEqual(labels, ["Sam", "Sam"])
+    }
+
+    // 13. The cycle covers all three and returns to the start.
     func testModeCycleIsClosed() {
         XCTAssertEqual(OnboardingView.nextMode(after: .driving), .transit)
         XCTAssertEqual(OnboardingView.nextMode(after: .transit), .walking)

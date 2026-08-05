@@ -24,7 +24,8 @@ extension OnboardingView {
         localID: String,
         localName: String
     ) -> [GroupMemberStatus] {
-        participants.map { participant in
+        let labels = shortLabels(for: participants.map(\.name))
+        return participants.enumerated().map { index, participant in
             let isLocal = participant.matches(
                 LocalParticipantContext(id: localID, name: localName))
             // Match the ETA by id, then fall back to name for legacy rosters
@@ -33,7 +34,7 @@ extension OnboardingView {
                 ?? focused?.etas.first { $0.name == participant.name }
             return GroupMemberStatus(
                 id: participant.id,
-                label: isLocal ? "You" : UserName.peerDisplayName(participant.name),
+                label: isLocal ? "You" : labels[index],
                 eta: eta?.eta,
                 fromRoute: eta?.fromRoute ?? false,
                 modeUnavailable: eta?.modeUnavailable ?? false,
@@ -41,6 +42,62 @@ extension OnboardingView {
                 needsRide: participant.needsRide,
                 isLocal: isLocal)
         }
+    }
+
+    /// First names only, with just enough added to tell two people apart.
+    ///
+    /// The panel is a glance surface a few characters wide — "Belal Elmeswari"
+    /// and "Kavi's place" push it across the map and bury the time, which is the
+    /// thing you're actually looking at. So: first name, and only when two
+    /// people share one does the second get an initial ("Hamza R.", "Hamza E.").
+    /// Identical first name AND initial falls back to the full name, because a
+    /// label that can't distinguish two people is worse than a long one.
+    ///
+    /// Pure and positional — the caller maps it back over the roster in order.
+    static func shortLabels(for names: [String]) -> [String] {
+        let firsts = names.map(firstName)
+        var counts: [String: Int] = [:]
+        for first in firsts { counts[first.lowercased(), default: 0] += 1 }
+
+        var labelled: [String] = []
+        for (index, first) in firsts.enumerated() {
+            guard counts[first.lowercased(), default: 0] > 1 else {
+                labelled.append(first); continue
+            }
+            if let initial = surnameInitial(names[index]) {
+                labelled.append("\(first) \(initial).")
+            } else {
+                labelled.append(UserName.peerDisplayName(names[index]))
+            }
+        }
+        // Two people who are STILL identical (same first name, same initial)
+        // get their full names back rather than two rows that read the same.
+        var finalCounts: [String: Int] = [:]
+        for label in labelled { finalCounts[label.lowercased(), default: 0] += 1 }
+        return labelled.enumerated().map { index, label in
+            finalCounts[label.lowercased(), default: 0] > 1
+                ? UserName.peerDisplayName(names[index])
+                : label
+        }
+    }
+
+    /// The first whitespace-separated token, with a possessive stripped so a
+    /// manual point called "Kavi's place" reads as "Kavi" rather than "Kavi's".
+    static func firstName(_ raw: String) -> String {
+        let sanitised = UserName.peerDisplayName(raw)
+        guard let token = sanitised.split(separator: " ").first else { return sanitised }
+        var first = String(token)
+        for suffix in ["'s", "\u{2019}s"] where first.lowercased().hasSuffix(suffix) {
+            first = String(first.dropLast(suffix.count))
+        }
+        return first.isEmpty ? sanitised : first
+    }
+
+    /// First letter of the SECOND token, when there is one.
+    static func surnameInitial(_ raw: String) -> String? {
+        let parts = UserName.peerDisplayName(raw).split(separator: " ")
+        guard parts.count > 1, let letter = parts[1].first else { return nil }
+        return String(letter).uppercased()
     }
 
     /// The rows currently on screen.
@@ -81,6 +138,37 @@ extension OnboardingView {
 
         let who = member.isLocal ? "You're" : "\(member.label) is"
         showToast("\(who) \(Self.modePhrase(next))")
+        rerankAfterPlanChange()
+    }
+
+    /// Sets a specific person's mode outright, from the bar's hold menu.
+    func setTravelMode(_ mode: TravelMode, for member: GroupMemberStatus) {
+        guard ProEntitlement.isUnlocked else {
+            activeSheet = .friends
+            friendsSubSheet = .paywall
+            return
+        }
+        var plan = MeetupPlanStore.current
+        plan.setMode(mode, for: member.id)
+        MeetupPlanStore.save(plan)
+        let who = member.isLocal ? "You're" : "\(member.label) is"
+        showToast("\(who) \(Self.modePhrase(mode))")
+        rerankAfterPlanChange()
+    }
+
+    /// Sets the LOCAL user's mode outright (hold-to-change), as opposed to
+    /// `cycleTravelMode`'s step-through. Shares the Pro gate, the toast and the
+    /// re-rank so the two entry points can't drift.
+    func setLocalTravelMode(_ mode: TravelMode) {
+        guard ProEntitlement.isUnlocked else {
+            activeSheet = .friends
+            friendsSubSheet = .paywall
+            return
+        }
+        var plan = MeetupPlanStore.current
+        plan.setMode(mode, for: TweenIdentity.stableID)
+        MeetupPlanStore.save(plan)
+        showToast("You're \(Self.modePhrase(mode))")
         rerankAfterPlanChange()
     }
 

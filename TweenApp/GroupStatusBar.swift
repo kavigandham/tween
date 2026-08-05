@@ -44,6 +44,11 @@ struct GroupStatusBar: View {
     /// know your friend is getting the train, and there is no channel to ask
     /// them — the modes are local planning data either way.
     var onCycleMode: (GroupMemberStatus) -> Void
+    /// Sets a specific mode for a specific person, from the hold-to-change
+    /// menu. Tapping cycles (fast when you just want the next one); holding
+    /// names all three, which matches the directions tile on the place card so
+    /// the gesture means the same thing in both places.
+    var onSetMode: (GroupMemberStatus, TravelMode) -> Void = { _, _ in }
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -106,8 +111,18 @@ struct GroupStatusBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(GroupChipButtonStyle())
+        .contextMenu {
+            Picker("How they're getting there", selection: Binding(
+                get: { member.mode },
+                set: { onSetMode(member, $0) }
+            )) {
+                ForEach(TravelMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.systemImage).tag(mode)
+                }
+            }
+        }
         .accessibilityLabel(accessibilityLabel(member))
-        .accessibilityHint("Changes how \(member.isLocal ? "you get" : "\(member.label) gets") there")
+        .accessibilityHint("Changes how \(member.isLocal ? "you get" : "\(member.label) gets") there. Touch and hold to pick a mode.")
     }
 
     /// "—" when nothing is focused: the panel still shows who's in and lets
