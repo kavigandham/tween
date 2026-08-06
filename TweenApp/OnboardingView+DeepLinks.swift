@@ -40,7 +40,14 @@ extension OnboardingView {
         // Pure trampoline: bounce straight out to Google Maps and touch no
         // meetup state, so Tween is only a hop, not a destination.
         if let handoff = MapLinks.decodeHandoff(url) {
-            openGoogleMapsExternally(name: handoff.name, coordinate: handoff.coordinate)
+            // Resolve the planned mode HERE: the handoff URL carries no mode,
+            // so without this the Google half of the extension's Open in Maps
+            // stayed driving-only while the Apple half was mode-aware — the
+            // same bubble showed a walking ETA and a driving route depending
+            // on which maps app the user preferred (audit 2026-08-05).
+            openGoogleMapsExternally(name: handoff.name,
+                                     coordinate: handoff.coordinate,
+                                     mode: MeetupPlanStore.current.mode(for: TweenIdentity.stableID))
             return
         }
 

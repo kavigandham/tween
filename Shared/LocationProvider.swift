@@ -251,6 +251,16 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
             // a bare `status =` here was an off-main write to @Observable state.
             Task { @MainActor in
                 self.fixWatchdog?.cancel()
+                // Stream FIRST, parked fix second. In the old order requestFix()
+                // ran while isStreaming was still false, took the
+                // requestLocation() branch, and beginStream() then started the
+                // stream underneath it — recreating the exact unsupported
+                // combination this class exists to avoid, on the first-grant
+                // path every new user (and every App Review) hits
+                // (audit 2026-08-05).
+                if self.continuousRequested {
+                    self.beginStream()
+                }
                 // `.failed` belongs here too: the authorization watchdog parks
                 // an unanswered prompt at .failed, and a grant arriving after
                 // that (the user turned Location Services on in Settings and
@@ -259,11 +269,6 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
                     || self.status == .failed {
                     self.status = .requesting
                     self.requestFix()
-                }
-                // A continuous stream requested before the user answered the
-                // permission alert starts now that they've granted.
-                if self.continuousRequested {
-                    self.beginStream()
                 }
             }
         case .denied, .restricted:
@@ -278,6 +283,17 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else {
             settle(.failed)
+            return
+        }
+        // While a caller is actively WAITING, refuse cached fixes. The restart
+        // trick (and a stream's first post-start delivery) hands back
+        // CoreLocation's cached location — after a tunnel or a drive that can
+        // be from a mile back, and the .got observer would join there, stamp
+        // it fresh, and release a parked send with the wrong coordinate.
+        // Silent-and-wrong is worse than the alert the watchdog gives
+        // (audit 2026-08-05). Display-path deliveries (not .requesting) stay
+        // unfiltered: a stale pin beats no pin, and it self-heals.
+        if status == .requesting, Date().timeIntervalSince(location.timestamp) > 60 {
             return
         }
         let measured = location.timestamp
