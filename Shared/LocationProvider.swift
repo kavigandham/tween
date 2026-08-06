@@ -96,11 +96,23 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         manager.distanceFilter = 35
     }
 
+    /// Deliveries older than this are refused until the stream produces a
+    /// genuinely current one, for a short window after the stream starts.
+    /// CoreLocation's FIRST delivery is typically its cached fix, so opening
+    /// the app after a drive painted the dot at the OLD place until a real fix
+    /// arrived — the app looked like it thought you were still at home
+    /// (device report 2026-08-06). Showing nothing briefly beats asserting a
+    /// position the user has already left.
+    private static let staleOnResumeMaxAge: TimeInterval = 120
+    /// True from stream start until the first delivery is accepted.
+    private var awaitingFirstFreshFix = false
+
     private func beginStream() {
         manager.distanceFilter = streamFilter
         manager.desiredAccuracy = streamAccuracy
         manager.startUpdatingLocation()
         isStreaming = true
+        awaitingFirstFreshFix = true
     }
 
     /// Streams fixes while the app is foregrounded so the user's pin tracks
@@ -311,10 +323,18 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         // (audits 2026-08-05, twice). So one-shots accept the newest fix
         // available, and lastFixAt records its HONEST measurement time for
         // the caller to stamp the cache with — never receipt time.
-        if status == .requesting, isStreaming,
-           Date().timeIntervalSince(location.timestamp) > Self.freshFixMaxAge {
+        let age = Date().timeIntervalSince(location.timestamp)
+        if status == .requesting, isStreaming, age > Self.freshFixMaxAge {
             return
         }
+        // Just-resumed display path: refuse a stale FIRST delivery so the map
+        // doesn't assert a position the user has driven away from. Bounded to
+        // the first accepted fix — every later tick is unfiltered, so a
+        // stationary user's dot never disappears.
+        if awaitingFirstFreshFix, isStreaming, age > Self.staleOnResumeMaxAge {
+            return
+        }
+        awaitingFirstFreshFix = false
         // lastFixAt travels INSIDE settle's main-actor hop, atomic with the
         // status write — two separate Tasks had no formal ordering guarantee.
         settle(.got(location.coordinate), measuredAt: location.timestamp)

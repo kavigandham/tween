@@ -80,6 +80,35 @@ extension OnboardingView {
     /// Reacts to each keystroke. An empty field returns to quick chips; anything
     /// else feeds the completer immediately. Full result cards only appear after
     /// Return, a suggestion tap, or a category/shortcut tap.
+    /// Drops any solo routing — the array AND the in-flight task, so a late
+    /// result can't repopulate what a clear just emptied. Paired with every
+    /// `rankedSpots = []` that resets the result set.
+    /// Recomputes the solo routed times after a travel-mode change. Without
+    /// this a solo Pro user who switched to Walking kept seeing the DRIVING
+    /// minutes on every row until they re-ran the search — `rerankCurrentResults`
+    /// returns early when there's nobody to rank against (audit 2026-08-06).
+    func rerankSoloIfNeeded() {
+        guard searchRankingParticipants == nil,
+              !searchResults.isEmpty,
+              let me = savedCoordinate else { return }
+        let solo = [Participant.localForRanking(
+            name: UserProfile.displayName ?? UserName.fallback, coordinate: me)]
+        let candidates = Array(searchResults.prefix(Self.rankCap))
+        soloRankTask?.cancel()
+        soloRankTask = Task { @MainActor in
+            let routed = await FairnessRanker.rank(
+                candidates: candidates, participants: solo, cap: Self.rankCap)
+            guard !Task.isCancelled else { return }
+            soloRanked = routed
+        }
+    }
+
+    func clearSoloRanking() {
+        soloRankTask?.cancel()
+        soloRankTask = nil
+        if !soloRanked.isEmpty { soloRanked = [] }
+    }
+
     func handleQueryChange(_ query: String) {
         // A programmatic commit (suggestion/category) already started its search;
         // don't let the resulting onChange cancel it or revert to suggestions.
@@ -92,6 +121,7 @@ extension OnboardingView {
         guard !trimmed.isEmpty else {
             searchResults = []
             rankedSpots = []
+            clearSoloRanking()
             isSearchActive = false
             isSearchLoading = false
             // The X-button clear flows through HERE, not clearSearch — without
@@ -104,6 +134,7 @@ extension OnboardingView {
         // New query — drop stale committed results so the map clears while typing.
         searchResults = []
         rankedSpots = []
+        clearSoloRanking()
         isSearchActive = false
         isSearchLoading = false
         // The pill re-searches the OLD committed query; over a fresh typing
@@ -207,6 +238,7 @@ extension OnboardingView {
         guard !trimmed.isEmpty, monitor.isOnline else {
             searchResults = []
             rankedSpots = []
+            clearSoloRanking()
             isSearchActive = false
             isSearchLoading = false
             searchState = .idle
@@ -230,6 +262,7 @@ extension OnboardingView {
         guard savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty || hasViewportAnchor else {
             searchResults = []
             rankedSpots = []
+            clearSoloRanking()
             isSearchActive = false
             isSearchLoading = false
             searchState = .idle
@@ -402,6 +435,7 @@ extension OnboardingView {
         guard !trimmed.isEmpty, searchState == .results || isSearchLoading else { return }
         searchResults = []
         rankedSpots = []
+        clearSoloRanking()
         commitSearch()
     }
 
@@ -551,6 +585,10 @@ extension OnboardingView {
     func rerankCurrentResults() async {
         guard let participants = searchRankingParticipants, !searchResults.isEmpty else {
             rankedSpots = []
+            clearSoloRanking()
+            // Solo still has routed times on its buttons — recompute them for
+            // the new mode rather than just dropping them.
+            rerankSoloIfNeeded()
             return
         }
         // Fill every visible row/pin immediately. Real routes replace these
@@ -589,6 +627,7 @@ extension OnboardingView {
             isSearchLoading = false
             searchResults = []
             rankedSpots = []
+            clearSoloRanking()
             searchState = .idle
             return
         }
@@ -617,7 +656,9 @@ extension OnboardingView {
         }
 
         rankedSpots = []
-        soloRanked = []
+
+        clearSoloRanking()
+        clearSoloRanking()
         searchResults = items
         lastSearchedRegion = region
         // Recompute rather than force-hide: if the user panned while a
@@ -666,16 +707,23 @@ extension OnboardingView {
             // SOLO: no second point, so fairness ranking is meaningless — but
             // the user still wants "how long will it take ME", and the button
             // otherwise fell back to the word "Directions" and truncated
-            // (device report 2026-08-06). Route the visible rows against the
-            // single local participant. Display-only: `soloRanked` never
+            // (device report 2026-08-06). Display-only: `soloRanked` never
             // touches ordering or Best badges.
+            //
+            // Routed OFF the critical path. Awaiting it here suspended the
+            // sheet expansion and the camera fit below — which a solo search
+            // never used to wait for, since it did no routing at all — so the
+            // cards appeared in a half-height sheet that jumped a second or
+            // more later, up to the ranker's 10 s timeout (audit 2026-08-06).
             let solo = [Participant.localForRanking(
                 name: UserProfile.displayName ?? UserName.fallback, coordinate: me)]
-            let routed = await FairnessRanker.rank(
-                candidates: Array(items.prefix(Self.rankCap)),
-                participants: solo, cap: Self.rankCap)
-            guard !Task.isCancelled else { return }
-            soloRanked = routed
+            let candidates = Array(items.prefix(Self.rankCap))
+            soloRankTask = Task { @MainActor in
+                let routed = await FairnessRanker.rank(
+                    candidates: candidates, participants: solo, cap: Self.rankCap)
+                guard !Task.isCancelled else { return }
+                soloRanked = routed
+            }
         }
 
         guard reframeMap else { return }
@@ -710,6 +758,7 @@ extension OnboardingView {
         searchText = ""
         searchResults = []
         rankedSpots = []
+        clearSoloRanking()
         isSearchActive = false
         isSearchLoading = false
         searchState = .idle

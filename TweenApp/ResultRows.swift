@@ -160,9 +160,13 @@ struct ResultCard: View {
             // model (straight line ÷ the planned mode's speed), marked "~" so
             // an estimate never poses as a routed time.
             if let soloETA { return formatETA(soloETA) }
-            guard let userCoord, let target = item.placemark.location else { return nil }
+            // placemark.coordinate, not .location — the latter is the only
+            // OPTIONAL coordinate read in the file, and a nil would silently
+            // restore the "Directio..." truncation this exists to remove.
+            guard let userCoord else { return nil }
+            let target = item.placemark.coordinate
             let metres = CLLocation(latitude: userCoord.latitude, longitude: userCoord.longitude)
-                .distance(from: target)
+                .distance(from: CLLocation(latitude: target.latitude, longitude: target.longitude))
             let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
             return "~" + formatETA(metres / mode.fallbackMetresPerSecond)
         }
@@ -241,7 +245,11 @@ struct ResultCard: View {
                         .minimumScaleFactor(0.75)
                 }
                 .buttonStyle(.resultAction(.subtle))
-                .accessibilityLabel("Directions" + (myETAString.map { ", \($0) away" } ?? ""))
+                // Spoken form drops the "~": a tilde is a visual disclaimer
+                // that reads as "tilde" aloud. "about" carries the same hedge.
+                .accessibilityLabel("Directions" + (myETAString.map {
+                    $0.hasPrefix("~") ? ", about \($0.dropFirst()) away" : ", \($0) away"
+                } ?? ""))
                 .accessibilityHint("Opens \(item.name ?? "this place") in your maps app")
 
                 if let phone = item.phoneNumber, !phone.isEmpty {

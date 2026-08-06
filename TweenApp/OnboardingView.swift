@@ -101,6 +101,9 @@ struct OnboardingView: View {
     /// ordering or Best badges, so a solo list keeps MapKit's relevance order
     /// while each row can still answer "how long will it take me".
     @State var soloRanked: [RankedSpot] = []
+    /// Handle for the off-critical-path solo routing, so a new search cancels
+    /// the previous one instead of letting its late result land.
+    @State var soloRankTask: Task<Void, Never>?
     @State var provider = LocationProvider()
     @State var monitor = NetworkMonitor()
     @State var position: MapCameraPosition
