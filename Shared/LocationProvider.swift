@@ -57,7 +57,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// device report 2026-08-05).
     var currentFreshCoordinate: CLLocationCoordinate2D? {
         guard isStreaming, case let .got(coord) = status,
-              let at = lastFixAt, Date().timeIntervalSince(at) < 90 else { return nil }
+              let at = lastFixAt,
+              Date().timeIntervalSince(at) < Self.freshFixMaxAge else { return nil }
         return coord
     }
 
@@ -68,6 +69,17 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// permission alert slowly is never timed out by us.
     private static let fixTimeout: Duration = .seconds(20)
     private var fixWatchdog: Task<Void, Never>?
+
+    /// One shared definition of "fresh" — the gate below and
+    /// `currentFreshCoordinate` used to disagree (60 vs 90), so a 61-second-old
+    /// fix joined instantly via the stream path but was refused via the
+    /// waiting path (audit 2026-08-05).
+    private static let freshFixMaxAge: TimeInterval = 90
+
+    /// One-shot retry budget: a `requestLocation()` delivers exactly ONE fix.
+    /// If the stale gate refuses it without asking again, the refusal is
+    /// terminal on the one-shot path — the EXTENSION's only path.
+    private var retriedStaleOnce = false
 
     /// True once a caller asked for the continuous stream — lets a grant that
     /// arrives later (first-launch permission alert) start the stream the
@@ -210,6 +222,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     private func requestFix() {
+        retriedStaleOnce = false
         if isStreaming {
             // requestLocation() while startUpdatingLocation() is live is
             // documented as unsupported and in practice often never delivers.
@@ -293,8 +306,27 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         // Silent-and-wrong is worse than the alert the watchdog gives
         // (audit 2026-08-05). Display-path deliveries (not .requesting) stay
         // unfiltered: a stale pin beats no pin, and it self-heals.
-        if status == .requesting, Date().timeIntervalSince(location.timestamp) > 60 {
-            return
+        if status == .requesting,
+           Date().timeIntervalSince(location.timestamp) > Self.freshFixMaxAge {
+            if isStreaming {
+                // The stream's next tick self-heals in seconds; the watchdog
+                // bounds the worst case. Keep refusing.
+                return
+            }
+            if !retriedStaleOnce {
+                // ONE-SHOT path (the extension never streams): requestLocation
+                // delivers exactly one fix and stops. Refusing it silently was
+                // terminal — the extension's poll gave up at 5 s and fell back
+                // to a RAW cached coordinate older than the fix just refused
+                // (audit 2026-08-05). Ask once more for a real fix.
+                retriedStaleOnce = true
+                manager.requestLocation()
+                return
+            }
+            // Second delivery still stale: accept it as best effort. It is
+            // newer than any cache the caller would fall back to, and a
+            // slightly old coordinate beats a failure alert for a stationary
+            // user whose device simply hasn't produced a new fix.
         }
         let measured = location.timestamp
         Task { @MainActor in self.lastFixAt = measured }
