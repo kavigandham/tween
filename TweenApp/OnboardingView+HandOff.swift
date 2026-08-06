@@ -206,16 +206,22 @@ extension OnboardingView {
         // false; callers park the action + requestOnce(), then resume once a
         // current coordinate lands (their existing no-coordinate path).
         guard let coordinate = freshSelfCoordinateForSend else { return false }
+        // Preserve the coordinate's ORIGINAL stamp: it was freshness-checked
+        // above, and re-dating it to Date() extended its life by one full
+        // window per send — bounded, but the same laundering shape audit W4
+        // closed. Manual declarations keep Date() (freshness-exempt).
+        let measuredAt = selfIsManual ? Date()
+            : (savedCoordinateAt ?? LocationCache.loadSelf()?.timestamp ?? Date())
         withAnimation(Tokens.Motion.spring) {
             savedCoordinate = coordinate
-            savedCoordinateAt = Date()
+            savedCoordinateAt = measuredAt
             isUserIn = true
         }
         // Preserve declared-location provenance on re-save — dropping it here
         // stripped isManual on the first proposal/agree, after which the poll
         // and a background GPS fix clobbered the "I'll be at…" pin (post-push
         // audit).
-        LocationCache.save(coordinate, isActive: true, isManual: selfIsManual)
+        LocationCache.save(coordinate, at: measuredAt, isActive: true, isManual: selfIsManual)
         saveLocalParticipant(coordinate)
         return true
     }

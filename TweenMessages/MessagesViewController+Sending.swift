@@ -300,7 +300,10 @@ extension MessagesViewController {
                 // (which the host app reads as "you're in") is committed only
                 // once the agree bubble is actually delivered
                 // (commitDeliveredAgree keys it off senderCoordinate).
-                LocationCache.save(fresh, isActive: LocationCache.isActive)
+                // Honest measurement stamp, same as handleImIn — this twin was
+                // missed when that site was fixed (audit 2026-08-06).
+                LocationCache.save(fresh, at: locationProvider.lastFixAt ?? Date(),
+                                   isActive: LocationCache.isActive)
                 senderCoordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached

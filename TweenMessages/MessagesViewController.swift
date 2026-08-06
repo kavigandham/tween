@@ -269,7 +269,13 @@ final class MessagesViewController: MSMessagesAppViewController {
         locationRefreshTask = Task { @MainActor in
             guard let fresh = await acquireLocation(), !Task.isCancelled else { return }
             let previous = LocationCache.loadSelf()?.coordinate
-            LocationCache.save(fresh, isActive: true)
+            // Measurement time, not receipt time — a one-shot can hand back
+            // CoreLocation's cached pre-drive fix, and stamping it Date() here
+            // re-laundered it on EVERY drawer open, undoing the honest stamp
+            // in handleImIn (audit 2026-08-06: one fixed site, two missed
+            // siblings — again).
+            LocationCache.save(fresh, at: locationProvider.lastFixAt ?? Date(),
+                               isActive: true)
             // Refresh my roster entry too (what peers get on the next send,
             // and what the participant snapshot renders) — only when a roster
             // already exists; a solo cache refresh must not mint one.

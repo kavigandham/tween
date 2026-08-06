@@ -1031,7 +1031,12 @@ struct OnboardingView: View {
                         // Stamp the freshness of this in-memory fix so a pending
                         // send (which resumes right below) knows it's current even
                         // though the silent branch doesn't touch the cache.
-                        savedCoordinateAt = Date()
+                        // MEASUREMENT time, not receipt: on the grant-race path
+                        // (permission alert drops the stream, the grant runs a
+                        // one-shot) the delivery can be CoreLocation's cached
+                        // pre-drive fix, and Date() vouched for it as current
+                        // (audit 2026-08-06).
+                        savedCoordinateAt = provider.lastFixAt ?? Date()
                         // The explicit "I'm in" gesture flips presence on; after
                         // that, every movement tick keeps the shared coordinate
                         // current too — so the extension, rankings, and the next
@@ -1039,7 +1044,8 @@ struct OnboardingView: View {
                         // joined from (device feedback: "location doesn't update
                         // while I'm moving").
                         if awaitingImIn {
-                            LocationCache.save(coord, isActive: true)
+                            LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
+                                               isActive: true)
                             saveLocalParticipant(coord)
                             lastPersistedCoordinate = coord
                             isUserIn = true
@@ -1049,7 +1055,8 @@ struct OnboardingView: View {
                                     .distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) > 20
                             } ?? true
                             if moved {
-                                LocationCache.save(coord, isActive: true)
+                                LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
+                                                   isActive: true)
                                 saveLocalParticipant(coord)
                                 lastPersistedCoordinate = coord
                             }

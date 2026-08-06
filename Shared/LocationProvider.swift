@@ -239,9 +239,10 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// Terminal transitions land here: cancel the watchdog and mutate the
     /// `@Observable` state on the main actor — CoreLocation may call the
     /// delegate off-main, and observers of `status` drive SwiftUI directly.
-    private func settle(_ newStatus: Status) {
+    private func settle(_ newStatus: Status, measuredAt: Date? = nil) {
         fixWatchdog?.cancel()
         Task { @MainActor in
+            if let measuredAt { self.lastFixAt = measuredAt }
             self.status = newStatus
         }
     }
@@ -314,9 +315,9 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
            Date().timeIntervalSince(location.timestamp) > Self.freshFixMaxAge {
             return
         }
-        let measured = location.timestamp
-        Task { @MainActor in self.lastFixAt = measured }
-        settle(.got(location.coordinate))
+        // lastFixAt travels INSIDE settle's main-actor hop, atomic with the
+        // status write — two separate Tasks had no formal ordering guarantee.
+        settle(.got(location.coordinate), measuredAt: location.timestamp)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

@@ -38,8 +38,12 @@ extension OnboardingView {
     func completeLiveJoin(with coord: CLLocationCoordinate2D) {
         withAnimation(Tokens.Motion.spring) {
             savedCoordinate = coord
-            savedCoordinateAt = Date()
-            LocationCache.save(coord, isActive: true)
+            // Honest measurement stamps, like every live-fix save site — the
+            // manual/demo saves below keep Date() by design (declared
+            // locations are freshness-exempt).
+            savedCoordinateAt = provider.lastFixAt ?? Date()
+            LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
+                               isActive: true)
             saveLocalParticipant(coord)
             lastPersistedCoordinate = coord
             isUserIn = true
