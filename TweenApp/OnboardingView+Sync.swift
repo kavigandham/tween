@@ -81,7 +81,18 @@ extension OnboardingView {
         // next outgoing payload (audit 2026-08-06). Wipe the mirrors the
         // moment the scoped snapshot ages out; the extension's own sweep then
         // finds nothing to resurrect either.
-        if scopedSnapshotExists, scopedSnapshot == nil {
+        // Guarded on there being something to wipe — NOT just on expiry. The
+        // clears post MeetupSync, the host observes MeetupSync by calling
+        // refreshFromAppGroup, and the host never deletes the expired scoped
+        // snapshot: an unguarded wipe re-entered itself forever
+        // (refresh -> wipe -> post -> refresh), pegging the CPU for anyone
+        // whose current conversation key pointed at an aged-out meetup.
+        // With the guard it fires once, on the tick expiry is detected, and
+        // every later tick finds the mirrors already empty and no-ops.
+        if scopedSnapshotExists, scopedSnapshot == nil,
+           !LocationCache.loadParticipants().isEmpty
+            || LocationCache.loadAgreedMeetup() != nil
+            || LocationCache.isPeerActive {
             LocationCache.clearParticipants()
             LocationCache.clearAgreedMeetup()
             LocationCache.setPeerActive(false)
