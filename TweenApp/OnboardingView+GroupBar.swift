@@ -161,8 +161,19 @@ extension OnboardingView {
     /// re-rank so the two entry points can't drift.
     func setLocalTravelMode(_ mode: TravelMode) {
         guard ProEntitlement.isUnlocked else {
-            activeSheet = .friends
-            friendsSubSheet = .paywall
+            // Reachable from the place card's hold-to-change context menu, and
+            // swapping activeSheet (.spot -> .friends) from INSIDE the
+            // presented sheet is the documented iOS 26 item-swap trap: the
+            // card dismisses and the paywall silently never appears. From the
+            // spot sheet, present the paywall as its CHILD — the same route
+            // the Plan gate one file over already uses (readiness audit
+            // 2026-08-06).
+            if case .spot = activeSheet {
+                spotSubSheet = .paywall
+            } else {
+                activeSheet = .friends
+                friendsSubSheet = .paywall
+            }
             return
         }
         var plan = MeetupPlanStore.current

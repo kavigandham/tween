@@ -234,6 +234,10 @@ extension OnboardingView {
                 }
                 agreedMeetup = nil
                 pendingProposal = nil
+                // The meetup just collapsed — a "Leave by 6:12 PM" nudge for
+                // it would fire anyway (readiness audit 2026-08-06). The plan
+                // itself survives: modes/schedule are the local user's own.
+                LeaveByReminder.cancel()
             }
             // A proposal card from someone who just left is dead — dismiss
             // it rather than leaving it orphaned over the departure toast.

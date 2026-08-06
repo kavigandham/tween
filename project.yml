@@ -58,7 +58,12 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: "Tween uses your location once to find fair meetup spots."
+        # "while the app is open", NOT "once" — the host runs a continuous
+        # foreground stream so the dot tracks you like Maps. The old string
+        # predated that and was factually wrong in the first alert a reviewer
+        # reads (5.1.1 mismatch, readiness audit 2026-08-06). The EXTENSION's
+        # string keeps "once": it genuinely takes single fixes.
+        NSLocationWhenInUseUsageDescription: "Tween uses your location while the app is open to show you on the map and find fair meetup spots. It is shared only when you tap I'm in."
         NSContactsUsageDescription: "Tween uses your contacts so you can pick a friend to invite to a meetup."
         NSCalendarsWriteOnlyAccessUsageDescription: "Tween adds a meetup you plan to your calendar. It never reads your existing events."
 

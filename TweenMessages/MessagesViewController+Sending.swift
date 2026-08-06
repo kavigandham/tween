@@ -58,8 +58,14 @@ extension MessagesViewController {
                 logger.debug("Used cached self coord (fresh fix unavailable)")
             } else {
                 isSending = false
-                sendStatusMessage = "Location unavailable. Check permission and try again."
-                presentUI(for: presentationStyle)
+                // A send cancelled by willResignActive lands here too — without
+                // this guard it stamped the permission-blaming error, and the
+                // message survived reopening the conversation (readiness audit
+                // 2026-08-06). Its three sibling paths already guard.
+                if !Task.isCancelled {
+                    sendStatusMessage = "Location unavailable. Check permission and try again."
+                    presentUI(for: presentationStyle)
+                }
                 return
             }
 

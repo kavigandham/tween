@@ -1326,6 +1326,8 @@ extension OnboardingView {
                 if needsMyAgreement {
                     Button { agreeToPendingProposal(proposal) } label: {
                         Label("Agree & reply", systemImage: "checkmark.circle.fill")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .buttonStyle(.tweenPrimary())
                     .accessibilityHint("Opens Messages with your agreement to \(proposal.text)")
@@ -1418,6 +1420,8 @@ extension OnboardingView {
                 } else {
                     Button { sendToChat(selection) } label: {
                         Label("Send to chat", systemImage: "paperplane.fill")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .buttonStyle(.tweenPrimary())
                 }

@@ -158,7 +158,12 @@ extension MessagesViewController {
             try? await Task.sleep(for: .milliseconds(100))
             alertTicks += 1
         }
-        for _ in 0..<50 {
+        // 200 ticks = 20 s, matching the provider's own fix watchdog. The old
+        // 50-tick (5 s) budget gave up while a cold post-grant requestLocation()
+        // was still working, then blamed PERMISSION — the reviewer's literal
+        // first action in the drawer failed seconds after they tapped Allow
+        // (readiness audit 2026-08-06).
+        for _ in 0..<200 {
             if Task.isCancelled { return nil }
             switch locationProvider.status {
             case .got(let coordinate):

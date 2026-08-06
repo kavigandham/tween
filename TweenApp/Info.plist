@@ -40,7 +40,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Tween uses your contacts so you can pick a friend to invite to a meetup.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Tween uses your location once to find fair meetup spots.</string>
+	<string>Tween uses your location while the app is open to show you on the map and find fair meetup spots. It is shared only when you tap I'm in.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

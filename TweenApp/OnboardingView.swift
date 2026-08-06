@@ -1005,6 +1005,14 @@ struct OnboardingView: View {
                 // Friends sheet's own content — because its trigger is a
                 // swipe action inside THAT sheet; audit W13.)
                 .alert("Location Unavailable", isPresented: $showLocationAlert) {
+                    // Denied users get a route to the fix, not just an OK —
+                    // the Contacts-denied path has had this affordance all
+                    // along; the location path (the one App Review actually
+                    // exercises) was a dead end (readiness audit 2026-08-06).
+                    if provider.status == .denied,
+                       let url = URL(string: UIApplication.openSettingsURLString) {
+                        Button("Open Settings") { UIApplication.shared.open(url) }
+                    }
                     Button("OK", role: .cancel) {}
                 } message: {
                     Text(provider.status == .denied

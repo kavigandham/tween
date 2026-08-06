@@ -669,6 +669,14 @@ extension OnboardingView {
         // either view mode, so the camera is never stale once the sheet moves.
         frameResultsWithParticipants()
 
+        // ZERO results in map mode collapsed the sheet to peek over a blank
+        // map: the ContentUnavailableView lives in the list, which wasn't in
+        // the hierarchy, and the view toggle hides itself — nothing anywhere
+        // said "no results" (readiness audit 2026-08-06; realistic via Open
+        // Now off-hours). Empty results always present as the list.
+        if rankedSpots.isEmpty && searchViewMode == .map {
+            searchViewMode = .list
+        }
         switch searchViewMode {
         case .list:
             // Results arrived — expand to full so the cards fill the screen

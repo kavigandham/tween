@@ -350,6 +350,12 @@ extension OnboardingView {
         // A staged "Send to chat" hand-off is a pending message; leaving must
         // not let the extension re-adopt it within its 15-min handoff window.
         OutgoingDraftStore.clear()
+        // The Pro plan and its leave-by reminder describe the meetup being
+        // left. Without these, "Leave by 6:12 PM" fired for a cancelled
+        // meetup and future searches stayed ranked for the dead plan
+        // (readiness audit 2026-08-06).
+        MeetupPlanStore.clear()
+        LeaveByReminder.cancel()
         _ = refreshFromAppGroup()
     }
 

@@ -137,6 +137,23 @@ struct ResultCard: View {
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
+    /// The user's OWN travel time when this spot is ranked. Squeezed next to
+    /// Call and Send, the word "Directions" truncated to "Direc..." (device
+    /// report 2026-08-06) — and the user's time is the more useful label
+    /// anyway: the tap still opens directions, the button now also answers
+    /// "how long will it take ME". Resolution mirrors SpotDetailCard's
+    /// myDriveETA: stable id, then display name, then the solo single entry.
+    private var myETAString: String? {
+        guard let etas = rankedSpot?.etas, !etas.isEmpty else { return nil }
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let mine = etas.first { $0.id == TweenIdentity.stableID }
+            ?? etas.first { $0.name == myName }
+            ?? (etas.count == 1 ? etas[0] : nil)
+        return mine.map { formatETA($0.eta) }
+    }
+
+    private var directionsLabel: String { myETAString ?? "Directions" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             HStack(spacing: Tokens.Spacing.s2) {
@@ -171,7 +188,10 @@ struct ResultCard: View {
                         .font(Tokens.Typography.callout)
                         .foregroundStyle(Tokens.Palette.accent)
                 }
-                if let address = item.placemark.title, !address.isEmpty {
+                // cleanLine, not raw title — the helper 180 lines up exists
+                // precisely for this line-limited slot and went unused here
+                // (readiness audit 2026-08-06).
+                if let address = item.placemark.cleanLine, !address.isEmpty {
                     Text(address)
                         .font(Tokens.Typography.caption)
                         .foregroundStyle(Tokens.Palette.textSecondary)
@@ -190,9 +210,16 @@ struct ResultCard: View {
 
             HStack(spacing: Tokens.Spacing.s2) {
                 Button(action: onDirections) {
-                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    Label(directionsLabel, systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        // Belt and braces for the un-ranked fallback: three-up
+                        // with Call, "Directions" needs ~96 pt in a ~79 pt slot
+                        // and ellipsized ("Directio...") — scale beats truncate
+                        // (readiness audit 2026-08-06).
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
                 .buttonStyle(.resultAction(.subtle))
+                .accessibilityLabel("Directions" + (myETAString.map { ", \($0) away" } ?? ""))
                 .accessibilityHint("Opens \(item.name ?? "this place") in your maps app")
 
                 if let phone = item.phoneNumber, !phone.isEmpty {

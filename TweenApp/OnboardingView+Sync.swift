@@ -183,7 +183,15 @@ extension OnboardingView {
 
         let cachedSelfBlob = LocationCache.loadSelf()
         let cachedSelf = cachedSelfBlob?.coordinate
-        if !same(savedCoordinate, cachedSelf) {
+        // An EMPTY cache must not clobber a live in-memory fix. The silent
+        // launch fix deliberately never writes the cache, so on a fresh
+        // install this poll reverted savedCoordinate to nil every 2 s tick:
+        // the blue dot blinked and a committed search lost its anchor
+        // (readiness audit 2026-08-06 — the poll-clears-search-state shape
+        // again: react to store CHANGES, not to differences from nothing).
+        if cachedSelf == nil, savedCoordinate != nil, !isUserIn {
+            // keep the live fix; nothing in the store to adopt
+        } else if !same(savedCoordinate, cachedSelf) {
             savedCoordinate = cachedSelf
             // This coordinate came from the cache, not a live fix — clear the
             // in-memory freshness stamp so `freshSelfCoordinateForSend` judges
@@ -213,7 +221,16 @@ extension OnboardingView {
             didChange = true
         }
 
-        let cachedAgreedMeetup = scopedSnapshot?.agreedState ?? LocationCache.loadAgreedMeetup()
+        // When a scoped snapshot EXISTS, its agreedState is authoritative even
+        // when nil — a fresh snapshot with no agreement means there IS no
+        // agreement. The old `??` fell through to the un-scoped global blob,
+        // which has no TTL: after the 24 h sweep cleared the scoped snapshot,
+        // rejoining the chat resurrected Monday's spot and the next real
+        // proposal went out as a .counter to it (readiness audit 2026-08-06).
+        // The global read survives only for the no-snapshot legacy path.
+        let cachedAgreedMeetup = scopedSnapshot != nil
+            ? scopedSnapshot?.agreedState
+            : LocationCache.loadAgreedMeetup()
         if agreedMeetup != cachedAgreedMeetup {
             agreedMeetup = cachedAgreedMeetup
             // Poll-driven deselect: latch the detent restore off (read the
