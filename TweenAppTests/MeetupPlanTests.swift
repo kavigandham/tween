@@ -200,6 +200,36 @@ final class MeetupPlanTests: XCTestCase {
         XCTAssertEqual(MeetupPlanStore.current.mode(for: "kavi"), .transit)
     }
 
+    /// Leaving a meetup while LOCKED must not destroy the dormant plan the
+    /// resubscribe contract above protects. The first modes-preserving leave
+    /// built on the gated `current` read saved {modes: [:]} over the blob for
+    /// exactly these users (audit 2026-08-06) — endMeetup() reads raw.
+    func testEndMeetupWhileLockedPreservesDormantModes() {
+        var plan = MeetupPlan()
+        plan.setMode(.transit, for: "kavi")
+        plan.arrivalDate = Date().addingTimeInterval(3600)
+        MeetupPlanStore.save(plan)
+
+        ProEntitlement.setUnlocked(false)
+        MeetupPlanStore.endMeetup()
+
+        ProEntitlement.setUnlocked(true)
+        let restored = MeetupPlanStore.current
+        XCTAssertEqual(restored.mode(for: "kavi"), .transit,
+                       "a locked leave must not wipe the dormant modes")
+        XCTAssertNil(restored.arrivalDate, "the schedule dies with the meetup")
+    }
+
+    /// endMeetup() for a user who never planned mints NO blob — no needless
+    /// cross-process write per received leave URL.
+    func testEndMeetupNoOpsWithoutAPlan() {
+        MeetupPlanStore.clear()
+        MeetupPlanStore.endMeetup()
+        XCTAssertNil(UserDefaults(suiteName: LocationCache.appGroup)?
+            .data(forKey: "tween.meetupPlan"),
+            "no blob may spring into existence")
+    }
+
     // MARK: Calendar attendee formatting
 
     func testAttendeeFormatting() {

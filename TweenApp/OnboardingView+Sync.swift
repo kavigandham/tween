@@ -74,6 +74,18 @@ extension OnboardingView {
         let scopedSnapshotExists = scopedSnapshotAny != nil
         let scopedSnapshot = scopedSnapshotAny
             .flatMap { Date().timeIntervalSince($0.updatedAt) <= ConversationMeetupStore.snapshotTTL ? $0 : nil }
+        // Expiry detected THIS tick: the global mirrors have no TTL of their
+        // own and are swept only at cold launch, so a resume across the 24 h
+        // boundary kept painting the dead meetup's roster from them — and
+        // scopedFirstRoster's identical fallback could REBROADCAST it in the
+        // next outgoing payload (audit 2026-08-06). Wipe the mirrors the
+        // moment the scoped snapshot ages out; the extension's own sweep then
+        // finds nothing to resurrect either.
+        if scopedSnapshotExists, scopedSnapshot == nil {
+            LocationCache.clearParticipants()
+            LocationCache.clearAgreedMeetup()
+            LocationCache.setPeerActive(false)
+        }
         let roster = scopedSnapshot?.participants ?? LocationCache.loadParticipants()
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
         let remotes = roster.filter { !$0.matches(localContext) }

@@ -176,4 +176,17 @@ enum MeetupPlanStore {
         defaults?.removeObject(forKey: key)
         MeetupSync.post()
     }
+
+    /// Ends the meetup's SCHEDULE while preserving the user's modes — in BOTH
+    /// entitlement states. Built for the leave paths: a modes-preserving save
+    /// through `current` destroyed a lapsed subscriber's dormant blob, because
+    /// the gated read returns `.none` (empty modes) when locked — the exact
+    /// blob the gate's own comment promises to keep for resubscribe
+    /// (audit 2026-08-06). Reads the RAW blob and no-ops when none exists, so
+    /// a user who never planned gains no blob and no Darwin round-trip.
+    static func endMeetup() {
+        guard let data = defaults?.data(forKey: key),
+              let plan = try? JSONDecoder().decode(MeetupPlan.self, from: data) else { return }
+        save(MeetupPlan(arrivalDate: nil, modes: plan.modes))
+    }
 }

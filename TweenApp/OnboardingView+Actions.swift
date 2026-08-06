@@ -352,12 +352,11 @@ extension OnboardingView {
         OutgoingDraftStore.clear()
         // The SCHEDULE and its leave-by reminder describe the meetup being
         // left; the MODES are the user's own ("travel modes stay global" —
-        // MeetupPlan.swift) and must survive, or a Pro user's walking would
-        // silently revert to driving on every leave. Same modes-preserving
-        // idiom as the store's own stale-arrival sweep (audit 2026-08-06:
-        // clear() here wiped the modes).
-        let plan = MeetupPlanStore.current
-        MeetupPlanStore.save(MeetupPlan(arrivalDate: nil, modes: plan.modes))
+        // MeetupPlan.swift) and must survive. endMeetup() reads the RAW blob:
+        // building this on the entitlement-gated `current` destroyed a lapsed
+        // subscriber's dormant plan — `current` returns .none when locked, so
+        // the "preserved" modes were an empty dictionary (audit 2026-08-06).
+        MeetupPlanStore.endMeetup()
         LeaveByReminder.cancel()
         _ = refreshFromAppGroup()
     }
