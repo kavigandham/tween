@@ -350,11 +350,14 @@ extension OnboardingView {
         // A staged "Send to chat" hand-off is a pending message; leaving must
         // not let the extension re-adopt it within its 15-min handoff window.
         OutgoingDraftStore.clear()
-        // The Pro plan and its leave-by reminder describe the meetup being
-        // left. Without these, "Leave by 6:12 PM" fired for a cancelled
-        // meetup and future searches stayed ranked for the dead plan
-        // (readiness audit 2026-08-06).
-        MeetupPlanStore.clear()
+        // The SCHEDULE and its leave-by reminder describe the meetup being
+        // left; the MODES are the user's own ("travel modes stay global" —
+        // MeetupPlan.swift) and must survive, or a Pro user's walking would
+        // silently revert to driving on every leave. Same modes-preserving
+        // idiom as the store's own stale-arrival sweep (audit 2026-08-06:
+        // clear() here wiped the modes).
+        let plan = MeetupPlanStore.current
+        MeetupPlanStore.save(MeetupPlan(arrivalDate: nil, modes: plan.modes))
         LeaveByReminder.cancel()
         _ = refreshFromAppGroup()
     }

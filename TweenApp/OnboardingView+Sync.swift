@@ -65,8 +65,14 @@ extension OnboardingView {
         let myName = UserProfile.displayName ?? UserName.fallback
         // Same freshness rule as the extension: a snapshot past its TTL is
         // history, not a live meetup, so the poll must not keep painting it.
-        let scopedSnapshot = ConversationMeetupStore.lastActiveConversationKey
+        // Loaded in two steps: `scopedSnapshotExists` remembers that a snapshot
+        // is PRESENT even when the TTL has expired it — an expired snapshot is
+        // "this conversation's meetup is over", which must beat the global
+        // no-TTL agreed blob below, not fall through to it (audit 2026-08-06).
+        let scopedSnapshotAny = ConversationMeetupStore.lastActiveConversationKey
             .flatMap { ConversationMeetupStore.load(key: $0) }
+        let scopedSnapshotExists = scopedSnapshotAny != nil
+        let scopedSnapshot = scopedSnapshotAny
             .flatMap { Date().timeIntervalSince($0.updatedAt) <= ConversationMeetupStore.snapshotTTL ? $0 : nil }
         let roster = scopedSnapshot?.participants ?? LocationCache.loadParticipants()
         let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
@@ -228,7 +234,7 @@ extension OnboardingView {
         // rejoining the chat resurrected Monday's spot and the next real
         // proposal went out as a .counter to it (readiness audit 2026-08-06).
         // The global read survives only for the no-snapshot legacy path.
-        let cachedAgreedMeetup = scopedSnapshot != nil
+        let cachedAgreedMeetup = scopedSnapshotExists
             ? scopedSnapshot?.agreedState
             : LocationCache.loadAgreedMeetup()
         if agreedMeetup != cachedAgreedMeetup {

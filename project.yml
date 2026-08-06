@@ -63,7 +63,11 @@ targets:
         # predated that and was factually wrong in the first alert a reviewer
         # reads (5.1.1 mismatch, readiness audit 2026-08-06). The EXTENSION's
         # string keeps "once": it genuinely takes single fixes.
-        NSLocationWhenInUseUsageDescription: "Tween uses your location while the app is open to show you on the map and find fair meetup spots. It is shared only when you tap I'm in."
+        # "in messages you choose to send", not "when you tap I'm in" — Agree,
+        # Counter, and Send-to-chat also embed the coordinate, and the movement
+        # tick keeps it current after joining. Every share still rides in an
+        # explicit user-sent message, which is the honest claim (audit 2026-08-06).
+        NSLocationWhenInUseUsageDescription: "Tween uses your location while the app is open to show you on the map and find fair meetup spots. It is shared only in messages you choose to send."
         NSContactsUsageDescription: "Tween uses your contacts so you can pick a friend to invite to a meetup."
         NSCalendarsWriteOnlyAccessUsageDescription: "Tween adds a meetup you plan to your calendar. It never reads your existing events."
 

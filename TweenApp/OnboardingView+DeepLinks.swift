@@ -234,9 +234,14 @@ extension OnboardingView {
                 }
                 agreedMeetup = nil
                 pendingProposal = nil
-                // The meetup just collapsed — a "Leave by 6:12 PM" nudge for
-                // it would fire anyway (readiness audit 2026-08-06). The plan
-                // itself survives: modes/schedule are the local user's own.
+                // The meetup just collapsed — cancel the "Leave by 6:12 PM"
+                // nudge AND drop the schedule/spot, or the plan banner keeps
+                // advertising "Today at 7:00 PM" for a meetup everyone
+                // abandoned, with its nudge silently dead. Modes survive:
+                // how you get around isn't per-destination (audit 2026-08-06,
+                // aligning this arm with commitLeaveLocally).
+                let plan = MeetupPlanStore.current
+                MeetupPlanStore.save(MeetupPlan(arrivalDate: nil, modes: plan.modes))
                 LeaveByReminder.cancel()
             }
             // A proposal card from someone who just left is dead — dismiss
