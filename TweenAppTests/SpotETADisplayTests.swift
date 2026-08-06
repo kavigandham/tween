@@ -70,7 +70,7 @@ final class SpotETADisplayTests: XCTestCase {
 
     func testFairnessCaptionIsPlainLanguage() {
         XCTAssertEqual(SpotETADisplay.fairnessCaption(for: spot([("Sam", 480), ("Maya", 540)])),
-                       "Everyone drives about the same")
+                       "Everyone travels about the same")
         let uneven = SpotETADisplay.fairnessCaption(for: spot([("A", 120), ("B", 1500)]))
         XCTAssertFalse(uneven.contains("spread"), uneven)
     }

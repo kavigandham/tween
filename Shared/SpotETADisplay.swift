@@ -48,9 +48,9 @@ enum SpotETADisplay {
     /// times already show the detail; this just says how even the trip is.
     static func fairnessCaption(for spot: RankedSpot) -> String {
         switch spot.fairnessSpread {
-        case ..<300: return "Everyone drives about the same"
+        case ..<300: return "Everyone travels about the same"
         case ..<900: return "A fairly even trip for everyone"
-        default:     return "A longer drive for some than others"
+        default:     return "A longer trip for some than others"
         }
     }
 
@@ -172,7 +172,10 @@ struct SpotETAStrip: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Drive times")
+        // "Travel times" — this strip sits under the header corrected in
+        // 43fecf1 and shows the same mixed-mode numbers. VoiceOver was still
+        // calling a 2h50m walk a drive time, in both targets.
+        .accessibilityLabel("Travel times")
         .accessibilityValue(SpotETADisplay.compactLabel(for: spot, bestWorstETA: bestWorstETA))
     }
 }

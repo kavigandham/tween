@@ -155,7 +155,13 @@ struct PaywallSheet: View {
     }
 
     static let comparisonRows: [ComparisonRow] = [
-        .init(title: "Fair spots by everyone's drive time", free: true),
+        // "Fair spots between everyone", NOT "by everyone's drive time". The
+        // old wording said "drive" one row above a Pro row selling transit and
+        // walking, and it overlapped with the "see everyone's travel time" row
+        // below it. This row is about the RANKING; that one is about the
+        // DISPLAY. Free ranks by driving only — the "Transit and walking" row
+        // is what marks that as the Pro upgrade, so neither column overclaims.
+        .init(title: "Fair spots between everyone", free: true),
         .init(title: "Share and agree inside iMessage", free: true),
         .init(title: "See everyone's travel time", free: true),
         .init(title: "Groups and saved addresses", free: false),
@@ -404,8 +410,25 @@ struct PaywallSheet: View {
 
     private func loadProducts() async {
         // Lifetime first in display order regardless of store return order.
+        // The predicate ignores its second argument, which is NOT a valid strict
+        // weak ordering (it reports lifetime < lifetime). Harmless at two
+        // elements, undefined at three — so compare both sides.
         let loaded = (try? await Product.products(for: ProEntitlement.productIDs)) ?? []
-        products = loaded.sorted { a, _ in a.id == ProEntitlement.lifetimeProductID }
+        let ordered = loaded.sorted { a, b in
+            a.id == ProEntitlement.lifetimeProductID && b.id != ProEntitlement.lifetimeProductID
+        }
+        products = ordered
+        // Clamp the selection to something that actually loaded. If the lifetime
+        // product were ever unapproved in App Store Connect, selectedProductID
+        // kept pointing at it: the monthly card rendered UNSELECTED and
+        // continueButton's `if let` failed, so the sheet showed a price card and
+        // then no buy button at all — no error, no explanation, and the only way
+        // out was tapping a card that gave no sign it was tappable
+        // (audit 2026-08-05).
+        if !ordered.contains(where: { $0.id == selectedProductID }),
+           let first = ordered.first {
+            selectedProductID = first.id
+        }
     }
 
     private func buy(_ product: Product) async {

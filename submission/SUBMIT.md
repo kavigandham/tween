@@ -1,4 +1,4 @@
-# Tween 1.0.1 (build 3) — submission checklist
+# Tween 1.0.1 — submission checklist
 
 Generated 2026-08-05. Two things ship together: the **app version** and the
 **two in-app purchases**. IAPs submitted with a version go through review with
@@ -42,9 +42,17 @@ is deliberate, and it means the steps below are still yours to do.
 - Build appears under TestFlight → iOS builds, usually 5–15 min after the
   upload finishes (processing lag is Apple's, not the CI's).
 
-Version **1.0.1**, build **3**. Build 2 was never tagged in git, so if App Store
-Connect already shows a build 3, bump `CFBundleVersion` in `project.yml` (BOTH
-targets — app and extension must match), run `xcodegen generate`, and push again.
+Version **1.0.1**. The **build number is assigned by Codemagic**, not by this
+repo: `codemagic.yaml` runs `plutil -replace CFBundleVersion "$BUILD_NUMBER"`
+against both Info.plists *after* `xcodegen generate`, so whatever
+`CFBundleVersion` says in `project.yml` is overwritten. Select whichever build
+TestFlight shows as newest — do not go looking for a specific number, and do not
+bother bumping `project.yml` to force one, because it has no effect here.
+
+Note also that `ci_scripts/ci_post_clone.sh` means an **Xcode Cloud** pipeline
+exists too, and it does NOT rewrite the build number. If both fire on a push to
+`main`, two builds with different `CFBundleVersion`s race to upload. If you see
+duplicate builds in TestFlight, that is why.
 
 ---
 
@@ -78,7 +86,7 @@ The monthly also needs, one time only:
 
 ## 3. App version page
 
-- [ ] Select build **3**.
+- [ ] Select the newest build (see §1 — the number comes from CI, not this repo).
 - [ ] Under **In-App Purchases**, attach BOTH products to this version.
       Easy to miss — the section is below the screenshots and collapsed by
       default. If you skip it the app ships with a paywall whose products do
@@ -106,9 +114,8 @@ The monthly also needs, one time only:
 > Tween Pro unlocks planning features for meetups scheduled in advance. Meeting
 > right now is free and always will be.
 >
-> To reach the paywall: open the app, tap the avatar in the top right of the
-> search sheet to open Friends, then tap any group under "Groups". Groups are a
-> Pro feature, so the Tween Pro screen appears.
+> To reach the paywall: open the app, tap the "..." button at the top right of
+> the map, choose Settings, then tap "Tween Pro". No prior setup is needed.
 >
 > The attached screenshot shows that screen: a Free vs Pro comparison and the
 > two purchase options (Lifetime $9.99 one-time, Monthly $1.99). Restore
