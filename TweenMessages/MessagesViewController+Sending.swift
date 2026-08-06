@@ -45,7 +45,13 @@ extension MessagesViewController {
                 // Cache the fix but keep the prior active flag — the host app
                 // reads LocationCache.isActive as "you're in", so a join must
                 // not look successful before the bubble is actually delivered.
-                LocationCache.save(fresh, isActive: LocationCache.isActive)
+                // Stamped with the fix's MEASUREMENT time, not receipt time:
+                // a one-shot can hand back CoreLocation's cached fix, and
+                // re-dating it to Date() would launder its age into the
+                // 5-minute freshness window both processes trust
+                // (audit 2026-08-05).
+                LocationCache.save(fresh, at: locationProvider.lastFixAt ?? Date(),
+                                   isActive: LocationCache.isActive)
                 coordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 coordinate = cached

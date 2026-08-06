@@ -76,10 +76,6 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// waiting path (audit 2026-08-05).
     private static let freshFixMaxAge: TimeInterval = 90
 
-    /// One-shot retry budget: a `requestLocation()` delivers exactly ONE fix.
-    /// If the stale gate refuses it without asking again, the refusal is
-    /// terminal on the one-shot path — the EXTENSION's only path.
-    private var retriedStaleOnce = false
 
     /// True once a caller asked for the continuous stream — lets a grant that
     /// arrives later (first-launch permission alert) start the stream the
@@ -222,7 +218,6 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     private func requestFix() {
-        retriedStaleOnce = false
         if isStreaming {
             // requestLocation() while startUpdatingLocation() is live is
             // documented as unsupported and in practice often never delivers.
@@ -306,27 +301,18 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         // Silent-and-wrong is worse than the alert the watchdog gives
         // (audit 2026-08-05). Display-path deliveries (not .requesting) stay
         // unfiltered: a stale pin beats no pin, and it self-heals.
-        if status == .requesting,
+        // Refuse stale deliveries ONLY where refusal is recoverable: a live
+        // stream redelivers within seconds and the watchdog bounds the worst
+        // case. On the one-shot path (the extension never streams) a refusal
+        // is terminal — requestLocation delivers exactly one fix — and a
+        // retry can't be funded either: the extension's poll gives the whole
+        // acquisition ~5 s, less than a second CoreLocation round-trip needs
+        // (audits 2026-08-05, twice). So one-shots accept the newest fix
+        // available, and lastFixAt records its HONEST measurement time for
+        // the caller to stamp the cache with — never receipt time.
+        if status == .requesting, isStreaming,
            Date().timeIntervalSince(location.timestamp) > Self.freshFixMaxAge {
-            if isStreaming {
-                // The stream's next tick self-heals in seconds; the watchdog
-                // bounds the worst case. Keep refusing.
-                return
-            }
-            if !retriedStaleOnce {
-                // ONE-SHOT path (the extension never streams): requestLocation
-                // delivers exactly one fix and stops. Refusing it silently was
-                // terminal — the extension's poll gave up at 5 s and fell back
-                // to a RAW cached coordinate older than the fix just refused
-                // (audit 2026-08-05). Ask once more for a real fix.
-                retriedStaleOnce = true
-                manager.requestLocation()
-                return
-            }
-            // Second delivery still stale: accept it as best effort. It is
-            // newer than any cache the caller would fall back to, and a
-            // slightly old coordinate beats a failure alert for a stationary
-            // user whose device simply hasn't produced a new fix.
+            return
         }
         let measured = location.timestamp
         Task { @MainActor in self.lastFixAt = measured }
