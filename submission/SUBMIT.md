@@ -9,7 +9,30 @@ submitted automatically.
 
 ---
 
-## 0. Wait for the build
+## 0. Two blockers, both spotted in App Store Connect on 2026-08-05
+
+Neither is a code problem. Both stop a submission cold.
+
+- [ ] **Version mismatch.** App Store Connect holds a **1.0** record ("Prepare
+      for Submission") but the build is **1.0.1**. A version record only accepts
+      builds whose `CFBundleShortVersionString` matches, so build 3 will reach
+      TestFlight and then not appear in the build picker for that record.
+      **Decided 2026-08-05:** edit the version number on the ASC page from 1.0
+      to 1.0.1 — it is editable while the record is still in Prepare for
+      Submission, and no rebuild is needed. Do NOT change `project.yml`; that
+      would invalidate the build already uploading.
+
+- [ ] **EU trader status (Digital Services Act).** App Store Connect is showing:
+      trader status must be provided or apps are removed from the EU App Store.
+      It gates submitting new apps and updates. Only an **Admin or Account
+      Holder** can set it — if that is not you, this needs someone else first.
+
+Unrelated but worth planning around: **App Store Connect is down for up to two
+hours on August 8, 6 a.m. PDT.**
+
+---
+
+## 1. Wait for the build
 
 Pushing to `main` triggers Codemagic (`codemagic.yaml` → `ios-testflight`),
 which uploads to TestFlight. It does **not** submit for App Store review — that
@@ -25,7 +48,7 @@ targets — app and extension must match), run `xcodegen generate`, and push aga
 
 ---
 
-## 1. In-app purchases — do these FIRST
+## 2. In-app purchases — do these FIRST
 
 Both must be **Ready to Submit** before you can attach them to the version.
 A missing review screenshot is the single most common rejection here.
@@ -39,7 +62,7 @@ For **each** product:
 
 - [ ] **Review screenshot** → upload `submission/paywall-review-screenshot.png`
       (in this folder). This is the required "Review Information" screenshot.
-- [ ] **Review notes** — paste the text from §4 below.
+- [ ] **Review notes** — paste the text from §5 below.
 - [ ] Display name and description filled in.
 - [ ] Price tier matches the table above.
 - [ ] Status reads **Ready to Submit**.
@@ -53,7 +76,7 @@ The monthly also needs, one time only:
 
 ---
 
-## 2. App version page
+## 3. App version page
 
 - [ ] Select build **3**.
 - [ ] Under **In-App Purchases**, attach BOTH products to this version.
@@ -62,14 +85,14 @@ The monthly also needs, one time only:
       not exist, and every purchase fails in production.
 - [ ] Screenshots for every required device size.
 - [ ] Description, keywords, support URL, marketing URL.
-- [ ] **What's New** — suggested text in §5.
+- [ ] **What's New** — suggested text in §6.
 - [ ] Age rating questionnaire complete.
 - [ ] Export compliance: `ITSAppUsesNonExemptEncryption` is already `false` in
       `project.yml`, so this should not prompt. If it does, answer **No**.
 
 ---
 
-## 3. Privacy
+## 4. Privacy
 
 - [ ] App Privacy → confirm the answers still match. Tween is serverless with
       no accounts: location is used on-device and never collected, and the app
@@ -78,7 +101,7 @@ The monthly also needs, one time only:
 
 ---
 
-## 4. IAP review notes — paste this
+## 5. IAP review notes — paste this
 
 > Tween Pro unlocks planning features for meetups scheduled in advance. Meeting
 > right now is free and always will be.
@@ -95,7 +118,7 @@ The monthly also needs, one time only:
 
 ---
 
-## 5. What's New — suggested
+## 6. What's New — suggested
 
 > Travel modes now work everywhere. Pick driving, transit, or walking and every
 > time and every set of directions in the app follows it — including the ones
@@ -106,7 +129,7 @@ The monthly also needs, one time only:
 
 ---
 
-## 6. Before you hit Submit
+## 7. Before you hit Submit
 
 - [ ] Open the TestFlight build on a real device and buy Pro with a sandbox
       account. **This is not covered by any automated test in this repo** — the
