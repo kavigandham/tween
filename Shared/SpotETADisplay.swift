@@ -210,7 +210,12 @@ struct SpotDriveBalance: View {
         let tint = SpotETADisplay.qualityColor(for: spot, bestWorstETA: bestWorstETA)
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Who drives how long")
+                // "travels", not "drives" — participants can be walking or on
+                // transit, and this bar sits directly above chips showing a
+                // 2h50m walk next to a 16min drive. Calling that "drives" is
+                // the same mode-blind claim the ETA plumbing just stopped
+                // making (device check 2026-08-05).
+                Text("Who travels how long")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                 Spacer(minLength: 0)

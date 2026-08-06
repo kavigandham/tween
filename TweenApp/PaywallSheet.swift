@@ -178,6 +178,25 @@ struct PaywallSheet: View {
 
     @ViewBuilder
     private var purchaseSection: some View {
+        #if DEBUG
+        // -DEMO_PAYWALL_PRICES draws the plan cards from the SAME prices as
+        // TweenPro.storekit, with no live store. simctl cannot carry a StoreKit
+        // configuration, so without this the only way to see or screenshot this
+        // screen is Xcode's Run action on a developer's own machine — and App
+        // Review's subscription slot needs exactly this screenshot.
+        // Purchases are inert: there is no Product behind these cards.
+        if CommandLine.arguments.contains("-DEMO_PAYWALL_PRICES") {
+            planPicker(Self.previewPlans)
+        } else {
+            storeBackedSection
+        }
+        #else
+        storeBackedSection
+        #endif
+    }
+
+    @ViewBuilder
+    private var storeBackedSection: some View {
         switch products {
         case nil:
             ProgressView()
@@ -197,37 +216,35 @@ struct PaywallSheet: View {
             }
             .frame(maxWidth: .infinity)
         case .some(let loaded):
-            VStack(spacing: Tokens.Spacing.s3) {
-                HStack(spacing: Tokens.Spacing.s3) {
-                    ForEach(loaded, id: \.id) { product in
-                        planCard(product)
-                    }
-                }
-                continueButton(loaded)
-                Text("One purchase unlocks Pro on every device signed into your App Store account. No account, no tracking — Tween stays serverless.")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .disabled(purchasing)
+            planPicker(planOptions(loaded))
+                .disabled(purchasing)
         }
     }
 
-    /// Two side-by-side cards with ONE buy button underneath, rather than a
-    /// button per product. Two primary buttons make the user compare and commit
-    /// in a single motion; picking then confirming is the shape every iOS
-    /// paywall uses, and it leaves room to mark the better deal.
-    private func planCard(_ product: Product) -> some View {
-        let isLifetime = product.id == ProEntitlement.lifetimeProductID
-        let isSelected = product.id == selectedProductID
+    private func planPicker(_ plans: [PlanOption]) -> some View {
+        VStack(spacing: Tokens.Spacing.s3) {
+            HStack(spacing: Tokens.Spacing.s3) {
+                ForEach(plans) { planCard($0) }
+            }
+            continueButton(plans)
+            Text("One purchase unlocks Pro on every device signed into your App Store account. No account, no tracking — Tween stays serverless.")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func planCard(_ plan: PlanOption) -> some View {
+        let isLifetime = plan.isLifetime
+        let isSelected = plan.id == selectedProductID
         return Button {
-            selectedProductID = product.id
+            selectedProductID = plan.id
         } label: {
             VStack(spacing: Tokens.Spacing.s1) {
                 Text(isLifetime ? "Lifetime" : "Monthly")
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
-                Text(product.displayPrice)
+                Text(plan.displayPrice)
                     .font(Tokens.Typography.title2)
                     .foregroundStyle(Tokens.Palette.textPrimary)
                 Text(isLifetime ? "pay once" : "per month")
@@ -242,8 +259,11 @@ struct PaywallSheet: View {
                         .background(Tokens.Palette.brand, in: Capsule())
                 }
             }
-            .frame(maxWidth: .infinity)
             .padding(.vertical, Tokens.Spacing.s3)
+            // AFTER the padding, so the background stretches to the taller
+            // sibling. Before it, the frame sized the content and the "Best
+            // value" badge made the Lifetime card visibly taller.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(isSelected ? Tokens.Palette.brandLight : Tokens.Palette.elevated,
                         in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
             .overlay(
@@ -255,26 +275,62 @@ struct PaywallSheet: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel(isLifetime
-                            ? "Lifetime, \(product.displayPrice) once, best value"
-                            : "Monthly, \(product.displayPrice) per month")
+                            ? "Lifetime, \(plan.displayPrice) once, best value"
+                            : "Monthly, \(plan.displayPrice) per month")
     }
 
     @ViewBuilder
-    private func continueButton(_ loaded: [Product]) -> some View {
-        // Falls back to the first product if the selected id somehow isn't in
-        // the loaded set — a dead CTA would be worse than buying the default.
-        let product = loaded.first { $0.id == selectedProductID } ?? loaded.first
-        if let product {
+    private func continueButton(_ plans: [PlanOption]) -> some View {
+        // No `?? plans.first` fallback. Buying a plan the user cannot see
+        // selected is worse than a disabled button: if the lifetime product
+        // were ever unapproved in App Store Connect, the old fallback would
+        // have charged them for the monthly under a Lifetime-shaped default.
+        if let plan = plans.first(where: { $0.id == selectedProductID }) {
             Button {
+                guard let product = products?.first(where: { $0.id == plan.id }) else { return }
                 Task { await buy(product) }
             } label: {
-                Text(product.id == ProEntitlement.lifetimeProductID
-                     ? "Unlock Pro — \(product.displayPrice)"
-                     : "Subscribe — \(product.displayPrice)/mo")
+                Text(plan.isLifetime
+                     ? "Unlock Pro — \(plan.priceWithPeriod)"
+                     : "Subscribe — \(plan.priceWithPeriod)")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.tweenPrimary())
         }
+    }
+
+    /// A plan as the cards render it. Decoupled from StoreKit's `Product` so
+    /// the DEBUG preview below can draw the real layout without a live store —
+    /// `simctl` cannot carry a StoreKit configuration, so this is the only way
+    /// to screenshot this screen outside Xcode's Run action.
+    struct PlanOption: Identifiable {
+        let id: String
+        /// Bare price for the card ("$1.99") — the card's own subtitle says
+        /// "per month", so repeating the period here read as "$1.99/mo per
+        /// month".
+        let displayPrice: String
+        /// Price WITH period for the button ("$1.99/mo"), where there is no
+        /// subtitle to carry it.
+        let priceWithPeriod: String
+        var isLifetime: Bool { id == ProEntitlement.lifetimeProductID }
+    }
+
+    #if DEBUG
+    /// Mirrors TweenPro.storekit exactly. If those prices change, change these
+    /// — a preview showing a price the store does not charge is worse than no
+    /// preview at all.
+    static let previewPlans: [PlanOption] = [
+        .init(id: ProEntitlement.lifetimeProductID, displayPrice: "$9.99", priceWithPeriod: "$9.99"),
+        .init(id: ProEntitlement.monthlyProductID, displayPrice: "$1.99", priceWithPeriod: "$1.99/mo"),
+    ]
+    #endif
+
+    private func planOptions(_ loaded: [Product]) -> [PlanOption] {
+        // Lifetime first regardless of the order StoreKit returns.
+        loaded.map { PlanOption(id: $0.id,
+                                displayPrice: $0.displayPrice,
+                                priceWithPeriod: $0.displayPriceWithPeriod) }
+            .sorted { $0.isLifetime && !$1.isLifetime }
     }
 
     /// Restore and any error, OUTSIDE the products-loaded branch. Nested in it,
@@ -406,4 +462,24 @@ struct PaywallSheet: View {
 
 #Preview {
     PaywallSheet()
+}
+
+private extension Product {
+    /// "$1.99/mo" for a subscription, "$9.99" for the one-time unlock.
+    ///
+    /// The unit comes from the product's OWN subscription period rather than a
+    /// hardcoded "/mo", so adding an annual plan later cannot silently label it
+    /// per-month. `displayPrice` is already localised by StoreKit.
+    var displayPriceWithPeriod: String {
+        guard let period = subscription?.subscriptionPeriod else { return displayPrice }
+        let unit: String
+        switch period.unit {
+        case .day: unit = "day"
+        case .week: unit = "wk"
+        case .month: unit = "mo"
+        case .year: unit = "yr"
+        @unknown default: return displayPrice
+        }
+        return "\(displayPrice)/\(unit)"
+    }
 }
