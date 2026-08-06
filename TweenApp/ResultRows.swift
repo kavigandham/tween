@@ -134,6 +134,10 @@ struct ResultCard: View {
     /// Shortest worst-case drive across the ranked results — the reference the
     /// per-spot quality colour compares against.
     var bestWorstETA: TimeInterval? = nil
+    /// The local user's ROUTED travel time when the search couldn't be
+    /// fairness-ranked (solo). Display-only; the estimate below covers the
+    /// moment before it lands.
+    var soloETA: TimeInterval? = nil
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
@@ -144,6 +148,24 @@ struct ResultCard: View {
     /// "how long will it take ME". Resolution mirrors SpotDetailCard's
     /// myDriveETA: stable id, then display name, then the solo single entry.
     private var myETAString: String? {
+        // SOLO: no ranking happens below two points (searchRankingParticipants
+        // returns nil), so there are no routed ETAs — which is exactly the
+        // case the user reported, where the button fell back to the word and
+        // truncated to "Direc...". Use the app's OWN estimate model (straight
+        // line ÷ the planned mode's speed) — the same numbers estimatedRankings
+        // publishes before MapKit answers — marked "~" so an estimate never
+        // poses as a routed time. No network, no reorder, no throttle.
+        if rankedSpot == nil {
+            // Routed time once it lands; until then the app's own estimate
+            // model (straight line ÷ the planned mode's speed), marked "~" so
+            // an estimate never poses as a routed time.
+            if let soloETA { return formatETA(soloETA) }
+            guard let userCoord, let target = item.placemark.location else { return nil }
+            let metres = CLLocation(latitude: userCoord.latitude, longitude: userCoord.longitude)
+                .distance(from: target)
+            let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
+            return "~" + formatETA(metres / mode.fallbackMetresPerSecond)
+        }
         guard let etas = rankedSpot?.etas, !etas.isEmpty else { return nil }
         let myName = UserProfile.displayName ?? UserName.fallback
         let mine = etas.first { $0.id == TweenIdentity.stableID }

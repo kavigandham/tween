@@ -185,8 +185,18 @@ enum MeetupPlanStore {
     /// (audit 2026-08-06). Reads the RAW blob and no-ops when none exists, so
     /// a user who never planned gains no blob and no Darwin round-trip.
     static func endMeetup() {
-        guard let data = defaults?.data(forKey: key),
-              let plan = try? JSONDecoder().decode(MeetupPlan.self, from: data) else { return }
+        guard let plan = storedPlan else { return }
         save(MeetupPlan(arrivalDate: nil, modes: plan.modes))
+    }
+
+    /// The plan as STORED — no entitlement gate, no stale-arrival rewrite.
+    /// Callers that must reason about the blob itself (does it exist? does it
+    /// still carry a schedule?) use this; everything user-facing uses
+    /// `current`. Reading the gated `current` for such questions is what made
+    /// a locked user's leave look like "no plan" and destroy their data
+    /// (audits 2026-08-06).
+    static var storedPlan: MeetupPlan? {
+        guard let data = defaults?.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(MeetupPlan.self, from: data)
     }
 }

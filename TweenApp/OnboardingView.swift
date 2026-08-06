@@ -95,6 +95,12 @@ struct OnboardingView: View {
     /// so writes are gated on ~20 m of movement — the old distanceFilter
     /// granularity, applied at the persistence layer instead of the GPS layer.
     @State var lastPersistedCoordinate: CLLocationCoordinate2D?
+
+    /// Routed travel times for the LOCAL user when a search can't be fairness-
+    /// ranked (solo: fewer than two points). Display-only — it never feeds
+    /// ordering or Best badges, so a solo list keeps MapKit's relevance order
+    /// while each row can still answer "how long will it take me".
+    @State var soloRanked: [RankedSpot] = []
     @State var provider = LocationProvider()
     @State var monitor = NetworkMonitor()
     @State var position: MapCameraPosition

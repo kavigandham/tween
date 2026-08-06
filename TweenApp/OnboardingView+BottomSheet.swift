@@ -91,7 +91,13 @@ extension OnboardingView {
     /// Tapping a row commits that suggestion as a full search.
     var suggestionsList: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            // Plain VStack, not Lazy: at most six rows, and a LazyVStack
+            // recomputes its visible window against the scroll viewport —
+            // which changes on EVERY frame while the sheet is being dragged.
+            // That was the drag feeling choppy only once the field had text
+            // (device report 2026-08-06); with no text this subtree isn't in
+            // the hierarchy at all, which is why an empty bar felt fine.
+            VStack(spacing: 0) {
                 if completer.results.isEmpty {
                     // Phase-aware empty state (audit W16): the spinner was
                     // shown for EVERY empty result set, so a completer
@@ -120,7 +126,10 @@ extension OnboardingView {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Tokens.Spacing.s3)
                 }
-                ForEach(completer.results.prefix(6), id: \.self) { completion in
+                // Stable string identity: `\.self` on a completion object made
+                // SwiftUI re-diff all six rows whenever the completer republished.
+                ForEach(Array(completer.results.prefix(6).enumerated()),
+                        id: \.offset) { _, completion in
                     Button { selectSuggestion(completion) } label: {
                         SuggestionRow(completion: completion)
                     }

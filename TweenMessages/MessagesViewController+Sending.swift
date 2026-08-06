@@ -211,11 +211,14 @@ extension MessagesViewController {
         // schedule — so a Pro user who left here still saw the host's plan
         // banner advertising it (audit 2026-08-06). Modes survive; endMeetup
         // reads the raw blob, so this is entitlement-safe from the extension
-        // too. The REMINDER is deliberately not cancelled here: notification
-        // APIs are host-only by design (LeaveByReminder's own doc — an
-        // extension must not request notification authorization), so
-        // LeaveByRefresher collects the orphan on the host's next foreground.
+        // too. cancel() is also called here — removing a pending request needs
+        // no authorization, and the host-side collection only runs when the
+        // user next FOREGROUNDS the app, which leaving from inside iMessage
+        // makes unlikely before the nudge fires (audit 2026-08-06). If an
+        // extension's notification center can't reach the host's requests
+        // this is a harmless no-op and LeaveByRefresher still collects it.
         MeetupPlanStore.endMeetup()
+        LeaveByReminder.cancel()
         // Tombstone: peers who never tap this leave bubble will keep
         // sending rosters that include this user — decode filters
         // those entries until an explicit rejoin. Any staged-send marker

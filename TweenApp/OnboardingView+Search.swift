@@ -617,6 +617,7 @@ extension OnboardingView {
         }
 
         rankedSpots = []
+        soloRanked = []
         searchResults = items
         lastSearchedRegion = region
         // Recompute rather than force-hide: if the user panned while a
@@ -661,6 +662,20 @@ extension OnboardingView {
             if reframeMap {
                 frameSearchResults()
             }
+        } else if !items.isEmpty, let me = savedCoordinate {
+            // SOLO: no second point, so fairness ranking is meaningless — but
+            // the user still wants "how long will it take ME", and the button
+            // otherwise fell back to the word "Directions" and truncated
+            // (device report 2026-08-06). Route the visible rows against the
+            // single local participant. Display-only: `soloRanked` never
+            // touches ordering or Best badges.
+            let solo = [Participant.localForRanking(
+                name: UserProfile.displayName ?? UserName.fallback, coordinate: me)]
+            let routed = await FairnessRanker.rank(
+                candidates: Array(items.prefix(Self.rankCap)),
+                participants: solo, cap: Self.rankCap)
+            guard !Task.isCancelled else { return }
+            soloRanked = routed
         }
 
         guard reframeMap else { return }

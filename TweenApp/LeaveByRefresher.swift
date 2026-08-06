@@ -21,19 +21,29 @@ enum LeaveByRefresher {
     static let significantDriftSeconds: TimeInterval = 5 * 60
 
     /// Re-measures and reschedules if needed. No-ops unless there's a scheduled
-    /// plan with a spot, an armed reminder, and a known origin.
+    /// plan with a spot, an armed reminder, and a known origin — EXCEPT for the
+    /// orphan-collection branch below, which cancels an armed reminder whose
+    /// schedule has been ended elsewhere (it mutates with no spot and no
+    /// origin, so this is not a pure no-op path).
     @discardableResult
     static func refresh(from origin: CLLocationCoordinate2D?) async -> Date? {
-        let plan = MeetupPlanStore.current
-        // An armed reminder with no schedule left is an ORPHAN: the meetup was
-        // ended somewhere that can't cancel it — the extension's leave, which
-        // must not touch notification APIs (audit 2026-08-06). Collect it here
-        // on the host's next foreground rather than letting it fire for a
-        // meetup the user already left.
-        if plan.arrivalDate == nil, await LeaveByReminder.isArmed() {
+        // Orphan collection: a STORED plan whose schedule ended while a
+        // reminder is still armed — the extension's leave ends the plan but
+        // cannot reliably reach the host's pending notifications.
+        //
+        // Gated on the RAW blob, deliberately. Reading the entitlement-gated
+        // `current` here meant any locked read — including a transient
+        // StoreKit false negative at launch — looked like "no schedule" and
+        // PERMANENTLY cancelled a paying user's reminder, which nothing
+        // re-arms. The blob checks are also cheap UserDefaults reads, so a
+        // user who never planned no longer makes a notification-center round
+        // trip on every foreground (audit 2026-08-06).
+        if let stored = MeetupPlanStore.storedPlan, stored.arrivalDate == nil,
+           await LeaveByReminder.isArmed() {
             LeaveByReminder.cancel()
             return nil
         }
+        let plan = MeetupPlanStore.current
         guard let arrival = plan.arrivalDate,
               let spotName = plan.spotName,
               let destination = plan.coordinate,

@@ -1094,6 +1094,7 @@ extension OnboardingView {
                     userCoord: savedCoordinate,
                     isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
                     bestWorstETA: rankedSpots.map(\.worstETA).min(),
+                    soloETA: soloRanked.first(where: { $0.item == item })?.etas.first?.eta,
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))

@@ -6,9 +6,15 @@ import UserNotifications
 /// travel time.
 ///
 /// Local notifications only: no server, no push tokens, nothing leaves the
-/// device (constraint 8). Scheduling happens in the HOST APP — a Messages
+/// device (constraint 8). SCHEDULING happens in the HOST APP — a Messages
 /// extension shouldn't be requesting notification authorization, and the
-/// extension is short-lived anyway.
+/// extension is short-lived anyway. `cancel()` is the one member the
+/// extension may call: removing a pending request needs no authorization,
+/// and leaving from inside iMessage must not leave a "time to head out"
+/// nudge armed for a meetup the user just left (audit 2026-08-06). Whether
+/// an extension's notification center reaches the host's pending requests is
+/// unverified on device, so this is belt-and-braces: LeaveByRefresher also
+/// collects the orphan on the host's next foreground.
 enum LeaveByReminder {
     /// One identifier, so re-planning the same meetup replaces its reminder
     /// instead of stacking a second one.

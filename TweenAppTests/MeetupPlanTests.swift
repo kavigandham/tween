@@ -220,6 +220,42 @@ final class MeetupPlanTests: XCTestCase {
         XCTAssertNil(restored.arrivalDate, "the schedule dies with the meetup")
     }
 
+    /// The orphan gate reads the RAW blob, so a LOCKED read can't look like
+    /// "no schedule" and cancel a paying user's reminder on a transient
+    /// StoreKit false negative (audit 2026-08-06).
+    func testStoredPlanIgnoresEntitlementGate() {
+        var plan = MeetupPlan()
+        plan.arrivalDate = Date().addingTimeInterval(3600)
+        plan.setMode(.walking, for: "me")
+        MeetupPlanStore.save(plan)
+
+        ProEntitlement.setUnlocked(false)
+        XCTAssertNil(MeetupPlanStore.current.arrivalDate,
+                     "the gated read still hides the schedule when locked")
+        XCTAssertNotNil(MeetupPlanStore.storedPlan?.arrivalDate,
+                        "the raw read must still see it, or orphan collection cancels a live reminder")
+        XCTAssertEqual(MeetupPlanStore.storedPlan?.mode(for: "me"), .walking)
+    }
+
+    /// endMeetup drops the SPOT as well as the arrival — the plan banner reads
+    /// off spotName, so leaving it behind kept advertising a dead meetup.
+    func testEndMeetupDropsSpotNotJustArrival() {
+        var plan = MeetupPlan()
+        plan.arrivalDate = Date().addingTimeInterval(3600)
+        plan.setSpot(name: "Blue Bottle",
+                     coordinate: CLLocationCoordinate2D(latitude: 37.77, longitude: -122.41))
+        plan.setMode(.transit, for: "me")
+        MeetupPlanStore.save(plan)
+
+        MeetupPlanStore.endMeetup()
+
+        let after = MeetupPlanStore.storedPlan
+        XCTAssertNil(after?.arrivalDate)
+        XCTAssertNil(after?.spotName, "the banner reads spotName — it must die with the meetup")
+        XCTAssertNil(after?.coordinate)
+        XCTAssertEqual(after?.mode(for: "me"), .transit, "modes are the user's own")
+    }
+
     /// endMeetup() for a user who never planned mints NO blob — no needless
     /// cross-process write per received leave URL.
     func testEndMeetupNoOpsWithoutAPlan() {
