@@ -36,6 +36,31 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     private let manager = CLLocationManager()
 
+    /// True while `startUpdatingLocation` is live. While streaming, the last
+    /// fix is current BY CONSTRUCTION: CoreLocation keeps the fix warm and the
+    /// distance filter only suppresses deliveries below the threshold — so no
+    /// delivery means no movement, not no data.
+    private(set) var isStreaming = false
+
+    /// When the most recent fix was MEASURED (CLLocation.timestamp, not receipt
+    /// time) — guards against CoreLocation's first post-start delivery, which
+    /// can be a cached fix from before a 20-minute drive.
+    private(set) var lastFixAt: Date?
+
+    /// The coordinate a caller may use RIGHT NOW without waiting: streaming,
+    /// got a fix, and the fix was measured recently. This is what makes
+    /// "I'm in" instant when the user can already see their dot — the tap
+    /// previously fired requestLocation() alongside the live stream, a
+    /// combination CLLocationManager documents as unsupported; it frequently
+    /// never delivered, the 20 s watchdog failed the request, and the user
+    /// retried into the same wall ("45 seconds when I can see my person",
+    /// device report 2026-08-05).
+    var currentFreshCoordinate: CLLocationCoordinate2D? {
+        guard isStreaming, case let .got(coord) = status,
+              let at = lastFixAt, Date().timeIntervalSince(at) < 90 else { return nil }
+        return coord
+    }
+
     /// Deadline for CoreLocation to produce a fix once authorization is
     /// settled. Without it a stalled `requestLocation()` pins `status` at
     /// `.requesting` forever — and every "Finding you..." spinner with it.
@@ -49,6 +74,11 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// moment authorization lands instead of waiting for another call.
     private var continuousRequested = false
 
+    /// The stream profile the caller asked for, applied when the stream
+    /// starts — including a deferred start after the permission alert.
+    private var streamFilter: CLLocationDistance = 35
+    private var streamAccuracy: CLLocationAccuracy = kCLLocationAccuracyHundredMeters
+
     override init() {
         super.init()
         manager.delegate = self
@@ -56,6 +86,13 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         // Continuous mode is foreground-only (When-In-Use); the filter keeps
         // delegate traffic to genuine movement instead of GPS jitter.
         manager.distanceFilter = 35
+    }
+
+    private func beginStream() {
+        manager.distanceFilter = streamFilter
+        manager.desiredAccuracy = streamAccuracy
+        manager.startUpdatingLocation()
+        isStreaming = true
     }
 
     /// Streams fixes while the app is foregrounded so the user's pin tracks
@@ -67,9 +104,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// the stream starts when (if) authorization arrives.
     func startContinuous() {
         continuousRequested = true
+        // The extension keeps the conservative profile: 35 m filter, coarse
+        // accuracy. Its surfaces are snapshots, not a live map, and constraint
+        // 1 (memory ceiling) argues against per-second delegate traffic.
+        streamFilter = 35
+        streamAccuracy = kCLLocationAccuracyHundredMeters
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
-            manager.startUpdatingLocation()
+            beginStream()
         default:
             break
         }
@@ -93,6 +135,14 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// `continuousRequested` and opens the stream.
     func startContinuousAskingIfNeeded() {
         continuousRequested = true
+        // HOST profile: no distance filter, ten-metre accuracy — the dot
+        // glides the way Maps' does instead of jumping in 35 m steps, and
+        // fix timestamps stay fresh even when the user is stationary, which
+        // is what lets "I'm in" resolve instantly from the stream.
+        // Foreground-only, so the battery cost is the same class as having
+        // Apple or Google Maps open.
+        streamFilter = kCLDistanceFilterNone
+        streamAccuracy = kCLLocationAccuracyNearestTenMeters
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -100,13 +150,12 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
             // so nothing is spinning and nothing can wedge. `requestOnce` is
             // where the deadline belongs — it's the call that sets .requesting.
         case .authorizedWhenInUse, .authorizedAlways:
-            manager.startUpdatingLocation()
-            // Authorized but no fix yet (cold launch): ask for one instead of
-            // waiting for the stream's first delivery, which can lag seconds.
-            if case .got = status {} else if status != .requesting {
-                status = .requesting
-                requestFix()
-            }
+            beginStream()
+            // The stream's own first delivery lands in ~a second; no separate
+            // requestLocation() here. The previous one-shot-alongside-stream
+            // call was the unsupported combination that made cold launches
+            // sit on the LAST session's location for tens of seconds
+            // (device report 2026-08-05).
         default:
             break
         }
@@ -115,6 +164,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     func stopContinuous() {
         continuousRequested = false
         manager.stopUpdatingLocation()
+        isStreaming = false
     }
 
     /// Requests When-In-Use authorization if needed, then a single fix.
@@ -160,7 +210,16 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     private func requestFix() {
-        manager.requestLocation()
+        if isStreaming {
+            // requestLocation() while startUpdatingLocation() is live is
+            // documented as unsupported and in practice often never delivers.
+            // Restarting the stream instead forces CoreLocation to redeliver
+            // its current fix immediately through the same delegate path.
+            manager.stopUpdatingLocation()
+            manager.startUpdatingLocation()
+        } else {
+            manager.requestLocation()
+        }
         fixWatchdog?.cancel()
         fixWatchdog = Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.fixTimeout)
@@ -204,7 +263,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
                 // A continuous stream requested before the user answered the
                 // permission alert starts now that they've granted.
                 if self.continuousRequested {
-                    self.manager.startUpdatingLocation()
+                    self.beginStream()
                 }
             }
         case .denied, .restricted:
@@ -217,11 +276,13 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let coordinate = locations.last?.coordinate else {
+        guard let location = locations.last else {
             settle(.failed)
             return
         }
-        settle(.got(coordinate))
+        let measured = location.timestamp
+        Task { @MainActor in self.lastFixAt = measured }
+        settle(.got(location.coordinate))
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

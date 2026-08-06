@@ -17,8 +17,38 @@ extension OnboardingView {
             // takes over.
             selfIsManual = false
             selfManualLabel = nil
-            awaitingImIn = true
-            provider.requestOnce()
+            // The continuous stream keeps a live fix the whole time the app is
+            // foregrounded — if the user can see their dot, the app knows where
+            // they are, and the tap must be instant. Requesting ANOTHER fix
+            // here fired requestLocation() alongside the live stream (an
+            // unsupported CLLocationManager combination) which often never
+            // delivered: 20 s of "Finding you...", a failure alert, a retry —
+            // the reported 45 seconds (device report 2026-08-05).
+            if let coord = provider.currentFreshCoordinate {
+                completeLiveJoin(with: coord)
+            } else {
+                awaitingImIn = true
+                provider.requestOnce()
+            }
+        }
+    }
+
+    /// The join itself, shared by the instant path above and the .got observer:
+    /// persist, flip presence, reframe, and release any parked send.
+    func completeLiveJoin(with coord: CLLocationCoordinate2D) {
+        withAnimation(Tokens.Motion.spring) {
+            savedCoordinate = coord
+            savedCoordinateAt = Date()
+            LocationCache.save(coord, isActive: true)
+            saveLocalParticipant(coord)
+            lastPersistedCoordinate = coord
+            isUserIn = true
+        }
+        awaitingImIn = false
+        reframe()
+        if let action = pendingLocationAction {
+            pendingLocationAction = nil
+            action()
         }
     }
 

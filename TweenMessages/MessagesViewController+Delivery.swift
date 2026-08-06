@@ -189,8 +189,12 @@ extension MessagesViewController {
     func openAppleMaps(for state: TweenState) {
         let item = MKMapItem(placemark: MKPlacemark(coordinate: state.coordinate))
         item.name = state.text
+        // The LOCAL user's planned mode — this opens directions for whoever
+        // tapped, never a recipient. MeetupPlanStore reads the App Group, so
+        // the mode picked in the host app carries into the bubble tap.
+        let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
         item.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+            MKLaunchOptionsDirectionsModeKey: MapLinks.appleDirectionsMode(mode)
         ])
     }
 

@@ -785,7 +785,7 @@ struct ExpandedView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.tweenPrimary())
-        .accessibilityHint("Opens driving directions to \(state.text) in your maps app")
+        .accessibilityHint("Opens directions to \(state.text) in your maps app")
     }
 
     var openFullAppButton: some View {

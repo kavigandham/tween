@@ -75,6 +75,20 @@ final class SpotETADisplayTests: XCTestCase {
         XCTAssertFalse(uneven.contains("spread"), uneven)
     }
 
+    /// Participants can be walking or on transit, so no fairness caption may
+    /// say "drive". Three captions each individually said it at some point and
+    /// were fixed one at a time across two commits — this pins all branches at
+    /// once so the next drive-flavoured copy fails loudly (audit 2026-08-05).
+    func testNoFairnessCaptionSaysDrive() {
+        let evenish = spot([("Sam", 480), ("Maya", 540)])
+        let middling = spot([("Sam", 300), ("Maya", 900)])
+        let lopsided = spot([("A", 120), ("B", 1500)])
+        for s in [evenish, middling, lopsided] {
+            let caption = SpotETADisplay.fairnessCaption(for: s)
+            XCTAssertFalse(caption.lowercased().contains("driv"), caption)
+        }
+    }
+
     func testQualityWordRelativeToBest() {
         // Colour/word reflect how much WORSE a spot is than the best option, not
         // evenness (device feedback: a far-but-even spot must not read "Fair").

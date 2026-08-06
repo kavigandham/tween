@@ -1,10 +1,24 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 enum MapLinks {
     /// Google's URL vocabulary for a travel mode. Apple's side uses
     /// `MKLaunchOptionsDirectionsMode*` instead, so the mapping lives at each
     /// call rather than on `TravelMode` itself.
+    /// The MKLaunchOptions directions-mode constant for a planned mode.
+    /// Lives in Shared (not SpotDetailCard) so the EXTENSION's "Open in Maps"
+    /// can use it too — it hardcoded driving long after the host app was
+    /// mode-aware, so the same bubble showed a walking ETA and then launched
+    /// driving directions when tapped (audit 2026-08-05).
+    static func appleDirectionsMode(_ mode: TravelMode) -> String {
+        switch mode {
+        case .driving: return MKLaunchOptionsDirectionsModeDriving
+        case .transit: return MKLaunchOptionsDirectionsModeTransit
+        case .walking: return MKLaunchOptionsDirectionsModeWalking
+        }
+    }
+
     static func googleTravelMode(_ mode: TravelMode) -> String {
         switch mode {
         case .driving: return "driving"

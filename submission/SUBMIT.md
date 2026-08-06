@@ -15,12 +15,13 @@ Neither is a code problem. Both stop a submission cold.
 
 - [ ] **Version mismatch.** App Store Connect holds a **1.0** record ("Prepare
       for Submission") but the build is **1.0.1**. A version record only accepts
-      builds whose `CFBundleShortVersionString` matches, so build 3 will reach
-      TestFlight and then not appear in the build picker for that record.
+      builds whose `CFBundleShortVersionString` matches, so the new build will
+      reach TestFlight and then not appear in the build picker for that record.
       **Decided 2026-08-05:** edit the version number on the ASC page from 1.0
       to 1.0.1 — it is editable while the record is still in Prepare for
-      Submission, and no rebuild is needed. Do NOT change `project.yml`; that
-      would invalidate the build already uploading.
+      Submission, and no rebuild is needed. Do NOT change `project.yml` —
+      the version string in the repo must keep matching the ASC record, or the
+      NEXT build stops attaching too.
 
 - [ ] **EU trader status (Digital Services Act).** App Store Connect is showing:
       trader status must be provided or apps are removed from the EU App Store.
@@ -49,10 +50,12 @@ against both Info.plists *after* `xcodegen generate`, so whatever
 TestFlight shows as newest — do not go looking for a specific number, and do not
 bother bumping `project.yml` to force one, because it has no effect here.
 
-Note also that `ci_scripts/ci_post_clone.sh` means an **Xcode Cloud** pipeline
-exists too, and it does NOT rewrite the build number. If both fire on a push to
-`main`, two builds with different `CFBundleVersion`s race to upload. If you see
-duplicate builds in TestFlight, that is why.
+One 30-second check: `ci_scripts/ci_post_clone.sh` suggests an **Xcode Cloud**
+workflow existed at some point. Whether one is still ENABLED lives in App Store
+Connect → Xcode Cloud, which the repo cannot see. If one is, it does not rewrite
+the build number, so it can race Codemagic with a lower `CFBundleVersion` —
+duplicate or rejected builds in TestFlight are the symptom. If no workflow is
+listed there, ignore this.
 
 ---
 
@@ -81,6 +84,11 @@ The monthly also needs, one time only:
 - [ ] **Subscription privacy policy URL** and **terms of use (EULA) URL** — the
       paywall already links both in-app; App Store Connect wants them again in
       the subscription metadata. Apple rejects auto-renewables missing these.
+      The app's own values (from `PaywallSheet.swift`):
+      - Privacy: `https://n1tr029.github.io/tween-legal/privacy.html`
+      - EULA: Apple's standard EULA (the in-app Terms link) — pick "Standard
+        Apple EULA" in ASC rather than a custom URL
+      - Support (for the version page): `https://n1tr029.github.io/tween-legal/support.html`
 
 ---
 
@@ -127,12 +135,13 @@ The monthly also needs, one time only:
 
 ## 6. What's New — suggested
 
-> Travel modes now work everywhere. Pick driving, transit, or walking and every
-> time and every set of directions in the app follows it — including the ones
-> your friends see.
+> Meet in the middle, faster: your location is live while the app is open, and
+> joining a meetup is instant.
 >
-> Tween Pro adds groups, saved addresses, scheduling ahead, leave-by reminders,
-> and calendar sync.
+> Tween Pro adds groups and saved addresses, meetups planned for a day and
+> time, travel modes per person (driving, transit, or walking — every time and
+> every set of directions follows your pick), leave-by reminders, and calendar
+> sync. Meeting right now stays free.
 
 ---
 

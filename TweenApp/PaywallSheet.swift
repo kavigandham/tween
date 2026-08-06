@@ -80,9 +80,9 @@ struct PaywallSheet: View {
     /// groups and saved addresses (OnboardingView+FriendsPanel), the plan sheet
     /// (OnboardingView+SpotSheet), per-person travel modes
     /// (OnboardingView+GroupBar), and the reminder/calendar actions inside the
-    /// plan. The group panel that shows everyone's ETA is deliberately NOT
-    /// listed: it renders for free users too, and claiming it would be selling
-    /// something they already have.
+    /// plan. The group panel that shows everyone's ETA renders for free users,
+    /// so it appears in the FREE column ("See everyone's travel time") —
+    /// claiming it as Pro would be selling something they already have.
     private var comparisonTable: some View {
         VStack(spacing: 0) {
             comparisonHeader

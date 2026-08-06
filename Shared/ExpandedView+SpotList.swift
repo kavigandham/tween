@@ -45,7 +45,7 @@ extension ExpandedView {
                 // to find theirs.
                 directionRow(
                     title: "Open in Maps",
-                    subtitle: "Driving directions to \(state.text)",
+                    subtitle: "Directions to \(state.text)",
                     systemImage: "arrow.triangle.turn.up.right.diamond.fill",
                     foreground: .white,
                     background: Tokens.Palette.brand

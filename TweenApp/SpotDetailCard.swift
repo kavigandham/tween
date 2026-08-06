@@ -524,12 +524,10 @@ struct SpotDetailCard: View {
         ])
     }
 
+    /// Forwarder — the mapping lives in MapLinks (Shared) so the extension
+    /// shares it; existing call sites and tests keep this name.
     static func appleDirectionsMode(_ mode: TravelMode) -> String {
-        switch mode {
-        case .driving: return MKLaunchOptionsDirectionsModeDriving
-        case .transit: return MKLaunchOptionsDirectionsModeTransit
-        case .walking: return MKLaunchOptionsDirectionsModeWalking
-        }
+        MapLinks.appleDirectionsMode(mode)
     }
 
     /// Shown above the actions when this card represents an incoming

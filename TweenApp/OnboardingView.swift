@@ -88,6 +88,13 @@ struct OnboardingView: View {
     /// for via "I'm in"; distinguishes that from the silent launch-time fix that
     /// only centers the map without flipping presence on.
     @State var awaitingImIn = false
+
+    /// Last coordinate PERSISTED to the App Group (not the last drawn). The
+    /// host stream now ticks about once a second with no distance filter so
+    /// the dot glides; persisting every tick would hammer the shared plist,
+    /// so writes are gated on ~20 m of movement — the old distanceFilter
+    /// granularity, applied at the persistence layer instead of the GPS layer.
+    @State var lastPersistedCoordinate: CLLocationCoordinate2D?
     @State var provider = LocationProvider()
     @State var monitor = NetworkMonitor()
     @State var position: MapCameraPosition
@@ -1034,10 +1041,18 @@ struct OnboardingView: View {
                         if awaitingImIn {
                             LocationCache.save(coord, isActive: true)
                             saveLocalParticipant(coord)
+                            lastPersistedCoordinate = coord
                             isUserIn = true
                         } else if isUserIn && !selfIsManual {
-                            LocationCache.save(coord, isActive: true)
-                            saveLocalParticipant(coord)
+                            let moved = lastPersistedCoordinate.map {
+                                CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                                    .distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) > 20
+                            } ?? true
+                            if moved {
+                                LocationCache.save(coord, isActive: true)
+                                saveLocalParticipant(coord)
+                                lastPersistedCoordinate = coord
+                            }
                         }
                     }
                     if shouldReframe { reframe() }
