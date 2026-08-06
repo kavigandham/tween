@@ -104,15 +104,28 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// (device report 2026-08-06). Showing nothing briefly beats asserting a
     /// position the user has already left.
     private static let staleOnResumeMaxAge: TimeInterval = 120
+    /// How long after a stream start the stale-refusal may operate. Unbounded,
+    /// a device that could only produce old fixes (airplane mode with a warm
+    /// cache, denied GPS, a tunnel) lost its dot for the WHOLE session and a
+    /// fresh install couldn't search at all — a reviewer-shaped dead end
+    /// (audit 2026-08-06). Past the deadline a stale fix is accepted:
+    /// provisional beats absent.
+    private static let staleRefusalDeadline: TimeInterval = 15
     /// True from stream start until the first delivery is accepted.
     private var awaitingFirstFreshFix = false
+    private var streamStartedAt = Date.distantPast
 
     private func beginStream() {
         manager.distanceFilter = streamFilter
         manager.desiredAccuracy = streamAccuracy
         manager.startUpdatingLocation()
         isStreaming = true
-        awaitingFirstFreshFix = true
+        // Only the filter-NONE profile may refuse a stale first delivery:
+        // under a 35 m filter CoreLocation counts the refused delivery as
+        // delivered and a stationary user may get NO later tick to accept
+        // (audit 2026-08-06).
+        awaitingFirstFreshFix = streamFilter == kCLDistanceFilterNone
+        streamStartedAt = Date()
     }
 
     /// Streams fixes while the app is foregrounded so the user's pin tracks
@@ -328,10 +341,12 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
             return
         }
         // Just-resumed display path: refuse a stale FIRST delivery so the map
-        // doesn't assert a position the user has driven away from. Bounded to
-        // the first accepted fix — every later tick is unfiltered, so a
-        // stationary user's dot never disappears.
-        if awaitingFirstFreshFix, isStreaming, age > Self.staleOnResumeMaxAge {
+        // doesn't assert a position the user has driven away from — but only
+        // within a short window after stream start. When the deadline passes
+        // and the device still can't do better, accept the stale fix:
+        // provisional beats a session with no dot and no search anchor.
+        if awaitingFirstFreshFix, isStreaming, age > Self.staleOnResumeMaxAge,
+           Date().timeIntervalSince(streamStartedAt) < Self.staleRefusalDeadline {
             return
         }
         awaitingFirstFreshFix = false

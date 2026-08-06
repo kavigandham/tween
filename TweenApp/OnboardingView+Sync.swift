@@ -227,6 +227,18 @@ extension OnboardingView {
         // again: react to store CHANGES, not to differences from nothing).
         if cachedSelf == nil, savedCoordinate != nil, !isUserIn {
             // keep the live fix; nothing in the store to adopt
+        } else if let liveAt = savedCoordinateAt,
+                  let blobAt = cachedSelfBlob?.timestamp, liveAt > blobAt,
+                  !isUserIn {
+            // The live in-memory fix is NEWER than the cache blob. A user who
+            // isn't in never writes the cache (deliberate — silent fixes stay
+            // local), so after a drive this poll re-adopted the stale cached
+            // coordinate over the fresh fix every 2 s: the dot snapped back
+            // to home moments after landing on the real position — the actual
+            // mechanism behind "I drove somewhere and it still showed home"
+            // (audit 2026-08-06). Newer live fix wins; an in-meetup user's
+            // cache is kept current by the movement tick, so this arm is
+            // scoped to !isUserIn and changes nothing for them.
         } else if !same(savedCoordinate, cachedSelf) {
             savedCoordinate = cachedSelf
             // This coordinate came from the cache, not a live fix — clear the

@@ -1120,6 +1120,11 @@ struct OnboardingView: View {
                 Task { await LeaveByRefresher.refresh(from: savedCoordinate) }
             } else {
                 provider.stopContinuous()
+                // Same memory discipline as searchTask below: the solo routed
+                // times moved into their own task (a2f67a2) and fell outside
+                // this teardown — up to five MKDirections round-trips kept
+                // running after backgrounding (audit 2026-08-06).
+                clearSoloRanking()
             }
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.

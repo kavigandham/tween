@@ -658,7 +658,6 @@ extension OnboardingView {
         rankedSpots = []
 
         clearSoloRanking()
-        clearSoloRanking()
         searchResults = items
         lastSearchedRegion = region
         // Recompute rather than force-hide: if the user panned while a
