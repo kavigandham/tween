@@ -1120,11 +1120,15 @@ struct OnboardingView: View {
                 Task { await LeaveByRefresher.refresh(from: savedCoordinate) }
             } else {
                 provider.stopContinuous()
-                // Same memory discipline as searchTask below: the solo routed
-                // times moved into their own task (a2f67a2) and fell outside
-                // this teardown — up to five MKDirections round-trips kept
-                // running after backgrounding (audit 2026-08-06).
-                clearSoloRanking()
+                // Cancel the in-flight solo routing ONLY — never the displayed
+                // array. clearSoloRanking() here wiped the computed minutes on
+                // every .inactive blip (Control Center, a call banner, the
+                // app switcher) with nothing to repopulate them: buttons fell
+                // back to the word "Directions" until a fresh search. The
+                // memory concern is the five MKDirections round-trips, and
+                // cancelling the task alone answers it (audit 2026-08-06).
+                soloRankTask?.cancel()
+                soloRankTask = nil
             }
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
