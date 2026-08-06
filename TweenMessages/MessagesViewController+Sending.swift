@@ -206,6 +206,16 @@ extension MessagesViewController {
         LocationCache.setPeerActive(false)
         LocationCache.deactivateSelf()
         LocationCache.clearAgreedMeetup()
+        // The THIRD leave arm. Leaving from inside iMessage is the same user
+        // intent as the host's "I'm out", but only the host arms ended the
+        // schedule — so a Pro user who left here still saw the host's plan
+        // banner advertising it (audit 2026-08-06). Modes survive; endMeetup
+        // reads the raw blob, so this is entitlement-safe from the extension
+        // too. The REMINDER is deliberately not cancelled here: notification
+        // APIs are host-only by design (LeaveByReminder's own doc — an
+        // extension must not request notification authorization), so
+        // LeaveByRefresher collects the orphan on the host's next foreground.
+        MeetupPlanStore.endMeetup()
         // Tombstone: peers who never tap this leave bubble will keep
         // sending rosters that include this user — decode filters
         // those entries until an explicit rejoin. Any staged-send marker

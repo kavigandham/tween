@@ -89,10 +89,11 @@ extension OnboardingView {
         // whose current conversation key pointed at an aged-out meetup.
         // With the guard it fires once, on the tick expiry is detected, and
         // every later tick finds the mirrors already empty and no-ops.
-        if scopedSnapshotExists, scopedSnapshot == nil,
-           !LocationCache.loadParticipants().isEmpty
-            || LocationCache.loadAgreedMeetup() != nil
-            || LocationCache.isPeerActive {
+        let didExpireThisTick = scopedSnapshotExists && scopedSnapshot == nil
+            && (!LocationCache.loadParticipants().isEmpty
+                || LocationCache.loadAgreedMeetup() != nil
+                || LocationCache.isPeerActive)
+        if didExpireThisTick {
             LocationCache.clearParticipants()
             LocationCache.clearAgreedMeetup()
             LocationCache.setPeerActive(false)
@@ -164,7 +165,13 @@ extension OnboardingView {
         // `peerCoordinate`/`additionalParticipants` still hold their pre-update
         // values here (reconciled below), so they detect the teardown tick.
         let hasLivePeerState = peerCoordinate != nil || !additionalParticipants.isEmpty
-        if Self.shouldResetRankingOnLeave(localLeft: localLeft, hasLivePeerState: hasLivePeerState) {
+        // The expiry tick tears the roster down but can't set `localLeft`
+        // (that requires a live scoped snapshot, and expiry is its absence),
+        // so without this OR the chips survived the pin: every result row kept
+        // showing "You 8 min · Sam 12 min" for a participant the same tick had
+        // just erased (audit 2026-08-06).
+        if Self.shouldResetRankingOnLeave(localLeft: localLeft || didExpireThisTick,
+                                          hasLivePeerState: hasLivePeerState) {
             if !rankedSpots.isEmpty {
                 rankedSpots = []
             }

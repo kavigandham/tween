@@ -25,6 +25,15 @@ enum LeaveByRefresher {
     @discardableResult
     static func refresh(from origin: CLLocationCoordinate2D?) async -> Date? {
         let plan = MeetupPlanStore.current
+        // An armed reminder with no schedule left is an ORPHAN: the meetup was
+        // ended somewhere that can't cancel it — the extension's leave, which
+        // must not touch notification APIs (audit 2026-08-06). Collect it here
+        // on the host's next foreground rather than letting it fire for a
+        // meetup the user already left.
+        if plan.arrivalDate == nil, await LeaveByReminder.isArmed() {
+            LeaveByReminder.cancel()
+            return nil
+        }
         guard let arrival = plan.arrivalDate,
               let spotName = plan.spotName,
               let destination = plan.coordinate,
