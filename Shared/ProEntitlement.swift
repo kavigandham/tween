@@ -14,11 +14,16 @@ enum ProEntitlement {
     static let monthlyProductID = "com.kavigandham.TweenApp.pro.monthly"
     static let productIDs: Set<String> = [lifetimeProductID, monthlyProductID]
 
-    /// The flag both processes gate on: purchased OR redeemed.
+    /// The flag both processes gate on. The extension reads ONLY this.
     private static let unlockedKey = "tween.pro.unlocked"
-    /// StoreKit's verdict alone, kept separate so a redeemed code isn't wiped
-    /// by the next `refresh()` — see `syncUnlockedFlag`.
+    /// StoreKit's verdict, kept as its own key so the gate is computed in one
+    /// place (`syncUnlockedFlag`) rather than every caller re-deriving it.
     private static let purchasedKey = "tween.pro.purchased"
+    /// RETIRED (a9d0b5f): the on-device redeem-code flag. Named here only so
+    /// it can be reaped from devices that redeemed before it was removed, and
+    /// so the name is never reused — a future "second source" writing this key
+    /// would silently resurrect Pro from a bool nobody remembers setting.
+    private static let retiredRedeemedKey = "tween.pro.redeemedCode"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
@@ -42,6 +47,10 @@ enum ProEntitlement {
     /// source can be OR-ed in without every caller re-deriving it.
     static func setUnlocked(_ purchased: Bool) {
         defaults?.set(purchased, forKey: purchasedKey)
+        // Reap the retired redemption flag. Idempotent and free on the vast
+        // majority of devices that never had one; without it the stale `true`
+        // outlives the feature forever in the shared container.
+        defaults?.removeObject(forKey: retiredRedeemedKey)
         syncUnlockedFlag()
     }
 

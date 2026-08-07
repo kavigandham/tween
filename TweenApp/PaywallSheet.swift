@@ -470,13 +470,12 @@ struct PaywallSheet: View {
         purchasing = true
         defer { purchasing = false }
         try? await AppStore.sync()
-        // `refresh()` returns STOREKIT's verdict alone, not the effective gate.
-        // Someone unlocked by redeem code owns no App Store product, so
-        // restoring told them Pro was gone and re-showed the purchase buttons
-        // for something they already have — and the App Review notes send a
-        // reviewer down exactly that path (audit 2026-08-04).
+        // StoreKit is the only source now that redeem codes are gone, so its
+        // verdict IS the gate; the old `|| isUnlocked` existed to stop Restore
+        // telling a code-redeemer their Pro had vanished and can no longer
+        // contribute (audit 2026-08-06).
         let purchased = await ProEntitlement.refresh()
-        unlocked = purchased || ProEntitlement.isUnlocked
+        unlocked = purchased
         if !unlocked {
             errorMessage = "No previous purchase found for this App Store account."
         }
