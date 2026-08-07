@@ -19,11 +19,6 @@ enum ProEntitlement {
     /// StoreKit's verdict alone, kept separate so a redeemed code isn't wiped
     /// by the next `refresh()` — see `syncUnlockedFlag`.
     private static let purchasedKey = "tween.pro.purchased"
-    /// Whether a redeem code has been accepted on this device. The plain bool
-    /// lives HERE, in Shared, while the digest checking that sets it lives in
-    /// the host-only `ProCode` — otherwise `Shared` would pull CryptoKit into
-    /// the Messages extension for code it can never run (audit 2026-08-02).
-    private static let redeemedKey = "tween.pro.redeemedCode"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: LocationCache.appGroup)
@@ -40,37 +35,27 @@ enum ProEntitlement {
         defaults?.bool(forKey: purchasedKey) ?? false
     }
 
-    /// True once a valid redeem code has been accepted on this device.
-    static var isRedeemed: Bool {
-        defaults?.bool(forKey: redeemedKey) ?? false
-    }
-
-    /// Records (or clears) a redemption and recomputes the gate. Only
-    /// `ProCode.redeem` should call this with `true` — it is the digest gate.
-    static func setRedeemed(_ redeemed: Bool) {
-        if redeemed {
-            defaults?.set(true, forKey: redeemedKey)
-        } else {
-            defaults?.removeObject(forKey: redeemedKey)
-        }
-        syncUnlockedFlag()
-    }
-
     /// Records StoreKit's verdict, then recomputes the gate.
     ///
-    /// This USED to write `unlockedKey` directly, which meant every launch's
-    /// `refresh()` — computing "not purchased" for anyone who redeemed a code
-    /// rather than paying — would stamp their Pro back off. Redemption lives
-    /// under its own key and is OR-ed in below.
+    /// Kept as its own key rather than writing `unlockedKey` directly: the
+    /// gate is computed in one place (`syncUnlockedFlag`) so a future second
+    /// source can be OR-ed in without every caller re-deriving it.
     static func setUnlocked(_ purchased: Bool) {
         defaults?.set(purchased, forKey: purchasedKey)
         syncUnlockedFlag()
     }
 
-    /// Recomputes the gate from its two independent sources. Idempotent, and
-    /// only posts when the effective value actually changed.
+    /// Recomputes the gate from StoreKit's verdict. Idempotent, and only posts
+    /// when the effective value actually changed.
+    ///
+    /// The on-device redeem-code path was REMOVED before 1.0.1 shipped: it
+    /// handed App Review a way to unlock Pro without exercising either IAP
+    /// (a 2.1 risk on the very submission that introduces them), and Apple's
+    /// own Offer Codes (subscription) and Promo Codes (non-consumable) do the
+    /// comping job properly — server-side, revocable, cross-device, and with
+    /// no app update needed to issue one.
     static func syncUnlockedFlag() {
-        let effective = isPurchased || isRedeemed
+        let effective = isPurchased
         guard effective != isUnlocked else { return }
         defaults?.set(effective, forKey: unlockedKey)
         // Same contract as every other App Group writer: post so the other
