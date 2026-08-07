@@ -179,12 +179,16 @@ TO TEST THE CORE FEATURE:
 The standalone app is for searching places, managing friends, and settings.
 
 TWEEN PRO:
-Pro features (groups, scheduling, transit/walking fairness, leave-by reminders,
-calendar sync) can be unlocked without a purchase using the redeem code:
+Pro is unlocked by in-app purchase - Lifetime $9.99 (non-consumable) or Monthly
+$1.99 (auto-renewable subscription). Both are included in this submission. To
+reach the paywall: the "..." button at the top right of the map -> Settings ->
+"Tween Pro". Please use a sandbox Apple Account to test a purchase.
 
-    HALFWAY2026
-
-Enter it in Settings → "Have a code?".
+(The on-device redeem code this section used to publish was REMOVED in a9d0b5f.
+Never offer App Review a way to unlock Pro without exercising the IAPs — a
+reviewer handed a bypass may never test the purchase flow at all, then report
+they could not verify the in-app purchases. Comps go through Apple's Offer
+Codes for the subscription and Promo Codes for the non-consumable.)
 
 NO ACCOUNT IS REQUIRED. There is no server, login, or backend of any kind.
 ```
