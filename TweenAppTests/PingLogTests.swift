@@ -51,7 +51,29 @@ final class PingLogTests: XCTestCase {
                        accuracy: 1.0)
     }
 
-    // 4. Generic invites cover Messages sends where iOS does not expose a name.
+    // 4a. A ping past the TTL no longer counts as pending.
+    func testActivePingExpiresAfterTTL() {
+        let friend = TweenFriend(name: "Ada")
+        let now = Date()
+        PingLog.logPing(for: friend.id, at: now.addingTimeInterval(-(PingLog.pendingTTL + 60)))
+        XCTAssertNotNil(PingLog.lastPing(for: friend.id), "the raw stamp is retained")
+        XCTAssertNil(PingLog.activePing(for: friend.id, now: now), "but it is no longer active")
+
+        PingLog.logPing(for: friend.id, at: now.addingTimeInterval(-60))
+        XCTAssertNotNil(PingLog.activePing(for: friend.id, now: now), "a recent ping is active")
+    }
+
+    // 4b. A full-name contact resolves against a short-profile-name joiner.
+    func testNamesMatchResolvesShortProfileName() {
+        XCTAssertTrue(PingLog.namesMatch("Kavi", "Kavi Gandham"))
+        XCTAssertTrue(PingLog.namesMatch("Kavi Gandham", "Kavi"))
+        XCTAssertTrue(PingLog.namesMatch("kavi gandham", "Kavi Gandham"))
+        XCTAssertFalse(PingLog.namesMatch("Sam", "Kavi Gandham"))
+        XCTAssertFalse(PingLog.namesMatch("Kavi Patel", "Kavi Gandham"))
+        XCTAssertFalse(PingLog.namesMatch("", "Kavi"))
+    }
+
+    // 5. Generic invites cover Messages sends where iOS does not expose a name.
     func testGenericInviteRoundTrips() {
         XCTAssertNil(PingLog.lastGenericInviteAt)
 

@@ -95,7 +95,10 @@ enum MapLinks {
         guard url.scheme == "tween", url.host == "maps",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
               let lat = items.first(where: { $0.name == "lat" })?.value.flatMap(Double.init),
-              let lon = items.first(where: { $0.name == "lon" })?.value.flatMap(Double.init)
+              let lon = items.first(where: { $0.name == "lon" })?.value.flatMap(Double.init),
+              // Reject NaN/inf/out-of-range before it reaches a Maps launch or
+              // camera (E2E audit 2026-08-07 — same crash class as TweenState).
+              CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: lat, longitude: lon))
         else { return nil }
         let name = items.first(where: { $0.name == "name" })?.value ?? "Meetup spot"
         return (name, CLLocationCoordinate2D(latitude: lat, longitude: lon))

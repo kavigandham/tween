@@ -258,7 +258,8 @@ struct TweenState: Equatable {
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
             guard (parts.count == 3 || parts.count == 4),
                   let lat = Double(parts[1]),
-                  let lon = Double(parts[2])
+                  let lon = Double(parts[2]),
+                  Self.validCoordinate(lat, lon)
             else { return nil }
             let raw = String(parts[0])
             let name = raw.removingPercentEncoding ?? raw
@@ -330,6 +331,17 @@ struct TweenState: Equatable {
         self.departed = departed
     }
 
+    /// A parsed coordinate is trustworthy only if it is real. `Double.init`
+    /// happily returns NaN/inf for "nan"/"inf" and doesn't range-check, so a
+    /// crafted `tween://` link (lat=nan, lon=200, …) otherwise flowed straight
+    /// into MKCoordinateRegion / distance math — an NSException-class input to
+    /// MapKit, i.e. a crash reachable from a hostile iMessage link
+    /// (E2E audit 2026-08-07). One gate covers host and extension.
+    static func validCoordinate(_ latitude: Double, _ longitude: Double) -> Bool {
+        CLLocationCoordinate2DIsValid(
+            CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
+    }
+
     init?(url: URL) {
         guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
               c.scheme == "https" || c.scheme == "file" || c.scheme == "tween",
@@ -337,6 +349,7 @@ struct TweenState: Equatable {
               let t = items.first(where: { $0.name == "t" })?.value,
               let lat = items.first(where: { $0.name == "lat" })?.value.flatMap(Double.init),
               let lon = items.first(where: { $0.name == "lon" })?.value.flatMap(Double.init),
+              Self.validCoordinate(lat, lon),
               url.absoluteString.count <= 5000
         else { return nil }
         self.text = t
@@ -353,8 +366,17 @@ struct TweenState: Equatable {
             resolvedKind = t == "I'm in" ? .participant : .place
         }
         self.kind = resolvedKind
-        self.senderLatitude = items.first(where: { $0.name == "slat" })?.value.flatMap(Double.init)
-        self.senderLongitude = items.first(where: { $0.name == "slon" })?.value.flatMap(Double.init)
+        // An invalid sender coordinate is treated as ABSENT, not fatal — the
+        // message is still meaningful without the sender's own pin.
+        let slat = items.first(where: { $0.name == "slat" })?.value.flatMap(Double.init)
+        let slon = items.first(where: { $0.name == "slon" })?.value.flatMap(Double.init)
+        if let slat, let slon, Self.validCoordinate(slat, slon) {
+            self.senderLatitude = slat
+            self.senderLongitude = slon
+        } else {
+            self.senderLatitude = nil
+            self.senderLongitude = nil
+        }
         let resolvedAction: Action
         if let rawAction = items.first(where: { $0.name == "action" })?.value,
            let action = Action(rawValue: rawAction) {

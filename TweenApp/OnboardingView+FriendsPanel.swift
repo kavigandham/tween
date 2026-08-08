@@ -1480,10 +1480,14 @@ extension OnboardingView {
     }
 
     var pendingInvitesForDisplay: [PendingInviteRow] {
-        let activeNames = Set(activeParticipantsForDisplay.map { $0.name.lowercased() })
+        let activeNames = activeParticipantsForDisplay.map { $0.name }
         var rows = friends.compactMap { friend -> PendingInviteRow? in
-            guard let sentAt = PingLog.lastPing(for: friend.id),
-                  !activeNames.contains(friend.name.lowercased())
+            // TTL-gated so a never-answered ping ages out, and matched by the
+            // lenient name rule so a full-name contact resolves against a
+            // short-profile-name joiner instead of showing In + Pending
+            // together (E2E audit 2026-08-07).
+            guard let sentAt = PingLog.activePing(for: friend.id),
+                  !activeNames.contains(where: { PingLog.namesMatch($0, friend.name) })
             else { return nil }
             return PendingInviteRow(
                 id: friend.id.uuidString,
