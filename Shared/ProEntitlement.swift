@@ -25,9 +25,8 @@ enum ProEntitlement {
     /// would silently resurrect Pro from a bool nobody remembers setting.
     private static let retiredRedeemedKey = "tween.pro.redeemedCode"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-08-08) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     /// The cached verdict both processes gate on. The extension reads only
     /// this — it never touches StoreKit or CryptoKit.

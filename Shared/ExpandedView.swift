@@ -77,6 +77,10 @@ struct ExpandedView: View {
     /// A spot handed off from the host app, awaiting confirmation before send.
     var draft: OutgoingDraft? = nil
     var localParticipantID: String? = nil
+    /// The local user's ride flag, resolved ONCE by the host controller. Read
+    /// in `staticMarkers`, which is re-evaluated on every render — decoding the
+    /// full roster there did a JSON parse per frame (lag audit 2026-08-08).
+    var localNeedsRide: Bool = false
     /// Spot name the extension just sent with `MSConversation.send`, used to
     /// keep the CTA from looking tappable while Messages has already queued it.
     var recentlySentSpotName: String? = nil

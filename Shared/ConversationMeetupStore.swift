@@ -154,9 +154,11 @@ enum ConversationMeetupStore {
         return false
     }
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    /// The ONE cached suite, not a fresh `UserDefaults(suiteName:)` per access.
+    /// Construction is the expensive part (LocationCache caches it for exactly
+    /// this reason); this store rebuilt it 25–35× per drawer-open, a large
+    /// slice of the activation stutter (lag audit 2026-08-08).
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static func conversationKey(localID: String, remotes: [String]) -> String {
         let raw = ([localID] + remotes).sorted().joined(separator: "|")

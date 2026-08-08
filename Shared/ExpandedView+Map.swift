@@ -44,8 +44,8 @@ extension ExpandedView {
     var staticMarkers: [MapMarker] {
         var result: [MapMarker] = []
         if let selfCoord {
-            let myId = localParticipantID ?? myName
-            let localNeedsRide = LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide ?? false
+            // localNeedsRide is resolved once by the host controller — no
+            // per-render roster decode here (lag audit 2026-08-08).
             result.append(MapMarker(coordinate: selfCoord, role: localNeedsRide ? .rideNeeded : (isUserIn ? .selfActive : .selfDot)))
         }
         for participant in otherParticipants {

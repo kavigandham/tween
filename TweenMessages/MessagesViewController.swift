@@ -435,6 +435,12 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     func presentUI(for style: MSMessagesAppPresentationStyle) {
         let isUserIn = isLocalUserInCurrentConversation
+        // Resolve the local ride flag ONCE here rather than decoding the roster
+        // inside the map view's per-render staticMarkers (lag audit 2026-08-08).
+        let myName = UserProfile.displayName ?? UserName.fallback
+        let localNeedsRide = isUserIn
+            ? (LocationCache.loadParticipants().first { $0.matches(id: localParticipantID(), name: myName) }?.needsRide ?? false)
+            : false
         logger.debug("presentUI style=\(String(describing: style), privacy: .public) hasReceived=\(self.received != nil, privacy: .public) isActive=\(isUserIn, privacy: .public)")
         let root: AnyView
 
@@ -451,6 +457,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     isOnline: networkMonitor.isOnline,
                     draft: draft,
                     localParticipantID: localParticipantID(),
+                    localNeedsRide: localNeedsRide,
                     recentlySentSpotName: recentlySentSpotName,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },
@@ -524,9 +531,16 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 
     func retryBlankRenderIfNeeded() {
+        // Only re-present if the host actually rendered into ZERO bounds (the
+        // real cold-activation blank-frame race). The immediate branch used to
+        // re-present UNCONDITIONALLY, rebuilding the whole AnyView tree on every
+        // open for nothing (lag audit 2026-08-08). The 0.15s branch keeps the
+        // safety net for a layout that settles late.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.presentUI(for: self.presentationStyle)
+            if (self.hosting?.view.bounds ?? .zero).isEmpty || self.view.bounds.isEmpty {
+                self.presentUI(for: self.presentationStyle)
+            }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self else { return }

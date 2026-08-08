@@ -16,6 +16,22 @@ extension MessagesViewController {
     func kickOffRanking() {
         rankingTask?.cancel()
 
+        // Terminal / hero states never render the spot list — a fully-agreed
+        // MEETUP SET shows the agreed card, and an invite the user hasn't
+        // joined shows the join hero. Ranking either is pure waste: up to 3
+        // MKLocalSearch passes + 20 MKDirections legs burned on every reopen
+        // of an agreed meetup or a group invite, hammering the geod throttle
+        // the whole app shares (lag audit 2026-08-08). Mirrors ExpandedView's
+        // own isMeetupSet / isInvitePrompt.
+        let isMeetupSet = received?.messageType == .agree && received?.isFullyAgreed == true
+        let isInvitePrompt = received?.messageType == .invite && !isLocalUserInCurrentConversation
+        if isMeetupSet || isInvitePrompt {
+            isRanking = false
+            if !rankedSpots.isEmpty { rankedSpots = [] }
+            presentUI(for: presentationStyle)
+            return
+        }
+
         let participants = rankingParticipants()
         guard participants.count >= 2 else {
             isRanking = false
@@ -55,20 +71,35 @@ extension MessagesViewController {
             // region is only relevance guidance, and the broadened fallback is
             // unconstrained), and the soft centrality penalty can't rescue a
             // pool that's entirely off-axis (device feedback).
-            let candidates = SpotVicinity.filter(pool, participants: participants, minimumCount: 3)
-            guard !candidates.isEmpty else {
+            let filtered = SpotVicinity.filter(pool, participants: participants, minimumCount: 3)
+            guard !filtered.isEmpty else {
                 self.isRanking = false
                 self.rankedSpots = []
                 self.presentUI(for: self.presentationStyle)
                 return
             }
+            // Cap to the extension's display/route budget UP FRONT (constraint
+            // 1: rank ≤5 here) so every stage below stays ≤5 — same set that
+            // was routed before, just fixed before the optimistic paint.
+            let candidates = Array(filtered.prefix(cap))
 
-            let ranked = await FairnessRanker.rank(
+            // OPTIMISTIC PAINT (lag audit 2026-08-08): show straight-line
+            // estimates the instant the search returns, instead of holding the
+            // spinner through the full MKDirections round-trip (up to 5 legs ×
+            // participants, each with a 10s ceiling). The cards look complete
+            // immediately; routed times swap in below and correct order/numbers.
+            // This is exactly what the host app does (OnboardingView+Search).
+            self.rankedSpots = FairnessRanker.estimatedRankings(
+                candidates: candidates, participants: participants)
+            self.isRanking = false
+            self.presentUI(for: self.presentationStyle)
+
+            let routed = await FairnessRanker.rank(
                 candidates: candidates, participants: participants, cap: cap)
             guard !Task.isCancelled else { return }
 
-            self.rankedSpots = ranked
-            self.isRanking = false
+            self.rankedSpots = FairnessRanker.completeRankings(
+                routed: routed, allCandidates: candidates, participants: participants)
             self.presentUI(for: self.presentationStyle)
         }
     }

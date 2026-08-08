@@ -20,6 +20,19 @@ struct TweenMapSnapshotView: View {
     @State private var retryAttempt = 0
     private static let maxRetries = 3
 
+    /// Composited snapshots survive only in `@State`, which the compact→
+    /// expanded root swap tears down — so every drawer open cold-fetched tiles
+    /// for a region viewed seconds ago, flashing "Loading map…" each time
+    /// (lag audit 2026-08-08). A small bounded cache keyed by framing lets a
+    /// revisited region paint instantly. countLimit 8 ≈ a few MB — well inside
+    /// the ~120 MB extension ceiling (constraint 1); NSCache also evicts under
+    /// memory pressure on its own.
+    private static let imageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 8
+        return cache
+    }()
+
     private var coordinates: [CLLocationCoordinate2D] { markers.map(\.coordinate) }
 
     var body: some View {
@@ -64,14 +77,23 @@ struct TweenMapSnapshotView: View {
     }
 
     /// A stable identity for the current request: rounding the coordinates keeps
-    /// sub-meter jitter from forcing needless re-snapshots.
+    /// sub-meter jitter from forcing needless re-snapshots. Includes the focus
+    /// so selecting a spot re-frames the map (it previously didn't — the focus
+    /// wasn't in the key, so a selection never re-rendered; E2E audit
+    /// 2026-08-07) and so a focused vs unfocused image never share a cache slot.
     private func cacheKey(for size: CGSize) -> String {
         let parts = markers.map { marker -> String in
             let lat = (marker.coordinate.latitude * 10_000).rounded() / 10_000
             let lon = (marker.coordinate.longitude * 10_000).rounded() / 10_000
             return "\(marker.role.symbol):\(lat),\(lon)"
         }
-        return "\(Int(size.width))x\(Int(size.height))#" + parts.joined(separator: "|")
+        var key = "\(Int(size.width))x\(Int(size.height))#" + parts.joined(separator: "|")
+        if let focusCoordinate {
+            let lat = (focusCoordinate.latitude * 10_000).rounded() / 10_000
+            let lon = (focusCoordinate.longitude * 10_000).rounded() / 10_000
+            key += "@\(lat),\(lon),\(focusYOffsetRatio)"
+        }
+        return key
     }
 
     /// Hard ceiling on a single snapshotter attempt. Under the extension's
@@ -85,6 +107,14 @@ struct TweenMapSnapshotView: View {
     @MainActor
     private func render(size: CGSize) async {
         guard size.width > 1, size.height > 1 else { return }
+        // Cache hit: paint the already-composited image with no tile fetch and
+        // no snapshotter, killing the "Loading map…" flash on a revisited
+        // region (lag audit 2026-08-08).
+        let key = cacheKey(for: size) as NSString
+        if let cached = Self.imageCache.object(forKey: key) {
+            if image !== cached { image = cached }
+            return
+        }
         // No coordinates yet (e.g. a leave bubble with an empty roster, or
         // self location not shared): draw the neutral grid instead of
         // returning with `image == nil`, which stuck on the bare map icon
@@ -158,7 +188,9 @@ struct TweenMapSnapshotView: View {
             return
         }
         guard !Task.isCancelled else { return }
-        image = Self.draw(markers: markers, on: snapshot)
+        let rendered = Self.draw(markers: markers, on: snapshot)
+        Self.imageCache.setObject(rendered, forKey: key)
+        image = rendered
     }
 
     /// Composites the markers onto a finished snapshot.

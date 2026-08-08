@@ -136,9 +136,8 @@ struct MeetupPlan: Codable, Equatable, Sendable {
 enum MeetupPlanStore {
     private static let key = "tween.meetupPlan"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-08-08) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static var current: MeetupPlan {
         // Planning is Pro. Gating the READ (not just the editor) means a plan
