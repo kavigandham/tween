@@ -161,7 +161,39 @@ extension OnboardingView {
 
     func selectSuggestion(_ completion: MKLocalSearchCompletion) {
         setSearchTextProgrammatically(completion.title)
-        commitSearch()
+        // A "…, Search Nearby" category row is a browse, not a place — it must
+        // go through the region-bounded category/text engine (see runSearch).
+        guard !CompletionRegionFilter.isSearchNearby(subtitle: completion.subtitle) else {
+            commitSearch()
+            return
+        }
+        // A concrete place the completer already identified: resolve THAT place
+        // by identity instead of re-running a region-bounded text search for
+        // its name — which drops it whenever it sits in another metro, the exact
+        // "I can see Sacramento in the list but tapping it finds nothing" gap
+        // (device report 2026-08-10). Resolving the completion object carries
+        // none of the continent-away garbage risk a global text fallback would
+        // (probed 2026-07-31): it returns the single identified result.
+        guard monitor.isOnline else { commitSearch(); return }
+        searchTask?.cancel()
+        searchFocused = false
+        expandToSearchDetent()
+        isSearchLoading = true
+        searchState = .results
+        let region = searchRegion
+        searchTask = Task { @MainActor in
+            let items = await DeadlinedSearch.mapItems(
+                for: MKLocalSearch.Request(completion: completion))
+            guard !Task.isCancelled else { return }
+            // Nothing came back (network flake, deadline) — fall back to the
+            // text commit rather than presenting an empty result set.
+            guard !items.isEmpty else {
+                await runSearch(trimmed: completion.title, reframeMap: true)
+                return
+            }
+            await presentSearchResults(items: items, region: region,
+                                       rewrittenQuery: nil, reframeMap: true)
+        }
     }
 
     /// Runs the committed search (keyboard "Search", or a tapped suggestion).
@@ -170,6 +202,24 @@ extension OnboardingView {
         searchTask?.cancel()
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSearch(trimmed) else { return }
+        // Return on a specific NAMED place resolves it by identity — anywhere,
+        // exactly like tapping its suggestion — so hitting Search feels the same
+        // as tapping the row (Apple Maps parity: no dead-end when the metro
+        // resolver can't reach a far city the dropdown just showed).
+        //
+        // Gated tight so a CATEGORY browse still uses the meetup-corridor engine:
+        // skip when a chip is active, when the completer offered a "… Search
+        // Nearby" category row for this query (so "coffee" → local coffee, not
+        // one shop named Coffee Bean), and require the top row to actually be
+        // the place the user named.
+        if selectedCategory == nil,
+           let top = completer.results.first,
+           !CompletionRegionFilter.isSearchNearby(subtitle: top.subtitle),
+           !completer.results.contains(where: { CompletionRegionFilter.isSearchNearby(subtitle: $0.subtitle) }),
+           CompletionRegionFilter.namedByQuery(title: top.title, query: trimmed) {
+            selectSuggestion(top)
+            return
+        }
         searchFocused = false
         expandToSearchDetent()
         isSearchLoading = true
@@ -651,6 +701,18 @@ extension OnboardingView {
             rewrittenQuery = resolved.rewrittenQuery
         }
         guard !Task.isCancelled else { return }
+        await presentSearchResults(items: items, region: region,
+                                   rewrittenQuery: rewrittenQuery, reframeMap: reframeMap)
+    }
+
+    /// Publishes resolved search items into the result UI — fairness ranking,
+    /// solo timing, map framing, sheet detents. Shared by the text/category
+    /// `runSearch` and a directly-resolved suggestion tap (`selectSuggestion`)
+    /// so both paths land in exactly the same result state, view mode, and
+    /// camera behaviour.
+    @MainActor
+    func presentSearchResults(items: [MKMapItem], region: MKCoordinateRegion,
+                              rewrittenQuery: String?, reframeMap: Bool) async {
         if let rewrittenQuery {
             showToast("Showing results for \u{201C}\(rewrittenQuery)\u{201D}")
         }

@@ -222,7 +222,11 @@ final class SearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     // MARK: - MKLocalSearchCompleterDelegate
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        results = CompletionRegionFilter.filter(completer.results, tokens: regionTokens)
+        // Pass the typed query so a place the user NAMED (a distant city they
+        // spelled out) survives the region screen, and so the screen never
+        // empties the dropdown when nothing local matches. See CompletionRegionFilter.
+        results = CompletionRegionFilter.filter(
+            completer.results, tokens: regionTokens, query: completer.queryFragment)
         phase = .resolved
     }
 

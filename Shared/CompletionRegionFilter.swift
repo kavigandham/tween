@@ -30,16 +30,44 @@ extension MKLocalSearchCompletion: RegionFilterableCompletion {}
 
 enum CompletionRegionFilter {
 
+    /// MapKit's own "…, Search Nearby" category suggestion — a browse, not an
+    /// identified place. Always local, and the caller resolves it through the
+    /// category/text engine rather than by identity.
+    static func isSearchNearby(subtitle: String) -> Bool {
+        subtitle.trimmingCharacters(in: .whitespaces)
+            .caseInsensitiveCompare("Search Nearby") == .orderedSame
+    }
+
     static func filter<C: RegionFilterableCompletion>(
-        _ completions: [C], tokens: CompletionRegionTokens?) -> [C] {
+        _ completions: [C], tokens: CompletionRegionTokens?, query: String? = nil) -> [C] {
         guard let tokens, tokens.administrativeArea != nil || tokens.country != nil else {
             return completions
         }
-        return completions.filter { shouldKeep(title: $0.title, subtitle: $0.subtitle, tokens: tokens) }
+        let kept = completions.filter {
+            shouldKeep(title: $0.title, subtitle: $0.subtitle, tokens: tokens, query: query)
+        }
+        // Filter, but NEVER to nothing. A deliberate far search — "sacremento"
+        // from Virginia, a typo the name-prefix exemption below can't catch —
+        // has no local footprint, so screening it out leaves the dropdown empty
+        // and search feels broken (device report 2026-08-10). When nothing
+        // local survives, show what MapKit actually found, exactly as Apple
+        // Maps does. The anti-garbage screen still holds whenever ANY local row
+        // exists: typing "shushi" keeps the local sushi places and still hides
+        // Shusha, Azerbaijan.
+        if kept.isEmpty && !completions.isEmpty { return completions }
+        return kept
     }
 
     static func shouldKeep(title: String, subtitle: String,
-                           tokens: CompletionRegionTokens) -> Bool {
+                           tokens: CompletionRegionTokens, query: String? = nil) -> Bool {
+        // A place the user NAMED passes anywhere: they typed the start of its
+        // own name, so it's what they asked for — not a far-away letter
+        // collision. "sacramento" → "Sacramento, CA" is a prefix match and
+        // survives from any state; "shushi" → "Shusha" is NOT (the query isn't
+        // a prefix of the name), so that stays subject to the region screen.
+        // Mirrors Apple Maps, which surfaces a named city wherever you type it.
+        if let query, namedByQuery(title: title, query: query) { return true }
+
         let subtitleTrimmed = subtitle.trimmingCharacters(in: .whitespaces)
         // Category-style rows ("Coffee — Search Nearby") are always local.
         if subtitleTrimmed.caseInsensitiveCompare("Search Nearby") == .orderedSame { return true }
@@ -68,5 +96,16 @@ enum CompletionRegionFilter {
         let isUS = tokens.country?.caseInsensitiveCompare("United States") == .orderedSame
         if isUS, tokens.administrativeArea != nil { return false }
         return matches(tokens.country)
+    }
+
+    /// Whether `query` names the completion — its leading name token (before any
+    /// comma) begins with the typed text. Requires ≥3 chars so a stray "sa"
+    /// doesn't wave the whole world through the region screen.
+    static func namedByQuery(title: String, query: String) -> Bool {
+        let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+        guard q.count >= 3 else { return false }
+        let name = title.lowercased()
+        let head = name.split(separator: ",").first.map(String.init) ?? name
+        return head.hasPrefix(q) || name.hasPrefix(q)
     }
 }

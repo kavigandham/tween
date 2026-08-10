@@ -88,4 +88,50 @@ final class CompletionRegionFilterTests: XCTestCase {
         let kept = CompletionRegionFilter.filter(rows, tokens: texas)
         XCTAssertEqual(kept.map(\.title), ["Heritage Coffee"])
     }
+
+    private let virginia = CompletionRegionTokens(administrativeArea: "VA", country: "United States")
+
+    func testKeepsNamedDistantPlaceViaQuery() {
+        // Typing a city's name surfaces it from any state — "Sacramento" from
+        // Virginia is a deliberate lookup, not far-away garbage.
+        XCTAssertTrue(CompletionRegionFilter.shouldKeep(
+            title: "Sacramento",
+            subtitle: "Sacramento County, CA, United States",
+            tokens: virginia, query: "sacramento"))
+    }
+
+    func testStillDropsForeignNameCollisionWithQuery() {
+        // "shushi" is NOT a prefix of "Shusha", so the name exemption doesn't
+        // fire and the region screen still buries the Azerbaijan collision.
+        XCTAssertFalse(CompletionRegionFilter.shouldKeep(
+            title: "Shusha", subtitle: "Azerbaijan",
+            tokens: virginia, query: "shushi"))
+    }
+
+    func testEmptyFallbackShowsDistantWhenNothingLocalMatches() {
+        // "sacremento" (typo) has no Virginia footprint AND isn't a name-prefix
+        // match, so the screen would empty the dropdown — the fallback shows
+        // what MapKit found instead of a blank list (device report 2026-08-10).
+        let rows = [Row(title: "Sacramento", subtitle: "Sacramento County, CA, United States")]
+        let kept = CompletionRegionFilter.filter(rows, tokens: virginia, query: "sacremento")
+        XCTAssertEqual(kept.map(\.title), ["Sacramento"])
+    }
+
+    func testFallbackHoldsWhenAnyLocalRowSurvives() {
+        // With a real local match present, the anti-garbage screen still fires:
+        // typing "shushi" keeps the local sushi place and hides Shusha.
+        let rows = [
+            Row(title: "Sushi Yama", subtitle: "123 King St, Alexandria, VA, United States"),
+            Row(title: "Shusha", subtitle: "Azerbaijan"),
+        ]
+        let kept = CompletionRegionFilter.filter(rows, tokens: virginia, query: "shushi")
+        XCTAssertEqual(kept.map(\.title), ["Sushi Yama"])
+    }
+
+    func testIsSearchNearbyRecognisesCategoryRow() {
+        XCTAssertTrue(CompletionRegionFilter.isSearchNearby(subtitle: "Search Nearby"))
+        XCTAssertTrue(CompletionRegionFilter.isSearchNearby(subtitle: " search nearby "))
+        XCTAssertFalse(CompletionRegionFilter.isSearchNearby(subtitle: "Alexandria, VA"))
+        XCTAssertFalse(CompletionRegionFilter.isSearchNearby(subtitle: ""))
+    }
 }
