@@ -307,8 +307,12 @@ struct TweenPrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, Tokens.Spacing.s3)
             .padding(.horizontal, Tokens.Spacing.s5)
             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+            // `action` (14), not `card` (12): this IS a tappable button, so it
+            // must match TweenActionButton's radius. The 12 made every primary
+            // CTA read a hair boxier than the secondary buttons beside it — the
+            // "inconsistent roundness on the bars" report (device 2026-08-08).
             .background(background,
-                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.action, style: .continuous))
             .tweenPressFeedback(isPressed: configuration.isPressed)
     }
 

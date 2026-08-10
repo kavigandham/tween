@@ -37,8 +37,26 @@ struct ParticipantETA: Identifiable, Equatable {
 /// had to guess from straight-line distance, so low-confidence spots are
 /// pushed down.
 struct RankedSpot: Identifiable {
-    let id: UUID
+    /// STABLE identity derived from the spot itself, not a fresh UUID per
+    /// init. The extension paints straight-line estimates, then swaps routed
+    /// results in for the SAME spots; with a random id every swap minted new
+    /// identities, so a card the user tapped during the optimistic window lost
+    /// its selection (and the map its focus) when routed landed, and SwiftUI
+    /// rebuilt the whole list instead of diffing it — a needless per-swap
+    /// hitch (audit 2026-08-08). A deterministic id makes the estimate and its
+    /// routed replacement the same row.
+    let id: String
     let item: MKMapItem?
+
+    /// A spot's identity from its own content — name + coordinate rounded to
+    /// ~1 m — so an estimate and its routed replacement collapse to one row.
+    static func stableID(for item: MKMapItem?) -> String {
+        guard let item else { return UUID().uuidString }
+        let c = item.placemark.coordinate
+        let lat = (c.latitude * 100_000).rounded()
+        let lon = (c.longitude * 100_000).rounded()
+        return "\(item.name ?? "spot")@\(Int(lat)),\(Int(lon))"
+    }
     let etas: [ParticipantETA]
     /// Fraction of legs that came from a real route (1.0 = all real; 0.5 = all
     /// fallback). Penalises the score so guessed spots rank below real ones.
@@ -68,8 +86,8 @@ struct RankedSpot: Identifiable {
         DriveTimePreference.exceedsLimit(worstETA: worstETA)
     }
 
-    init(id: UUID = UUID(), item: MKMapItem?, etas: [ParticipantETA], confidence: Double) {
-        self.id = id
+    init(id: String? = nil, item: MKMapItem?, etas: [ParticipantETA], confidence: Double) {
+        self.id = id ?? Self.stableID(for: item)
         self.item = item
         self.etas = etas
         self.confidence = confidence
@@ -90,7 +108,7 @@ struct RankedSpot: Identifiable {
 
     /// 2-person convenience init kept so existing call sites and tests build
     /// unchanged. Slice 5 removes this once UI callers are migrated.
-    init(id: UUID = UUID(), item: MKMapItem?, etaFromA: TimeInterval, etaFromB: TimeInterval, confidence: Double) {
+    init(id: String? = nil, item: MKMapItem?, etaFromA: TimeInterval, etaFromB: TimeInterval, confidence: Double) {
         self.init(
             id: id,
             item: item,
@@ -105,7 +123,7 @@ struct RankedSpot: Identifiable {
     #if DEBUG
     // Test/preview support — never compiled into a release build.
     init(etaFromA: TimeInterval, etaFromB: TimeInterval, confidence: Double) {
-        self.init(id: UUID(), item: nil, etaFromA: etaFromA, etaFromB: etaFromB, confidence: confidence)
+        self.init(item: nil, etaFromA: etaFromA, etaFromB: etaFromB, confidence: confidence)
     }
     #endif
 }
@@ -178,15 +196,25 @@ enum FairnessRanker {
     /// participants. Each leg is resolved concurrently; failures fall back to
     /// a straight-line estimate at half confidence. Returned sorted by `score`
     /// ascending.
+    /// The `cap` candidates closest to the point that balances everyone — the
+    /// exact set `rank` routes. Exposed so the extension can pick the SAME set
+    /// BEFORE its optimistic straight-line paint, instead of the first `cap` in
+    /// MapKit relevance order, which dropped genuinely-fairer spots MapKit
+    /// happened to rank lower (audit 2026-08-08).
+    static func mostCentral(_ candidates: [MKMapItem], participants: [Participant], cap: Int) -> [MKMapItem] {
+        guard !participants.isEmpty else { return Array(candidates.prefix(cap)) }
+        return Array(candidates
+            .sorted { centralityDistance(for: $0, participants: participants) < centralityDistance(for: $1, participants: participants) }
+            .prefix(cap))
+    }
+
     static func rank(
         candidates: [MKMapItem],
         participants: [Participant],
         cap: Int
     ) async -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
-        let capped = Array(candidates
-            .sorted { centralityDistance(for: $0, participants: participants) < centralityDistance(for: $1, participants: participants) }
-            .prefix(cap))
+        let capped = mostCentral(candidates, participants: participants, cap: cap)
 
         let spots = await withTaskGroup(of: RankedSpot.self) { group -> [RankedSpot] in
             for item in capped {

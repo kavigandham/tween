@@ -79,9 +79,10 @@ extension MessagesViewController {
                 return
             }
             // Cap to the extension's display/route budget UP FRONT (constraint
-            // 1: rank ≤5 here) so every stage below stays ≤5 — same set that
-            // was routed before, just fixed before the optimistic paint.
-            let candidates = Array(filtered.prefix(cap))
+            // 1: rank ≤5 here) so every stage stays ≤5 — the SAME most-central
+            // set rank would have chosen, not the first `cap` by MapKit
+            // relevance (which quietly dropped fairer spots — audit 2026-08-08).
+            let candidates = FairnessRanker.mostCentral(filtered, participants: participants, cap: cap)
 
             // OPTIMISTIC PAINT (lag audit 2026-08-08): show straight-line
             // estimates the instant the search returns, instead of holding the

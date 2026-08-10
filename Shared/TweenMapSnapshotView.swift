@@ -30,6 +30,11 @@ struct TweenMapSnapshotView: View {
     private static let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 8
+        // Bound by BYTES too, not just count: an expanded @2x map image is
+        // ~4-5 MB, so 8 of them is ~35 MB — a real slice of the ~120 MB ceiling,
+        // and count alone wouldn't stop it. ~24 MB of image cache leaves ample
+        // headroom (NSCache also evicts under OS memory pressure).
+        cache.totalCostLimit = 24 * 1024 * 1024
         return cache
     }()
 
@@ -85,7 +90,11 @@ struct TweenMapSnapshotView: View {
         let parts = markers.map { marker -> String in
             let lat = (marker.coordinate.latitude * 10_000).rounded() / 10_000
             let lon = (marker.coordinate.longitude * 10_000).rounded() / 10_000
-            return "\(marker.role.symbol):\(lat),\(lon)"
+            // initials + ride badge change the composited pin, so they MUST be
+            // in the key — without them a process-wide cache could serve one
+            // friend's avatar (or a stale ride badge) for another at the same
+            // rounded spot in a different chat (audit 2026-08-08).
+            return "\(marker.role.symbol):\(lat),\(lon):\(marker.initials ?? ""):\(marker.needsRide ? "R" : "")"
         }
         var key = "\(Int(size.width))x\(Int(size.height))#" + parts.joined(separator: "|")
         if let focusCoordinate {
@@ -189,7 +198,8 @@ struct TweenMapSnapshotView: View {
         }
         guard !Task.isCancelled else { return }
         let rendered = Self.draw(markers: markers, on: snapshot)
-        Self.imageCache.setObject(rendered, forKey: key)
+        let bytes = Int(rendered.size.width * rendered.size.height * rendered.scale * rendered.scale * 4)
+        Self.imageCache.setObject(rendered, forKey: key, cost: bytes)
         image = rendered
     }
 

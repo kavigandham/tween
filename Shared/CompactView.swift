@@ -32,7 +32,11 @@ struct CompactView: View {
         // on top of it.
         .padding(.horizontal, Tokens.Spacing.s4)
         .padding(.vertical, Tokens.Spacing.s3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Centered, not top-pinned: the content is shorter than the keyboard-
+        // height surface, and pinning it to the top left a dead gap below that
+        // read as "not centered" (device report 2026-08-08). The content fits
+        // this surface by design, so centering just balances the whitespace.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         // Opaque background so the compact strip never reads as transparent
         // against the iMessage keyboard backdrop. systemBackground tracks
         // light/dark mode automatically.
@@ -237,7 +241,11 @@ struct CompactView: View {
                     .font(Tokens.Typography.headline)
             }
             .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
-            .background(Tokens.Palette.neutralAction, in: Capsule())
+            // Match the real "I'm in" button's radius (action, 14) so the
+            // sending placeholder doesn't morph from a capsule into a
+            // rounded-rect (device report 2026-08-08).
+            .background(Tokens.Palette.neutralAction,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.action, style: .continuous))
         } else {
             Button(action: onImIn) {
                 Label("I'm in", systemImage: "location.fill")
