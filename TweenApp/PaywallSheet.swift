@@ -29,6 +29,8 @@ struct PaywallSheet: View {
     @State private var messageIsFailure = true
     /// Live entitlement observation, held for the sheet's lifetime.
     @State private var entitlementToken: MeetupSyncToken?
+    /// Bounded post-purchase poll, held so it dies with the sheet.
+    @State private var entitlementRetryTask: Task<Void, Never>?
     /// Which plan the CTA buys. Lifetime by default: at five months it costs
     /// less than the monthly, so it is the honest recommendation rather than
     /// the one that maximises revenue.
@@ -68,6 +70,12 @@ struct PaywallSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .task { await loadProducts() }
+        // Separate task so it runs alongside the product load rather than
+        // behind it. The initial `unlocked` is the cached App Group boolean,
+        // and scenePhase cannot fire for a scene that is already active when
+        // this sheet is presented — so without this the one screen where being
+        // wrong about Pro is expensive never asks StoreKit at all.
+        .task { unlocked = await ProEntitlement.refresh() }
         // Pro can be granted while this sheet sits open, with the app never
         // leaving the foreground: an Ask-to-Buy approval landing on a parent's
         // device, an Offer Code redeemed elsewhere, a purchase on another
@@ -93,6 +101,7 @@ struct PaywallSheet: View {
         }
         .onDisappear {
             reloadTask?.cancel()
+            entitlementRetryTask?.cancel()
             // Releases the observer. The handler captures this view, whose
             // @State box holds the token, so leaving it set would be a cycle
             // and the Darwin observer would outlive the sheet.
@@ -544,6 +553,29 @@ struct PaywallSheet: View {
         }
     }
 
+    /// Polls StoreKit briefly for an entitlement that verified but has not
+    /// landed in `currentEntitlements` yet.
+    ///
+    /// Without this the message above is a dead end: `buy()` already finished
+    /// the transaction, so `Transaction.updates` will not re-emit it; nothing
+    /// else writes the Pro flag, so the MeetupSync observer has nothing to
+    /// hear; and scenePhase cannot fire while the user just sits here. The
+    /// sheet would keep a live buy button under "unlocks in a moment" forever.
+    @MainActor
+    private func awaitEntitlement() {
+        entitlementRetryTask?.cancel()
+        entitlementRetryTask = Task {
+            for delay in [Duration.seconds(1), .seconds(3), .seconds(5)] {
+                do { try await Task.sleep(for: delay) } catch { return }
+                if await ProEntitlement.refresh() {
+                    unlocked = true
+                    errorMessage = nil
+                    return
+                }
+            }
+        }
+    }
+
     /// Re-reads the cached verdict after StoreKit has already settled it.
     /// Cheap enough to run on every cross-process post.
     @MainActor
@@ -574,6 +606,7 @@ struct PaywallSheet: View {
                         // the moment the entitlement lands.
                         messageIsFailure = false
                         errorMessage = "Purchase complete — Pro unlocks in a moment."
+                        awaitEntitlement()
                     }
                 case .unverified(let transaction, _):
                     // Charged, but StoreKit could not verify the signature.
@@ -610,7 +643,21 @@ struct PaywallSheet: View {
         // outlives this one and ends up sitting under the "You have Tween Pro"
         // badge — the screen contradicting itself.
         errorMessage = nil
-        try? await AppStore.sync()
+        do {
+            try await AppStore.sync()
+        } catch {
+            // `try?` here was a factual lie about the user's account. When sync
+            // throws, refresh() runs against a store it never populated,
+            // returns false, and the sheet announced "No previous purchase
+            // found for this App Store account" — a claim we have no basis for.
+            // Stacked under the products-unavailable state it put two
+            // contradictory sentences on one screen, which is the exact idiom
+            // that got this page rejected (2026-08-31).
+            if case StoreKitError.userCancelled = error { return }
+            messageIsFailure = true
+            errorMessage = "Couldn't reach the App Store to restore. Check your connection and try again."
+            return
+        }
         // StoreKit is the only source now that redeem codes are gone, so its
         // verdict IS the gate; the old `|| isUnlocked` existed to stop Restore
         // telling a code-redeemer their Pro had vanished and can no longer
