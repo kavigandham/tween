@@ -75,7 +75,10 @@ struct PaywallSheet: View {
         // and scenePhase cannot fire for a scene that is already active when
         // this sheet is presented — so without this the one screen where being
         // wrong about Pro is expensive never asks StoreKit at all.
-        .task { unlocked = await ProEntitlement.refresh() }
+        .task {
+            guard !ProEntitlement.isDemoPinned else { return }
+            unlocked = await ProEntitlement.refresh()
+        }
         // Pro can be granted while this sheet sits open, with the app never
         // leaving the foreground: an Ask-to-Buy approval landing on a parent's
         // device, an Offer Code redeemed elsewhere, a purchase on another
@@ -567,12 +570,18 @@ struct PaywallSheet: View {
         entitlementRetryTask = Task {
             for delay in [Duration.seconds(1), .seconds(3), .seconds(5)] {
                 do { try await Task.sleep(for: delay) } catch { return }
+                guard !Task.isCancelled else { return }
                 if await ProEntitlement.refresh() {
                     unlocked = true
                     errorMessage = nil
                     return
                 }
             }
+            // Out of polls. Leaving the optimistic line up would put "unlocks
+            // in a moment" over a live buy button indefinitely — the same dead
+            // end this poll was added to remove, just nine seconds later.
+            messageIsFailure = false
+            errorMessage = "Your purchase went through. If Pro doesn't appear, tap Restore Purchases."
         }
     }
 
@@ -630,8 +639,16 @@ struct PaywallSheet: View {
                 break
             }
         } catch {
+            // A dismissed sign-in prompt throws before the purchase sheet ever
+            // appears; that is not a failure worth reporting.
+            if case StoreKitError.userCancelled = error { return }
+            // NOT "Nothing was charged". `purchase()` can throw after the App
+            // Store has already taken the payment (a network failure while
+            // awaiting the result), and StoreKit gives us no basis for a
+            // billing claim — the same defect as restore()'s old "no purchase
+            // found" (audit 2026-08-31).
             messageIsFailure = true
-            errorMessage = "The purchase didn't go through. Nothing was charged — try again."
+            errorMessage = "The purchase didn't complete. If you were charged, tap Restore Purchases."
         }
     }
 
@@ -662,6 +679,10 @@ struct PaywallSheet: View {
         // verdict IS the gate; the old `|| isUnlocked` existed to stop Restore
         // telling a code-redeemer their Pro had vanished and can no longer
         // contribute (audit 2026-08-06).
+        // Sync succeeding proves the store is reachable. Without re-loading,
+        // "The App Store isn't reachable right now." stays on screen next to
+        // this restore's result — the two-sentence contradiction again.
+        if products?.isEmpty == true { reload() }
         let purchased = await ProEntitlement.refresh()
         unlocked = purchased
         if !unlocked {

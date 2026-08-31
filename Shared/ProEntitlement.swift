@@ -83,6 +83,15 @@ enum ProEntitlement {
                   transaction.revocationDate == nil else { continue }
             unlocked = true
         }
+        // `currentEntitlements` is a NON-throwing AsyncSequence: cancellation
+        // ends the loop rather than throwing, so a cancelled refresh reaches
+        // here with a PARTIAL read and `unlocked == false`. Writing that would
+        // stamp "locked" into the App Group — cross-process, and the extension
+        // can never recompute it — so dismissing a sheet mid-refresh could
+        // revoke a paying customer's Pro until the next uncancelled refresh.
+        // Harmless until refresh() was first bound to a view's `.task`
+        // (regression, audit 2026-08-31).
+        guard !Task.isCancelled else { return isUnlocked }
         setUnlocked(unlocked)
         return unlocked
     }
@@ -91,14 +100,24 @@ enum ProEntitlement {
     /// initial refresh plus the `Transaction.updates` listener, so purchases,
     /// renewals, refunds, and Family Sharing changes that land while the app
     /// runs update the cache without a relaunch.
-    static func activate() {
+    /// True when a demo run has pinned the entitlement, so StoreKit must not
+    /// stamp over it: simctl launches have no StoreKit environment, and
+    /// `refresh()` would compute "locked" and un-pin the demo.
+    ///
+    /// Lives here rather than at each call site because every refresh bound to
+    /// something shorter-lived than the app has to honour it, and a copy at
+    /// one site drifts from the others.
+    static var isDemoPinned: Bool {
         #if DEBUG
-        // Demo-pinned entitlement: the launch refresh would immediately stamp
-        // over the forced flag (simctl launches have no StoreKit environment,
-        // so refresh() computes "locked"). Demo runs skip StoreKit entirely.
-        if CommandLine.arguments.contains("-DEMO_PRO_UNLOCKED")
-            || CommandLine.arguments.contains("-DEMO_PRO_LOCKED") { return }
+        return CommandLine.arguments.contains("-DEMO_PRO_UNLOCKED")
+            || CommandLine.arguments.contains("-DEMO_PRO_LOCKED")
+        #else
+        return false
         #endif
+    }
+
+    static func activate() {
+        if isDemoPinned { return }
         guard updatesTask == nil else { return }
         updatesTask = Task {
             await refresh()

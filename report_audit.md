@@ -233,3 +233,83 @@ is vacuous (`_ = try startSession()` releases the session before `refresh()`).
     coverage** — and run the suite in CI at all.
 15. **Extract the extension's decision functions into `Shared/`** so the state
     machine becomes testable. Nothing else stays fixed without it.
+
+
+---
+
+# THIRD PASS — `main` @ `1d10577` (2026-08-31 evening)
+
+`git diff --stat a972895..1d10577 -- '*.swift'` touches **one file**
+(`PaywallSheet.swift`), so every finding above outside that file still stands.
+
+## Verification of the three fixes — and one regression they introduced
+
+- **F1 (`restore()`) — correct, was incomplete.** `StoreKitError.userCancelled`
+  is the right case. But the two-sentence contradiction was still reachable:
+  products failing and `AppStore.sync()` succeeding are independent, so
+  "The App Store isn't reachable right now." could still sit above
+  "No previous purchase found." *Fixed in `d97499c`: a successful sync now
+  re-loads products.* The non-cancel branch also collapsed every other
+  `StoreKitError` into a connectivity claim.
+- **F2 (`awaitEntitlement`) — no leak, no double-run, but the dead end returned
+  after 9 seconds.** All four writers are `@MainActor`, and the poll only ever
+  writes `true`, so no race. After the third failed poll the optimistic message
+  became permanent again over a live buy button. *Fixed in `d97499c`: terminal
+  branch plus a cancellation check between sleep and write.*
+- **F3 (open `.task`) — introduced a CRITICAL.** `ProEntitlement.refresh()` is
+  a *writer*: it drains `Transaction.currentEntitlements` and then calls
+  `setUnlocked(...)` unconditionally. That sequence is **non-throwing**, so
+  cancellation ends the loop rather than throwing and the function falls
+  through with a partial read and `unlocked == false`, stamping both Pro keys
+  false — cross-process, and the extension can never recompute. Binding
+  `refresh()` to a sheet's `.task` made it the first cancellable caller, so
+  opening the paywall and dismissing it inside that window could revoke a
+  paying customer's Pro. *Fixed in `d97499c`:
+  `guard !Task.isCancelled else { return isUnlocked }` before the write.*
+  The same `.task` also stomped `-DEMO_PRO_UNLOCKED`, because the demo guard
+  lived only in `activate()`. *Fixed: hoisted to `ProEntitlement.isDemoPinned`
+  and honoured by both.*
+
+## Also fixed in `d97499c`
+
+- `buy()`'s catch-all claimed **"Nothing was charged"** — `purchase()` can throw
+  after the App Store took payment, so StoreKit gives no basis for that. Now
+  hedges to "If you were charged, tap Restore Purchases," and a thrown
+  `userCancelled` returns silently.
+
+## Still open — highest value first
+
+1. **`metadata/keywords.txt` still lists `imessage`, and `description.txt`
+   still says "iMessage app drawer" / "Works right inside iMessage"** — both
+   untouched since 2026-06-18, i.e. never revisited after the 5.2.5 rejection.
+   The description also still sells a two-person product in an app that ships
+   named groups.
+2. **`CFBundleVersion` in `project.yml` is `3`; ASC already holds 407.** Only
+   `codemagic.yaml` rewrites it, so any Xcode Organizer or Xcode Cloud archive
+   uploads build 3 and is rejected as not-higher.
+3. **Constraint 6 is not clean, and the prior pass's "all eight constraints
+   compliant" is not supportable.** `SpotLibrary` persists 20 recents + 50
+   favorites — name, street address, coordinates, phone, website and a
+   `lastUsedAt` timestamp — unencrypted in the App Group with no expiry and no
+   clear control; `MeetupPlan` persists spot name + arrival time. Neither is a
+   coordinate or a preference, neither is in the sanctioned exception list, and
+   `report_audit_pro.md` (2026-08-02) already logged the `MeetupPlan` half as
+   OPEN pending a product decision. Sanction them in CLAUDE.md with a TTL, or
+   stop persisting names and addresses — but stop claiming blanket compliance.
+4. **The extension can serve Pro indefinitely after a refund** — nothing in
+   `TweenMessages/` calls `activate()`/`refresh()`, so the cached flag is its
+   only input. Stamp a `verifiedAt` beside it.
+5. **A locked user can delete saved addresses** — a Pro-sold feature, no
+   `proUnlocked` check on the swipe action (`FriendPlacesSheet.swift:110-114`).
+6. **`modesChanged` is structurally always `false`** — `previousModes` is read
+   out of the same `plan` that `save()` never mutates, so the documented
+   reminder invalidation never fires. Changing an armed reminder's time also
+   silently deletes it with no replacement.
+7. **`notifyLeaveNow` removes the pending request before adding and swallows
+   the error** — the exact ordering `schedule()` documents as a bug 60 lines
+   above.
+8. **CI still never runs the tests** — 314 test functions, zero executed before
+   a TestFlight upload.
+9. `ProEntitlementTests.setUp` wipes the entire shared App Group suite, and
+   `testMonthlySubscriptionUnlocksPro` never asserts the App Group write.
+10. Then everything in the second-pass list above, unchanged.
