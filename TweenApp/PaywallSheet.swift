@@ -11,10 +11,15 @@ import StoreKit
 struct PaywallSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.purchase) private var purchase
+    @Environment(\.scenePhase) private var scenePhase
 
-    /// nil = still loading; empty = store unreachable (offline, or no
-    /// StoreKit configuration in a dev run) — show retry, never a dead end.
+    /// nil = still loading; empty = nothing to sell, with `loadFailure`
+    /// saying which flavour — show retry, never a dead end.
     @State private var products: [Product]?
+    /// Why the plan cards aren't on screen. nil while loading or loaded.
+    @State private var loadFailure: LoadFailure?
+    /// The manual/foreground retry, held so it dies with the sheet.
+    @State private var reloadTask: Task<Void, Never>?
     @State private var purchasing = false
     @State private var unlocked = ProEntitlement.isUnlocked
     @State private var errorMessage: String?
@@ -57,6 +62,14 @@ struct PaywallSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .task { await loadProducts() }
+        // Someone who leaves to sign into the App Store — or to accept a
+        // pending agreement — and comes back should find the plans, not the
+        // failure they left behind. Only ever re-runs from a failed load.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, products?.isEmpty == true else { return }
+            reload()
+        }
+        .onDisappear { reloadTask?.cancel() }
     }
 
     // MARK: - Pitch
@@ -162,7 +175,7 @@ struct PaywallSheet: View {
         // DISPLAY. Free ranks by driving only — the "Transit and walking" row
         // is what marks that as the Pro upgrade, so neither column overclaims.
         .init(title: "Fair spots between everyone", free: true),
-        .init(title: "Share and agree inside iMessage", free: true),
+        .init(title: "Share and agree right in your chat", free: true),
         .init(title: "See everyone's travel time", free: true),
         .init(title: "Groups and saved addresses", free: false),
         .init(title: "Pick a day and time", free: false),
@@ -208,23 +221,38 @@ struct PaywallSheet: View {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
         case .some(let loaded) where loaded.isEmpty:
-            VStack(spacing: Tokens.Spacing.s3) {
-                Text("The App Store isn't reachable right now.")
-                    .font(Tokens.Typography.subheadline)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                Button {
-                    products = nil
-                    Task { await loadProducts() }
-                } label: {
-                    Label("Try Again", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.tweenPrimary(.subtle))
-            }
-            .frame(maxWidth: .infinity)
+            unavailableSection
         case .some(let loaded):
             planPicker(planOptions(loaded))
                 .disabled(purchasing)
         }
+    }
+
+    /// The no-products state. Two causes, two sentences: a thrown StoreKit
+    /// error is the network's fault and worth retrying; an empty-but-successful
+    /// answer is the store saying these products aren't purchasable from this
+    /// account yet, which no amount of retrying fixes on the device.
+    ///
+    /// Saying "isn't reachable" for the second case is how "the Tween Pro page
+    /// did not load properly" reached an App Review rejection (2026-08-31) —
+    /// the page rendered fine and the store answered fine; the copy blamed the
+    /// wrong thing and read as a broken screen.
+    private var unavailableSection: some View {
+        VStack(spacing: Tokens.Spacing.s3) {
+            Text(loadFailure == .unreachable
+                 ? "The App Store isn't reachable right now."
+                 : "Pro plans aren't available from this App Store account yet.")
+                .font(Tokens.Typography.subheadline)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .multilineTextAlignment(.center)
+            Button {
+                reload()
+            } label: {
+                Label("Try Again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func planPicker(_ plans: [PlanOption]) -> some View {
@@ -408,16 +436,69 @@ struct PaywallSheet: View {
 
     // MARK: - StoreKit
 
+    /// Why the plan cards aren't on screen.
+    private enum LoadFailure {
+        /// `Product.products` threw: offline, or the App Store is down.
+        case unreachable
+        /// It succeeded and returned nothing — the shape of products that
+        /// aren't purchasable for this account yet (an agreement not in
+        /// effect, an IAP still in Missing Metadata, or one created minutes
+        /// ago and not yet propagated).
+        case unavailable
+    }
+
+    /// Backoff between product-load attempts. StoreKit's FIRST answer after a
+    /// cold launch is routinely a throw or an empty set while the account and
+    /// storefront resolve, so one attempt is not evidence of anything — and the
+    /// old single-shot load turned that ordinary race into a screen that said
+    /// the App Store was unreachable (App Review, iPad Air M3, 2026-08-31).
+    private static let loadRetryDelays: [Duration] = [.seconds(1), .seconds(3)]
+
+    /// Manual and foreground retry. Cancels any in-flight attempt so a
+    /// double-tap can't race two loaders into the same state.
+    private func reload() {
+        reloadTask?.cancel()
+        products = nil
+        loadFailure = nil
+        reloadTask = Task { await loadProducts() }
+    }
+
     private func loadProducts() async {
+        // Assume the quiet failure until StoreKit throws: an empty answer is
+        // the more common of the two and the one worth naming precisely.
+        var failure = LoadFailure.unavailable
+        for attempt in 0...Self.loadRetryDelays.count {
+            if attempt > 0 {
+                // Sleep throws on cancellation — the sheet closed mid-wait, so
+                // leave the state exactly as the user last saw it.
+                do { try await Task.sleep(for: Self.loadRetryDelays[attempt - 1]) }
+                catch { return }
+            }
+            do {
+                let loaded = try await Product.products(for: ProEntitlement.productIDs)
+                if !loaded.isEmpty {
+                    show(loaded)
+                    return
+                }
+                failure = .unavailable
+            } catch {
+                failure = .unreachable
+            }
+        }
+        products = []
+        loadFailure = failure
+    }
+
+    private func show(_ loaded: [Product]) {
         // Lifetime first in display order regardless of store return order.
         // The predicate ignores its second argument, which is NOT a valid strict
         // weak ordering (it reports lifetime < lifetime). Harmless at two
         // elements, undefined at three — so compare both sides.
-        let loaded = (try? await Product.products(for: ProEntitlement.productIDs)) ?? []
         let ordered = loaded.sorted { a, b in
             a.id == ProEntitlement.lifetimeProductID && b.id != ProEntitlement.lifetimeProductID
         }
         products = ordered
+        loadFailure = nil
         // Clamp the selection to something that actually loaded. If the lifetime
         // product were ever unapproved in App Store Connect, selectedProductID
         // kept pointing at it: the monthly card rendered UNSELECTED and
