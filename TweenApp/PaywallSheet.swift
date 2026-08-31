@@ -23,6 +23,12 @@ struct PaywallSheet: View {
     @State private var purchasing = false
     @State private var unlocked = ProEntitlement.isUnlocked
     @State private var errorMessage: String?
+    /// Whether `errorMessage` is actually a failure. "Pending approval" and
+    /// "unlocking in a moment" are not — drawn in destructive red they told
+    /// people something had gone wrong when nothing had.
+    @State private var messageIsFailure = true
+    /// Live entitlement observation, held for the sheet's lifetime.
+    @State private var entitlementToken: MeetupSyncToken?
     /// Which plan the CTA buys. Lifetime by default: at five months it costs
     /// less than the monthly, so it is the honest recommendation rather than
     /// the one that maximises revenue.
@@ -62,23 +68,36 @@ struct PaywallSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .task { await loadProducts() }
+        // Pro can be granted while this sheet sits open, with the app never
+        // leaving the foreground: an Ask-to-Buy approval landing on a parent's
+        // device, an Offer Code redeemed elsewhere, a purchase on another
+        // device. ProEntitlement's app-level Transaction.updates listener posts
+        // on MeetupSync whenever the flag actually changes, so observing it is
+        // the only thing that catches those — scenePhase never fires.
+        .onAppear { entitlementToken = MeetupSync.observe { syncEntitlement() } }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            // Pro can be granted while this sheet sits open: an Ask-to-Buy
-            // approval landing, an Offer Code redeemed in the App Store app, a
-            // purchase made on another device. The app-level Transaction.updates
-            // listener keeps the cached flag current — but the sheet read it
-            // once at init, so without re-reading here it goes on selling
-            // something the account already owns, with a stale error still
-            // under it.
-            unlocked = ProEntitlement.isUnlocked
-            if unlocked { errorMessage = nil }
+            // Deliberately NOT the cached flag. On the exact round trip this
+            // exists for — leave to redeem a code, come back — `.active` fires
+            // while ProEntitlement.refresh() is still awaiting
+            // currentEntitlements, so the cache still holds the OLD value and
+            // there would be no second read. Ask StoreKit itself.
+            Task {
+                unlocked = await ProEntitlement.refresh()
+                if unlocked { errorMessage = nil }
+            }
             // Someone who leaves to sign into the App Store — or to accept a
             // pending agreement — and comes back should find the plans, not the
             // failure they left behind. Only ever re-runs from a failed load.
             if products?.isEmpty == true { reload() }
         }
-        .onDisappear { reloadTask?.cancel() }
+        .onDisappear {
+            reloadTask?.cancel()
+            // Releases the observer. The handler captures this view, whose
+            // @State box holds the token, so leaving it set would be a cycle
+            // and the Darwin observer would outlive the sheet.
+            entitlementToken = nil
+        }
     }
 
     // MARK: - Pitch
@@ -385,7 +404,8 @@ struct PaywallSheet: View {
         if let errorMessage {
             Text(errorMessage)
                 .font(Tokens.Typography.caption)
-                .foregroundStyle(Tokens.Palette.destructive)
+                .foregroundStyle(messageIsFailure ? Tokens.Palette.destructive
+                                                  : Tokens.Palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         Button("Restore Purchases") {
@@ -524,6 +544,16 @@ struct PaywallSheet: View {
         }
     }
 
+    /// Re-reads the cached verdict after StoreKit has already settled it.
+    /// Cheap enough to run on every cross-process post.
+    @MainActor
+    private func syncEntitlement() {
+        let current = ProEntitlement.isUnlocked
+        guard current != unlocked else { return }
+        unlocked = current
+        if current { errorMessage = nil }
+    }
+
     @MainActor
     private func buy(_ product: Product) async {
         purchasing = true
@@ -536,6 +566,15 @@ struct PaywallSheet: View {
                 case .verified(let transaction):
                     await transaction.finish()
                     unlocked = await ProEntitlement.refresh()
+                    if !unlocked {
+                        // Verified and finished, but not yet in
+                        // currentEntitlements. Saying nothing dropped the user
+                        // back onto the plan cards as if the purchase hadn't
+                        // happened. The MeetupSync observer above clears this
+                        // the moment the entitlement lands.
+                        messageIsFailure = false
+                        errorMessage = "Purchase complete — Pro unlocks in a moment."
+                    }
                 case .unverified(let transaction, _):
                     // Charged, but StoreKit could not verify the signature.
                     // Finish it anyway — an unfinished transaction is
@@ -544,11 +583,13 @@ struct PaywallSheet: View {
                     // billed and staring at a sheet that did nothing
                     // (audit 2026-08-04).
                     await transaction.finish()
+                    messageIsFailure = true
                     errorMessage = "That purchase couldn't be verified. If you were charged, tap Restore Purchases."
                 }
             case .pending:
                 // Ask-to-Buy etc. — the Transaction.updates listener started
                 // at app launch unlocks whenever approval lands.
+                messageIsFailure = false
                 errorMessage = "Purchase pending approval — Pro unlocks automatically once it's approved."
             case .userCancelled:
                 break
@@ -556,6 +597,7 @@ struct PaywallSheet: View {
                 break
             }
         } catch {
+            messageIsFailure = true
             errorMessage = "The purchase didn't go through. Nothing was charged — try again."
         }
     }
@@ -576,6 +618,7 @@ struct PaywallSheet: View {
         let purchased = await ProEntitlement.refresh()
         unlocked = purchased
         if !unlocked {
+            messageIsFailure = true
             errorMessage = "No previous purchase found for this App Store account."
         }
     }
