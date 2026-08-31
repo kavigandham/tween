@@ -62,12 +62,21 @@ struct PaywallSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .task { await loadProducts() }
-        // Someone who leaves to sign into the App Store — or to accept a
-        // pending agreement — and comes back should find the plans, not the
-        // failure they left behind. Only ever re-runs from a failed load.
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, products?.isEmpty == true else { return }
-            reload()
+            guard phase == .active else { return }
+            // Pro can be granted while this sheet sits open: an Ask-to-Buy
+            // approval landing, an Offer Code redeemed in the App Store app, a
+            // purchase made on another device. The app-level Transaction.updates
+            // listener keeps the cached flag current — but the sheet read it
+            // once at init, so without re-reading here it goes on selling
+            // something the account already owns, with a stale error still
+            // under it.
+            unlocked = ProEntitlement.isUnlocked
+            if unlocked { errorMessage = nil }
+            // Someone who leaves to sign into the App Store — or to accept a
+            // pending agreement — and comes back should find the plans, not the
+            // failure they left behind. Only ever re-runs from a failed load.
+            if products?.isEmpty == true { reload() }
         }
         .onDisappear { reloadTask?.cancel() }
     }
@@ -456,6 +465,7 @@ struct PaywallSheet: View {
 
     /// Manual and foreground retry. Cancels any in-flight attempt so a
     /// double-tap can't race two loaders into the same state.
+    @MainActor
     private func reload() {
         reloadTask?.cancel()
         products = nil
@@ -463,6 +473,7 @@ struct PaywallSheet: View {
         reloadTask = Task { await loadProducts() }
     }
 
+    @MainActor
     private func loadProducts() async {
         // Assume the quiet failure until StoreKit throws: an empty answer is
         // the more common of the two and the one worth naming precisely.
@@ -489,6 +500,7 @@ struct PaywallSheet: View {
         loadFailure = failure
     }
 
+    @MainActor
     private func show(_ loaded: [Product]) {
         // Lifetime first in display order regardless of store return order.
         // The predicate ignores its second argument, which is NOT a valid strict
@@ -512,6 +524,7 @@ struct PaywallSheet: View {
         }
     }
 
+    @MainActor
     private func buy(_ product: Product) async {
         purchasing = true
         defer { purchasing = false }
@@ -547,9 +560,14 @@ struct PaywallSheet: View {
         }
     }
 
+    @MainActor
     private func restore() async {
         purchasing = true
         defer { purchasing = false }
+        // Same first move as buy(). Without it the previous attempt's red text
+        // outlives this one and ends up sitting under the "You have Tween Pro"
+        // badge — the screen contradicting itself.
+        errorMessage = nil
         try? await AppStore.sync()
         // StoreKit is the only source now that redeem codes are gone, so its
         // verdict IS the gate; the old `|| isUnlocked` existed to stop Restore

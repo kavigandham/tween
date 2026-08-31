@@ -4,6 +4,9 @@
 AuthKey_*.p8
 *.pem
 *.p12
+# Holds the live Google Places key. The rule for it lives on the 1.1 branch;
+# without it here, the repo's own `git add -A` convention commits the key.
+Secrets.xcconfig
 
 # Xcode / build artifacts
 build/
