@@ -43,6 +43,27 @@ final class ProEntitlementTests: XCTestCase {
         try await buy(ProEntitlement.monthlyProductID, in: session)
         let unlocked = await refreshUntilUnlocked()
         XCTAssertTrue(unlocked)
+        // Assert the App Group write, not just the return value: the cache is
+        // the only thing the extension can read, and it is what the two
+        // processes actually disagree about.
+        XCTAssertTrue(ProEntitlement.isUnlocked)
+    }
+
+    // 4. A CANCELLED refresh must not clear an existing unlock.
+    //
+    // `Transaction.currentEntitlements` is a non-throwing AsyncSequence, so
+    // cancellation ends the loop rather than throwing and `refresh()` reaches
+    // its write with a PARTIAL read. Without a guard it stamps "locked" into
+    // the App Group — cross-process, and the extension can never recompute it
+    // — so dismissing a view whose task owns the refresh could revoke Pro from
+    // someone who paid. That regression shipped once; this pins it.
+    func testCancelledRefreshLeavesAnExistingUnlockAlone() async {
+        ProEntitlement.setUnlocked(true)
+        let task = Task { await ProEntitlement.refresh() }
+        task.cancel()
+        let result = await task.value
+        XCTAssertTrue(result, "a cancelled refresh must report the last known verdict")
+        XCTAssertTrue(ProEntitlement.isUnlocked, "a cancelled refresh must not write a partial read")
     }
 
     /// Purchases through the session's synchronous test-daemon API — the

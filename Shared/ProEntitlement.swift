@@ -76,6 +76,12 @@ enum ProEntitlement {
     /// purchase or restore. Revoked (refunded) transactions don't count.
     @discardableResult
     static func refresh() async -> Bool {
+        // Guarded HERE, not at the call sites. Five callers funnel through this
+        // function; hoisting `isDemoPinned` and then copying it to one of them
+        // is what the last commit did, and it left three sites still able to
+        // stamp over a pinned demo — `restore()` most reachably, since the
+        // Restore button renders even when Pro is already unlocked.
+        guard !isDemoPinned else { return isUnlocked }
         var unlocked = false
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,

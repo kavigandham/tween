@@ -75,10 +75,7 @@ struct PaywallSheet: View {
         // and scenePhase cannot fire for a scene that is already active when
         // this sheet is presented — so without this the one screen where being
         // wrong about Pro is expensive never asks StoreKit at all.
-        .task {
-            guard !ProEntitlement.isDemoPinned else { return }
-            unlocked = await ProEntitlement.refresh()
-        }
+        .task { unlocked = await ProEntitlement.refresh() }
         // Pro can be granted while this sheet sits open, with the app never
         // leaving the foreground: an Ask-to-Buy approval landing on a parent's
         // device, an Offer Code redeemed elsewhere, a purchase on another
@@ -570,16 +567,25 @@ struct PaywallSheet: View {
         entitlementRetryTask = Task {
             for delay in [Duration.seconds(1), .seconds(3), .seconds(5)] {
                 do { try await Task.sleep(for: delay) } catch { return }
-                guard !Task.isCancelled else { return }
                 if await ProEntitlement.refresh() {
                     unlocked = true
                     errorMessage = nil
                     return
                 }
+                // AFTER the refresh, not before: the sleep above already throws
+                // on cancellation, so a check there closes nothing, while this
+                // one covers the several hundred ms refresh() actually takes.
+                guard !Task.isCancelled else { return }
             }
             // Out of polls. Leaving the optimistic line up would put "unlocks
             // in a moment" over a live buy button indefinitely — the same dead
             // end this poll was added to remove, just nine seconds later.
+            //
+            // `!unlocked` is load-bearing: Restore (or the observer) can land
+            // Pro while this poll is still sleeping, and writing here anyway
+            // would park "If Pro doesn't appear, tap Restore Purchases" under
+            // the "You have Tween Pro" badge with nothing left to clear it.
+            guard !unlocked else { return }
             messageIsFailure = false
             errorMessage = "Your purchase went through. If Pro doesn't appear, tap Restore Purchases."
         }
@@ -599,6 +605,9 @@ struct PaywallSheet: View {
     private func buy(_ product: Product) async {
         purchasing = true
         defer { purchasing = false }
+        // This attempt owns the message slot now; a poll still running from the
+        // last one would write over its result seconds later.
+        entitlementRetryTask?.cancel()
         errorMessage = nil
         do {
             switch try await purchase(product) {
@@ -607,7 +616,9 @@ struct PaywallSheet: View {
                 case .verified(let transaction):
                     await transaction.finish()
                     unlocked = await ProEntitlement.refresh()
-                    if !unlocked {
+                    if unlocked {
+                        errorMessage = nil
+                    } else {
                         // Verified and finished, but not yet in
                         // currentEntitlements. Saying nothing dropped the user
                         // back onto the plan cards as if the purchase hadn't
@@ -659,6 +670,7 @@ struct PaywallSheet: View {
         // Same first move as buy(). Without it the previous attempt's red text
         // outlives this one and ends up sitting under the "You have Tween Pro"
         // badge — the screen contradicting itself.
+        entitlementRetryTask?.cancel()
         errorMessage = nil
         do {
             try await AppStore.sync()
@@ -685,7 +697,11 @@ struct PaywallSheet: View {
         if products?.isEmpty == true { reload() }
         let purchased = await ProEntitlement.refresh()
         unlocked = purchased
-        if !unlocked {
+        if unlocked {
+            // Clearing only on entry left anything written between then and now
+            // sitting under the unlocked badge.
+            errorMessage = nil
+        } else {
             messageIsFailure = true
             errorMessage = "No previous purchase found for this App Store account."
         }

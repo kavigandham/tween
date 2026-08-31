@@ -19,7 +19,7 @@ set at all seven `errorMessage` assignments. Every path that sets
 `unlocked = true` clears the error first. Every Pro row in the comparison table
 maps to a real gate — nothing overclaims.
 
-**Found open, now fixed in `081b685`:**
+**Found open, now fixed in `1d10577`:**
 
 - **F1 — `restore()` claimed "no purchase found" when it never reached the App
   Store.** `try? await AppStore.sync()` discarded the error, `refresh()` then
@@ -211,7 +211,7 @@ is vacuous (`_ = try startSession()` releases the session before `refresh()`).
 ## FIX-FIRST PRIORITY LIST
 
 1. ~~`restore()` must not claim "no purchase found" when sync threw~~ — **done
-   in `081b685`.**
+   in `1d10577`.**
 2. ~~Give the "unlocks in a moment" branch a self-driven retry~~ — **done.**
 3. **Extend the staged-insert deferral to `.invite`/`.propose`/`.counter`** —
    silent split-brain plus a burned revision floor on the expected path.
@@ -248,13 +248,13 @@ is vacuous (`_ = try startSession()` releases the session before `refresh()`).
   is the right case. But the two-sentence contradiction was still reachable:
   products failing and `AppStore.sync()` succeeding are independent, so
   "The App Store isn't reachable right now." could still sit above
-  "No previous purchase found." *Fixed in `d97499c`: a successful sync now
+  "No previous purchase found." *Fixed in `c690c74`: a successful sync now
   re-loads products.* The non-cancel branch also collapsed every other
   `StoreKitError` into a connectivity claim.
 - **F2 (`awaitEntitlement`) — no leak, no double-run, but the dead end returned
   after 9 seconds.** All four writers are `@MainActor`, and the poll only ever
   writes `true`, so no race. After the third failed poll the optimistic message
-  became permanent again over a live buy button. *Fixed in `d97499c`: terminal
+  became permanent again over a live buy button. *Fixed in `c690c74`: terminal
   branch plus a cancellation check between sleep and write.*
 - **F3 (open `.task`) — introduced a CRITICAL.** `ProEntitlement.refresh()` is
   a *writer*: it drains `Transaction.currentEntitlements` and then calls
@@ -264,13 +264,13 @@ is vacuous (`_ = try startSession()` releases the session before `refresh()`).
   false — cross-process, and the extension can never recompute. Binding
   `refresh()` to a sheet's `.task` made it the first cancellable caller, so
   opening the paywall and dismissing it inside that window could revoke a
-  paying customer's Pro. *Fixed in `d97499c`:
+  paying customer's Pro. *Fixed in `c690c74`:
   `guard !Task.isCancelled else { return isUnlocked }` before the write.*
   The same `.task` also stomped `-DEMO_PRO_UNLOCKED`, because the demo guard
   lived only in `activate()`. *Fixed: hoisted to `ProEntitlement.isDemoPinned`
   and honoured by both.*
 
-## Also fixed in `d97499c`
+## Also fixed in `c690c74`
 
 - `buy()`'s catch-all claimed **"Nothing was charged"** — `purchase()` can throw
   after the App Store took payment, so StoreKit gives no basis for that. Now
