@@ -1,13 +1,44 @@
-Tween finds the fairest place for two friends to meet — without ever leaving your conversation.
+Stop arguing about where to meet.
 
-Pick Tween from the iMessage app drawer, tap "I'm in," and Tween shares where you are. When your friend does the same, it ranks real meeting spots by drive time so nobody gets stuck with the long haul. Tap a spot and drop it straight into the chat as a tappable map bubble.
+Tween lives inside the chat. Open any chat, tap the + beside the text box, pick Tween, and share where you are. As soon as your friend does the same, Tween finds places between you and ranks them by how long each person actually has to travel — not by distance on a map, but by real drive time.
 
-No accounts. No sign-ups. No servers. Tween runs entirely on your device and Apple's maps — your location is used only to compute fair spots and is never uploaded, tracked, or sold. Coordinates are shared only with the friend you're meeting, and only when you choose to.
+The fairest spot wins. Nobody gets stuck with the whole drive.
 
-Fair by design, private by default:
-• Drive-time ranking, not just straight-line distance
-• Works right inside iMessage
-• One-tap location sharing
-• Zero tracking, zero backend
 
-Stop arguing about who drives further. Let Tween settle it.
+EVERYTHING HAPPENS IN THE CHAT
+
+Your friend doesn't need the app. They see the spot, the map, and everyone's travel time right in the conversation, and can agree or suggest somewhere else with one tap. The whole negotiation stays where you were already talking.
+
+
+FAIR MEANS FAIR
+
+Tween compares real travel times from everyone's location and shows each person's minutes side by side. A spot that's ten minutes for you and forty for them isn't a compromise, and Tween says so.
+
+• Coffee, food, gas, or a place to study — pick a category or search by name
+• Everyone's travel time on every option, at a glance
+• Agree in one tap, or counter with somewhere better
+• Open in Apple Maps or Google Maps — your choice
+• Set a max drive time so far-flung places stop crowding the list
+
+
+NO ACCOUNT. NO SERVER. NO TRACKING.
+
+There's nothing to sign up for. Tween has no backend at all — your location never touches a server we run, because we don't run one. Your friends, plans, and history stay on your device, and where you are travels only inside the iMessage conversations you choose. Place searches and travel times go to Apple Maps, the same as they would in Maps itself.
+
+Location is requested only while you're using the app, never in the background.
+
+TWEEN PRO
+
+For meetups you plan in advance:
+
+• Groups & home bases — save where friends usually start from, then open a group for instant fair spots with nobody sharing live location
+• Pick a day and time — spots ranked by the traffic predicted for when you'll actually arrive
+• Any way you travel — fairness by driving, transit, or walking, mixed per person, so a bus rider isn't judged against a driver
+• Leave-by reminders — a nudge when it's time to head out, re-checked against live traffic
+• Calendar sync — drop the meetup into your calendar with one tap
+
+Meeting up right now stays free, forever.
+
+Tween Pro is available as a one-time purchase or a monthly subscription.
+
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
