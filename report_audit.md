@@ -313,3 +313,74 @@ is vacuous (`_ = try startSession()` releases the session before `refresh()`).
 9. `ProEntitlementTests.setUp` wipes the entire shared App Group suite, and
    `testMonthlySubscriptionUnlocksPro` never asserts the App Group write.
 10. Then everything in the second-pass list above, unchanged.
+
+---
+
+# FOURTH PASS — `main` @ `c690c74`
+
+Verified `c690c74`'s entitlement fixes and found **V2**: `awaitEntitlement`'s
+terminal message could contradict Restore and the unlocked badge with nothing
+left to clear it (`buy()` arms the poll → user taps Restore inside the 9 s →
+Restore succeeds → the poll's final leg writes "If Pro doesn't appear, tap
+Restore Purchases" under "You have Tween Pro"). `syncEntitlement()` could not
+rescue it — it only acts when `unlocked` flips, and it already had. **V1:** the
+`isDemoPinned` hoist was copied to one of five call sites, leaving three able
+to stamp over a pinned demo. Both closed in `adc3dcf`.
+
+Also raised: `refresh()`'s return is ambiguous (fresh verdict vs cached read)
+with no way for a caller to tell; a cancelled-but-complete drain discards a
+valid unlock; `reload()` inside `restore()` re-arms open finding F7.
+
+Non-paywall, still open: the map snapshot renderer defaults to @3x and undoes
+the deliberate @2x cap (~2.2× the promised memory, inside the 120 MB ceiling);
+an in-flight `MKMapSnapshotter` is never cancelled; `retryAttempt` is never
+reset, so the retry budget is spent once per view rather than per region;
+`fallbackImage` projects degenerate spans to the corner. Four capture-harness
+defects (the `.invite` focus cannot render the join hero; `category` is dead;
+the local user renders as a third participant; three seeds are ~2,400 mi from
+the participants) — which implies the 1.1 screenshots have not been
+regenerated. `CLAUDE.md` on `main` documents `feature/google-search` as fact.
+
+# FIFTH PASS — `main` @ `adc3dcf`
+
+**Verified good:** the V1/V2 closes hold; the new cancelled-refresh test is a
+valid pin (removing the guard fails both assertions); no buy/restore
+concurrency race.
+
+**CRITICAL found — the fourth defect in four rounds, and the most severe.**
+`restore()` cancelling `entitlementRetryTask` dropped a still-valid poll. The
+poll can only be alive because `refresh()` just returned false, so restore()
+asked the same question in the same lag window, got the same answer, and stated
+it as fact: destructive-red *"No previous purchase found for this App Store
+account."* to someone who had just paid. Worse than copy — the poll was the
+only remaining writer of the unlock into the App Group after a finished
+transaction, so the **Messages extension stayed locked too** until the next
+cold launch. Fixed by tracking `sawVerifiedPurchase`: restore() no longer
+denies, no longer downgrades `unlocked`, and re-arms the poll.
+
+**Leave-by reminders — the fourth pass was half wrong, and this pass refutes
+the important half.** `schedule()` **works**: a `UNTimeIntervalNotificationTrigger`
+minutes-to-hours out is delivered by the notification daemon with the app
+backgrounded or terminated; a `UNUserNotificationCenterDelegate` is consulted
+only for *foreground* presentation. The shipping Pro feature is not broken.
+
+Three real gaps remain: `notifyLeaveNow()` (the traffic-degraded top-up) fires
+only from `scenePhase == .active`, so the app is foreground by construction and
+iOS suppresses it; **and it calls `removePendingNotificationRequests` before
+`add` under the same identifier, so it destroys a still-pending reminder and
+replaces it with one that is suppressed — the user ends with no notification at
+all, in exactly the scenario the feature exists to catch.** The scheduled
+reminder is also suppressed if Tween happens to be open at fire time. One
+`UNUserNotificationCenterDelegate` returning `[.banner, .sound, .list]` closes
+all three. `CalendarExport` attaches no `EKAlarm`, so the companion action
+raises no alert either.
+
+**New:** `ProEntitlement` fails silently when the App Group suite is nil —
+`setUnlocked` becomes a no-op with no diagnostic, the extension is permanently
+locked, and a mis-provisioned build presents as "Pro doesn't work" with nothing
+in the logs.
+
+**Process note carried from the audit:** three of the four rounds fixed a
+symptom of the same structure — `entitlementRetryTask` doing two unrelated jobs
+(poll StoreKit / own the message slot) and `refresh()` being both reader and
+writer. Until those are separated, a sixth round is likely.

@@ -31,6 +31,11 @@ struct PaywallSheet: View {
     @State private var entitlementToken: MeetupSyncToken?
     /// Bounded post-purchase poll, held so it dies with the sheet.
     @State private var entitlementRetryTask: Task<Void, Never>?
+    /// A purchase verified on this sheet. Once true, restore() must never say
+    /// the account has no purchase — we watched one succeed, so a `false` from
+    /// StoreKit is propagation lag, not evidence. Never reset while the sheet
+    /// lives.
+    @State private var sawVerifiedPurchase = false
     /// Which plan the CTA buys. Lifetime by default: at five months it costs
     /// less than the monthly, so it is the honest recommendation rather than
     /// the one that maximises revenue.
@@ -615,6 +620,7 @@ struct PaywallSheet: View {
                 switch verification {
                 case .verified(let transaction):
                     await transaction.finish()
+                    sawVerifiedPurchase = true
                     unlocked = await ProEntitlement.refresh()
                     if unlocked {
                         errorMessage = nil
@@ -696,12 +702,26 @@ struct PaywallSheet: View {
         // this restore's result — the two-sentence contradiction again.
         if products?.isEmpty == true { reload() }
         let purchased = await ProEntitlement.refresh()
-        unlocked = purchased
-        if unlocked {
+        if purchased {
+            unlocked = true
             // Clearing only on entry left anything written between then and now
             // sitting under the unlocked badge.
             errorMessage = nil
+        } else if sawVerifiedPurchase {
+            // A poll can only be running because refresh() just answered false,
+            // so cancelling it on entry and asking the same question inside the
+            // same lag window gets the same answer — and this branch used to
+            // state it as fact. That put a red "no previous purchase" in front
+            // of someone who had just paid, and because the poll was the only
+            // remaining writer of the unlock into the App Group, it left the
+            // Messages extension locked too until the next cold launch.
+            //
+            // Do not downgrade `unlocked`, do not deny, and put the poll back.
+            messageIsFailure = false
+            errorMessage = "Purchase complete — Pro unlocks in a moment."
+            awaitEntitlement()
         } else {
+            unlocked = false
             messageIsFailure = true
             errorMessage = "No previous purchase found for this App Store account."
         }
