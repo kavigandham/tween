@@ -42,7 +42,7 @@ targets:
       path: TweenApp/Info.plist
       properties:
         CFBundleDisplayName: Tween
-        CFBundleShortVersionString: "1.0.1"
+        CFBundleShortVersionString: "1.0.2"
         CFBundleVersion: "3"
         CFBundleIconName: AppIcon
         CFBundleURLTypes:
@@ -94,7 +94,7 @@ targets:
       path: TweenMessages/Info.plist
       properties:
         CFBundleDisplayName: Tween
-        CFBundleShortVersionString: "1.0.1"
+        CFBundleShortVersionString: "1.0.2"
         CFBundleVersion: "3"
         MSMessagesExtensionStoreIconName: iMessage App Icon
         NSExtension:
