@@ -25,6 +25,29 @@ struct OnboardingView: View {
 
     /// A reply banner shows only while the last inbound bubble is this fresh.
     static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
+
+    /// A fix this far from the previous coordinate is a JUMP — the app was
+    /// backgrounded (the stream stops) while the user travelled — and the
+    /// camera follows it, the way it follows the first fix of a session.
+    /// Movement ticks while foregrounded are metres apart and never reframe,
+    /// so the map stays in the user's hands while they pan.
+    static let reframeJumpDistance: CLLocationDistance = 2_000
+
+    /// Whether a fresh fix should recenter the camera. Pure so the rule is
+    /// testable: the first LIVE fix of a session always does (a coordinate
+    /// restored from disk framed the map on where the app was last used, not
+    /// where the user is); after that only an explicit "I'm in" or a jump.
+    static func shouldReframe(
+        forFix fix: CLLocationCoordinate2D,
+        previous: CLLocationCoordinate2D?,
+        hasLiveFix: Bool,
+        awaitingImIn: Bool
+    ) -> Bool {
+        guard let previous, hasLiveFix, !awaitingImIn else { return true }
+        let from = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+        let to = CLLocation(latitude: fix.latitude, longitude: fix.longitude)
+        return from.distance(from: to) > reframeJumpDistance
+    }
     static var isHostTabHarness: Bool {
         CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
         || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
@@ -58,6 +81,12 @@ struct OnboardingView: View {
     /// coordinate restored from disk at launch, whose age is unknown — those
     /// fall through to the cache's own freshness check.
     @State var savedCoordinateAt: Date?
+    /// True once THIS session has received a live fix. A coordinate restored
+    /// from disk at launch is not one — and the old "reframe only when there
+    /// is no pin yet" rule counted it as one, so opening the app in Ashburn
+    /// after a Blacksburg session drew the dot in Ashburn on a map still
+    /// framed on Blacksburg (device report 2026-09-05).
+    @State var hasLiveFix = false
     @State var peerCoordinate: CLLocationCoordinate2D?
     @State var agreedMeetup: TweenState?
     /// The in-flight proposal/counter (not yet fully agreed) mirrored from the
@@ -1067,9 +1096,13 @@ struct OnboardingView: View {
                 if !keepManual {
                     // Continuous-stream ticks arrive every ~35 m of movement;
                     // reframing on each one would yank the camera out of the
-                    // user's hands while they pan. Only the FIRST fix (no pin
-                    // yet) and an explicit "I'm in" recenter.
-                    let shouldReframe = savedCoordinate == nil || awaitingImIn
+                    // user's hands while they pan. The first LIVE fix of the
+                    // session, an explicit "I'm in", and a jump (see
+                    // reframeJumpDistance) recenter; nothing else does.
+                    let shouldReframe = Self.shouldReframe(
+                        forFix: coord, previous: savedCoordinate,
+                        hasLiveFix: hasLiveFix, awaitingImIn: awaitingImIn)
+                    hasLiveFix = true
                     withAnimation(Tokens.Motion.spring) {
                         savedCoordinate = coord
                         // Stamp the freshness of this in-memory fix so a pending

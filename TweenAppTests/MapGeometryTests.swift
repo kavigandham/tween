@@ -55,3 +55,43 @@ final class MapGeometryTests: XCTestCase {
         XCTAssertGreaterThan(guess.score, sure.score)
     }
 }
+
+/// The camera-follow rule for live fixes (device report 2026-09-05: a
+/// Blacksburg session, then a cold open in Ashburn drew the dot in Ashburn
+/// on a map still framed on Blacksburg).
+final class CameraReframeTests: XCTestCase {
+    private let blacksburg = CLLocationCoordinate2D(latitude: 37.2296, longitude: -80.4139)
+    private let ashburn = CLLocationCoordinate2D(latitude: 39.0438, longitude: -77.4874)
+
+    func testFirstLiveFixReframesEvenOverARestoredCoordinate() {
+        // savedCoordinate was restored from disk (Blacksburg); the first live
+        // fix of the session is Ashburn — the map must follow it.
+        XCTAssertTrue(OnboardingView.shouldReframe(
+            forFix: ashburn, previous: blacksburg, hasLiveFix: false, awaitingImIn: false))
+    }
+
+    func testNoPreviousCoordinateReframes() {
+        XCTAssertTrue(OnboardingView.shouldReframe(
+            forFix: ashburn, previous: nil, hasLiveFix: true, awaitingImIn: false))
+    }
+
+    func testImInReframes() {
+        XCTAssertTrue(OnboardingView.shouldReframe(
+            forFix: ashburn, previous: ashburn, hasLiveFix: true, awaitingImIn: true))
+    }
+
+    func testMovementTickDoesNotReframe() {
+        // ~35 m north: a stream tick while the user pans must not yank the map.
+        let nudged = CLLocationCoordinate2D(latitude: ashburn.latitude + 0.0003,
+                                            longitude: ashburn.longitude)
+        XCTAssertFalse(OnboardingView.shouldReframe(
+            forFix: nudged, previous: ashburn, hasLiveFix: true, awaitingImIn: false))
+    }
+
+    func testJumpAfterBackgroundedTravelReframes() {
+        // Stream was live in Blacksburg, app backgrounded for the drive, first
+        // fix on resume is Ashburn: a jump far past reframeJumpDistance.
+        XCTAssertTrue(OnboardingView.shouldReframe(
+            forFix: ashburn, previous: blacksburg, hasLiveFix: true, awaitingImIn: false))
+    }
+}
