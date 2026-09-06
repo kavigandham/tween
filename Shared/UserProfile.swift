@@ -6,9 +6,8 @@ import Foundation
 enum UserProfile {
     private static let displayNameKey = "userName"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-09-05) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static var displayName: String? {
         get {

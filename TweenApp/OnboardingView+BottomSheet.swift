@@ -41,6 +41,9 @@ extension OnboardingView {
         // instead of leaving it planted over a resizing sheet.
         .scrollDismissesKeyboard(.interactively)
         .onChange(of: selectedSheetDetent) { _, detent in
+            // The sheet is about to animate to the new detent — that motion
+            // is not a drag (see the edge tracker's drop-focus rule).
+            sheetEdge.expectMotion()
             // Collapsing to the peek pill ends the editing session — holding
             // first responder under a collapsed sheet kept the keyboard (and
             // its re-focus) fighting the drag whenever the field had text.
@@ -162,50 +165,8 @@ extension OnboardingView {
         .padding(.trailing, Tokens.Spacing.s4)
     }
 
-    /// Google/Apple-style re-search affordance: appears once the user pans or
-    /// zooms far enough from the searched area that the pins no longer
-    /// describe the viewport; tapping re-runs the search where they're
-    /// looking, without moving the camera.
-    /// Padding that parks the pill a small gap above the sheet's MEASURED top
-    /// edge (`sheetTopGlobalY`). Detent-constant math can't be trusted here:
-    /// iOS 26's floating Liquid Glass panel rides higher than
-    /// `.height(sheetPeekHeight)` implies, which tucked the pill under the
-    /// glass on device. Both frames are global/screen space, so the offset is
-    /// exact for any device, text size, detent, or mid-drag position.
-    func searchHerePillBottomPadding(in geo: GeometryProxy) -> CGFloat {
-        if let sheetTopGlobalY {
-            let mapBottom = geo.frame(in: .global).maxY
-            return max(mapBottom - sheetTopGlobalY + Tokens.Spacing.s4, Tokens.Spacing.s4)
-        }
-        // Pre-measurement fallback (first frame only): peek constant.
-        return max(Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4 - geo.safeAreaInsets.bottom,
-                   Tokens.Spacing.s4)
-    }
-
-    @ViewBuilder
-    var searchHerePill: some View {
-        // Hidden at the full detent — the list covers the map there.
-        if showSearchHere, selectedSheetDetent != .fraction(0.90) {
-            Button {
-                searchHereTapped()
-            } label: {
-                // Apple Maps text treatment (sentence case, no glyph) on the
-                // system's Liquid Glass chrome (device feedback 2026-07-31:
-                // solid slate read as foreign next to the glass sheet).
-                Text("Search here")
-                    .font(Tokens.Typography.subheadline.weight(.semibold))
-                    .foregroundStyle(Tokens.Palette.mapPillText)
-                    .padding(.horizontal, Tokens.Spacing.s5)
-                    .frame(minHeight: Tokens.Layout.minTapTarget)
-            }
-            .buttonStyle(.plain)
-            .modifier(TweenGlassControl(shape: Capsule()))
-            // Plain fade: scale-while-fading fought the measured-edge motion
-            // and read as the pill shrinking into nowhere.
-            .transition(.opacity)
-            .accessibilityHint("Searches again in the area you're looking at")
-        }
-    }
+    // The Search-here pill (its tracker, overlay and padding) lives at the
+    // bottom of this file as `SheetEdgeTracker` + `SearchHerePillOverlay`.
 
     var mapOptionsButton: some View {
         Menu {
@@ -317,4 +278,99 @@ extension OnboardingView {
         }
     }
 
+}
+
+/// The permanent sheet's MEASURED top edge, in global (screen) coordinates.
+///
+/// A reference type observed by ONE view — `SearchHerePillOverlay` — rather
+/// than a `@State` on `OnboardingView`. The sheet's `onGeometryChange` fires on
+/// every frame of a drag (120 Hz on ProMotion), and as `@State` each frame
+/// invalidated the entire home screen: the Map with every marker, the group
+/// bar and every result card, all inside an animated transaction. Measured
+/// with `Self._printChanges()` (2026-09-05): 63 full-body passes for two short
+/// drags, every one attributed to the edge. With `@Observable`, SwiftUI
+/// re-renders only the view whose body READS `topGlobalY`, and the map screen
+/// never does.
+@Observable
+final class SheetEdgeTracker {
+    var topGlobalY: CGFloat?
+
+    /// Until when edge motion is EXPECTED — a detent change or the keyboard
+    /// raising the sheet — and must not be read as the user's finger.
+    @ObservationIgnored private var expectedMotionUntil = Date.distantPast
+
+    /// Covers the sheet's detent animation (~0.3 s) and the keyboard's
+    /// (~0.25 s) with margin.
+    func expectMotion(for duration: TimeInterval = 0.7) {
+        expectedMotionUntil = Date().addingTimeInterval(duration)
+    }
+
+    var isMotionExpected: Bool { Date() < expectedMotionUntil }
+}
+
+/// Google/Apple-style re-search affordance: appears once the user pans or
+/// zooms far enough from the searched area that the pins no longer describe
+/// the viewport; tapping re-runs the search where they're looking, without
+/// moving the camera.
+///
+/// Parks a small gap above the sheet's MEASURED top edge. Detent-constant
+/// math can't be trusted here: iOS 26's floating Liquid Glass panel rides
+/// higher than `.height(sheetPeekHeight)` implies, which tucked the pill
+/// under the glass on device. Both frames are global/screen space, so the
+/// offset is exact for any device, text size, detent, or mid-drag position.
+struct SearchHerePillOverlay: View {
+    let edge: SheetEdgeTracker
+    /// Whether the pill should show at all (drift exists AND the sheet isn't
+    /// at the full detent, where the list covers the map).
+    let isVisible: Bool
+    let action: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            pill
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, bottomPadding(in: geo))
+        }
+        // The visibility gate flips on the detent (hidden at 0.90); keyed
+        // here so a USER drag to/from full can't land the flip in a
+        // transaction with no measured-edge change and pop the transition.
+        .animation(Tokens.Motion.snappy, value: isVisible)
+        // Smooths the pill when the sheet's measured edge lands discretely
+        // (detent settle); during a live drag the streaming updates get
+        // exponentially smoothed (snappy is an easeOut, re-targeted per
+        // tick), so the pill trails the edge slightly and converges.
+        .animation(Tokens.Motion.snappy, value: edge.topGlobalY)
+    }
+
+    @ViewBuilder
+    private var pill: some View {
+        if isVisible {
+            Button(action: action) {
+                // Apple Maps text treatment (sentence case, no glyph) on the
+                // system's Liquid Glass chrome (device feedback 2026-07-31:
+                // solid slate read as foreign next to the glass sheet).
+                Text("Search here")
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.mapPillText)
+                    .padding(.horizontal, Tokens.Spacing.s5)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+            }
+            .buttonStyle(.plain)
+            .modifier(TweenGlassControl(shape: Capsule()))
+            // Plain fade: scale-while-fading fought the measured-edge motion
+            // and read as the pill shrinking into nowhere.
+            .transition(.opacity)
+            .accessibilityHint("Searches again in the area you're looking at")
+        }
+    }
+
+    private func bottomPadding(in geo: GeometryProxy) -> CGFloat {
+        if let sheetTopGlobalY = edge.topGlobalY {
+            let mapBottom = geo.frame(in: .global).maxY
+            return max(mapBottom - sheetTopGlobalY + Tokens.Spacing.s4, Tokens.Spacing.s4)
+        }
+        // Pre-measurement fallback (first frame only): peek constant.
+        return max(Tokens.Layout.sheetPeekHeight + Tokens.Spacing.s4 - geo.safeAreaInsets.bottom,
+                   Tokens.Spacing.s4)
+    }
 }

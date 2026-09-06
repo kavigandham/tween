@@ -188,7 +188,12 @@ struct OnboardingView: View {
     /// iOS 26's floating Liquid Glass panel sits higher than
     /// `.height(sheetPeekHeight)` implies (float margin), which tucked the
     /// pill under the glass on device.
-    @State var sheetTopGlobalY: CGFloat?
+    ///
+    /// A reference type, NOT a `CGFloat` `@State`: the measurement streams on
+    /// every frame of a sheet drag, and as `@State` each frame invalidated
+    /// this whole view — the Map with every marker, the group bar, every
+    /// result card — inside an animated transaction. See `SheetEdgeTracker`.
+    @State var sheetEdge = SheetEdgeTracker()
     /// "Open Now" filter chip. Rides on Apple's SERVER-side hours filtering:
     /// appending "open now" to `naturalLanguageQuery` demonstrably filters to
     /// places open at this moment (probed 2026-07-31, 2 AM Auckland: "coffee"
@@ -633,7 +638,15 @@ struct OnboardingView: View {
     /// NOT live here — it's layered on in `body`, where it can respect the real
     /// device insets instead of guessing them with hardcoded paddings.
     var mapLayer: some View {
-        Map(position: $position, selection: $selectedResult) {
+        // Resolved ONCE per pass. Each marker used to call resultRole →
+        // closestDisplayedItemToUser, which rebuilt displayedItems and
+        // re-measured every result's distance — per marker, twice (symbol
+        // and tint): ~N³ distance computations per body evaluation, paid on
+        // every camera settle, location tick and search update.
+        let items = displayedItems
+        let bestItem = rankedSpots.first?.item
+        let closestItem = Self.closestItem(in: items, to: savedCoordinate)
+        return Map(position: $position, selection: $selectedResult) {
             if let coord = savedCoordinate {
                 Annotation(selfIsManual ? (selfManualLabel.map { "You'll be at \($0)" } ?? "You'll be there") : "You", coordinate: coord) {
                     // Self stays in the location-dot family even when a ride
@@ -700,9 +713,10 @@ struct OnboardingView: View {
             // circle on tap, which read as a glitch. The A/B distances live in
             // the floating card instead. Tapping the empty map clears the
             // selection.
-            ForEach(displayedItems, id: \.self) { item in
-                Marker(item.name ?? "Place", systemImage: resultSymbol(for: item), coordinate: item.placemark.coordinate)
-                    .tint(item == selectedResult ? Tokens.Palette.brand : resultRole(for: item).fill)
+            ForEach(items, id: \.self) { item in
+                let role = Self.resultRole(for: item, best: bestItem, closest: closestItem)
+                Marker(item.name ?? "Place", systemImage: resultSymbol(for: role), coordinate: item.placemark.coordinate)
+                    .tint(item == selectedResult ? Tokens.Palette.brand : role.fill)
                     .tag(item)
             }
         }
@@ -744,26 +758,17 @@ struct OnboardingView: View {
                 // centred on launch and jumped to the left edge the moment you
                 // searched (device report 2026-08-05).
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            // The pill hangs off the sheet's MEASURED global top edge (see
-            // searchHerePillBottomPadding); the GeometryReader supplies this
-            // ZStack's own global frame for the same coordinate space.
-            GeometryReader { geo in
-                searchHerePill
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, searchHerePillBottomPadding(in: geo))
-            }
+            // The pill hangs off the sheet's MEASURED global top edge. It is
+            // its own view so the per-frame edge updates re-render the pill
+            // alone — the animations that used to key this ZStack on the
+            // edge and the detent live inside it now, off the Map.
+            SearchHerePillOverlay(
+                edge: sheetEdge,
+                // Hidden at the full detent — the list covers the map there.
+                isVisible: showSearchHere && selectedSheetDetent != .fraction(0.90),
+                action: searchHereTapped)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
-        .animation(Tokens.Motion.snappy, value: showSearchHere)
-        // Smooths the pill when the sheet's measured edge lands discretely
-        // (detent settle); during a live drag the streaming updates get
-        // exponentially smoothed (snappy is an easeOut, re-targeted per
-        // tick), so the pill trails the edge slightly and converges.
-        .animation(Tokens.Motion.snappy, value: sheetTopGlobalY)
-        // The pill's visibility gate flips on the detent (hidden at 0.90);
-        // without this key a USER drag to/from full can land the flip in a
-        // transaction with no measured-edge change, popping the transition.
-        .animation(Tokens.Motion.snappy, value: selectedSheetDetent)
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
@@ -819,7 +824,29 @@ struct OnboardingView: View {
             sheetContent
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.frame(in: .global).minY
-                } action: { sheetTopGlobalY = $0 }
+                } action: { y in
+                    let previous = sheetEdge.topGlobalY
+                    sheetEdge.topGlobalY = y
+                    // A finger on the sheet with the keyboard up drops focus
+                    // on the FIRST frame of movement, not when the peek detent
+                    // finally lands. Until then the keyboard stayed up for the
+                    // whole drag: UIKit keeps a sheet above the keyboard, so
+                    // the detents were displaced by its height, the content
+                    // re-laid-out around it every frame, and the eventual
+                    // dismissal dropped the sheet by a keyboard's height in
+                    // one jump — the "clunky with text, smooth without"
+                    // asymmetry (device feedback 2026-09-05). Expected motion
+                    // (a detent change, the keyboard raising the sheet) is
+                    // excluded so focusing the field can't cancel itself.
+                    if searchFocused, let previous, abs(previous - y) > 1,
+                       !sheetEdge.isMotionExpected {
+                        // Deferred: a synchronous state write from inside the
+                        // layout pass feeds the sheet's own geometry back into
+                        // itself ("AttributeGraph: cycle detected", ~25 per
+                        // drag on the sim).
+                        Task { @MainActor in searchFocused = false }
+                    }
+                }
                 .presentationDetents(
                     [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
                     selection: $selectedSheetDetent

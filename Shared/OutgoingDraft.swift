@@ -58,9 +58,8 @@ enum OutgoingDraftStore {
         return bound == conversationKey
     }
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-09-05) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static func save(_ draft: OutgoingDraft) {
         guard let data = try? JSONEncoder().encode(draft) else { return }

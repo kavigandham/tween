@@ -612,7 +612,12 @@ extension OnboardingView {
             // Focusing the field lifts the collapsed sheet so suggestions
             // have room — the begin-editing delegate replaces the old
             // tap-gesture + @FocusState pair.
-            if focused { focusSearchPanel() }
+            if focused {
+                // The keyboard is about to raise the sheet: expected motion,
+                // not a drag — or the focus would cancel itself.
+                sheetEdge.expectMotion()
+                focusSearchPanel()
+            }
         }
     }
 
@@ -1115,7 +1120,8 @@ extension OnboardingView {
     var displayedItems: [MKMapItem] {
         guard !rankedSpots.isEmpty else { return searchResults }
         let ranked = rankedSpots.compactMap(\.item)
-        return ranked + searchResults.filter { !ranked.contains($0) }
+        let rankedSet = Set(ranked)
+        return ranked + searchResults.filter { !rankedSet.contains($0) }
     }
 
     func mapItem(for state: TweenState) -> MKMapItem {
@@ -1242,36 +1248,34 @@ extension OnboardingView {
 
     /// Pin role for a result:
     /// gold = best fair option, green = closest to the current user, teal = other.
-    func resultRole(for item: MKMapItem) -> TweenPin.Role {
-        if rankedSpots.first?.item == item {
-            return .fairSpot
-        }
-        guard let closest = closestDisplayedItemToUser else {
-            return .result
-        }
+    ///
+    /// `best` and `closest` are resolved ONCE by the caller for the whole
+    /// marker set (`mapLayer`). The old per-item form recomputed the closest
+    /// result — and rebuilt `displayedItems` — for every marker, twice.
+    static func resultRole(for item: MKMapItem, best: MKMapItem?, closest: MKMapItem?) -> TweenPin.Role {
+        if best == item { return .fairSpot }
+        guard let closest else { return .result }
         return closest == item ? .closestToUser : .result
     }
 
     /// Glyph for result pins — the active category's icon when a preset drove the
     /// search, otherwise the role's semantic symbol.
-    func resultSymbol(for item: MKMapItem) -> String {
-        let role = resultRole(for: item)
+    func resultSymbol(for role: TweenPin.Role) -> String {
         if role == .result {
             return selectedCategory?.icon ?? role.symbol
         }
         return role.symbol
     }
 
-    var closestDisplayedItemToUser: MKMapItem? {
-        guard let me = savedCoordinate else { return nil }
+    /// The result nearest the user by straight line, or nil with no fix.
+    static func closestItem(in items: [MKMapItem], to me: CLLocationCoordinate2D?) -> MKMapItem? {
+        guard let me else { return nil }
         let origin = CLLocation(latitude: me.latitude, longitude: me.longitude)
-        return displayedItems.min { lhs, rhs in
-            let lhsCoord = lhs.placemark.coordinate
-            let rhsCoord = rhs.placemark.coordinate
-            let lhsDistance = origin.distance(from: CLLocation(latitude: lhsCoord.latitude, longitude: lhsCoord.longitude))
-            let rhsDistance = origin.distance(from: CLLocation(latitude: rhsCoord.latitude, longitude: rhsCoord.longitude))
-            return lhsDistance < rhsDistance
+        func distance(_ item: MKMapItem) -> CLLocationDistance {
+            let c = item.placemark.coordinate
+            return origin.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
         }
+        return items.min { distance($0) < distance($1) }
     }
 
     /// Which in-flight proposal deserves its own card given the agreement

@@ -30,9 +30,8 @@ enum PreferredMapsApp: String, CaseIterable, Identifiable {
 enum MapsPreference {
     private static let key = "tween.pref.mapsApp"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-09-05) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     /// Defaults to Apple Maps — installed on every device, zero setup. An
     /// unknown stored value (future provider removed in a downgrade) also

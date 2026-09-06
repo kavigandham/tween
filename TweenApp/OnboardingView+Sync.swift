@@ -12,9 +12,11 @@ extension OnboardingView {
     // MARK: - Peer polling
 
     var appGroupDidChangePublisher: NotificationCenter.Publisher {
+        // The CACHED suite: `object:` filters by identity, and a fresh
+        // `UserDefaults(suiteName:)` here was rebuilt on every body pass.
         NotificationCenter.default.publisher(
             for: UserDefaults.didChangeNotification,
-            object: UserDefaults(suiteName: LocationCache.appGroup)
+            object: LocationCache.sharedDefaults
         )
     }
 

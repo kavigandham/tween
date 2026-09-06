@@ -18,7 +18,10 @@ enum TweenIdentity {
     static let storageKey = "tween.identity.stableID"
 
     static var stableID: String {
-        let defaults = UserDefaults(suiteName: LocationCache.appGroup)
+        // Cached suite (see LocationCache.sharedDefaults): this is read per
+        // result card and per group-bar pass, and suite construction is the
+        // expensive part of a UserDefaults access.
+        let defaults = LocationCache.sharedDefaults
         if let existing = defaults?.string(forKey: storageKey), !existing.isEmpty {
             return existing
         }
@@ -32,9 +35,7 @@ enum UserName {
     static let storageKey = "userName"
     static let fallback = "You"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     /// Returns the stored name, or nil if the user has never set one.
     /// Use `loadOrFallback()` when you need a non-nil display string.

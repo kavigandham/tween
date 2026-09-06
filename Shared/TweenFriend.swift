@@ -109,9 +109,8 @@ struct TweenFriend: Identifiable, Codable, Equatable {
 enum FriendRoster {
     static let storageKey = "cachedFriends"
 
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: LocationCache.appGroup)
-    }
+    // Cached suite (lag audit 2026-09-05) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults? { LocationCache.sharedDefaults }
 
     static func load() -> [TweenFriend] {
         guard let data = defaults?.data(forKey: storageKey) else { return [] }

@@ -18,9 +18,8 @@ enum DriveTimePreference {
 
     private static let key = "tween.maxDriveMinutes"
 
-    private static var defaults: UserDefaults {
-        UserDefaults(suiteName: LocationCache.appGroup) ?? .standard
-    }
+    // Cached suite (lag audit 2026-09-05) — see LocationCache.sharedDefaults.
+    private static var defaults: UserDefaults { LocationCache.sharedDefaults ?? .standard }
 
     /// The user's cap in minutes, or nil for "Any".
     static var maxMinutes: Int? {

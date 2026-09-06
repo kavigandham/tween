@@ -60,11 +60,23 @@ struct NativeSearchBar: UIViewRepresentable {
             // would never appear until focus toggled again.
             if bar.window != nil {
                 context.coordinator.appliedEditing = true
-                if !bar.isFirstResponder { bar.becomeFirstResponder() }
+                // One run-loop turn later, NOT inside this update: a
+                // responder change here runs the delegate's begin/end-editing
+                // callbacks — which write `isEditing` back — while SwiftUI is
+                // still applying the update that asked for it. Every
+                // programmatic focus drop (peek settle, suggestion tap,
+                // commit) logged ~20 "AttributeGraph: cycle detected" breaks,
+                // each one a dependency SwiftUI had to sever mid-frame
+                // (measured 2026-09-05).
+                DispatchQueue.main.async {
+                    if !bar.isFirstResponder { bar.becomeFirstResponder() }
+                }
             }
         } else if !isEditing, wasEditing {
             context.coordinator.appliedEditing = false
-            if bar.isFirstResponder { bar.resignFirstResponder() }
+            DispatchQueue.main.async {
+                if bar.isFirstResponder { bar.resignFirstResponder() }
+            }
         }
     }
 
