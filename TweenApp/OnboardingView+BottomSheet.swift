@@ -27,13 +27,25 @@ extension OnboardingView {
             collapsedMeetupHeader
                 .frame(height: Tokens.Layout.sheetPeekHeight)
 
-            // Everything else is revealed once the sheet lifts off peek.
-            if !isMinimalDetent {
+            // Everything below the header stays IN the hierarchy at peek,
+            // collapsed to zero height and hidden. Removing it (the old
+            // `if !isMinimalDetent`) tore the whole chips + results tree down
+            // on every peek settle and rebuilt it, cards and all, in one
+            // frame on the way back up — a stall at each end of a drag
+            // (measured 2026-09-06). Zero height, not just opacity: left at
+            // its natural size the hidden stack overflowed the peek sheet and
+            // SwiftUI centred the overflow, pushing the search bar half off
+            // the top edge.
+            Group {
                 if !monitor.isOnline { offlineBanner }
                 plannedMeetupBanner
                 replyBanner
                 mapPanel
             }
+            .frame(maxHeight: isMinimalDetent ? 0 : .infinity)
+            .clipped()
+            .opacity(isMinimalDetent ? 0 : 1)
+            .accessibilityHidden(isMinimalDetent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Tokens.Motion.snappy, value: selectedSheetDetent)

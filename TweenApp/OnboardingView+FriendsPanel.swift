@@ -1104,6 +1104,9 @@ extension OnboardingView {
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
                     })
+                    // Body runs only when the card's DATA changes — see the
+                    // Equatable conformance in ResultRows.swift.
+                    .equatable()
                     .contentShape(Rectangle())
                     // Tapping the card body (outside its buttons) highlights the
                     // pin and focuses the map, matching a pin tap.

@@ -153,6 +153,14 @@ struct GroupStatusBar: View {
     }
 }
 
+/// Skip-if-unchanged: the bar takes closures, so without this every pass
+/// over the home screen (location tick, detent settle) re-ran it.
+extension GroupStatusBar: Equatable {
+    static func == (a: GroupStatusBar, b: GroupStatusBar) -> Bool {
+        a.members == b.members
+    }
+}
+
 /// Press feedback on touch-DOWN, not on release — a row that only reacts when
 /// you lift reads as dead (Designing Fluid Interfaces). Reuses the shared
 /// `tweenPressFeedback` so it behaves like every other Tween control.

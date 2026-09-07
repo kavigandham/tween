@@ -294,6 +294,34 @@ struct ResultCard: View {
     }
 }
 
+/// Skip-if-unchanged for the cards. `ResultCard` takes closures, so SwiftUI
+/// can never prove two values equal on its own and re-ran EVERY visible
+/// card's body on EVERY pass over the home screen — and on device that
+/// screen re-renders about once a second while the location stream glides
+/// the dot, plus on every detent settle. Measured 2026-09-06: one such pass
+/// with three cards on screen cost ~260 ms of main-thread stalls, which is
+/// the sheet "stopping" mid-swipe whenever results were present (device
+/// report). With this the body runs only when the data it draws changes.
+extension ResultCard: Equatable {
+    static func == (a: ResultCard, b: ResultCard) -> Bool {
+        a.item === b.item
+            && a.rankedSpot?.id == b.rankedSpot?.id
+            && a.rankedSpot?.etas == b.rankedSpot?.etas
+            && a.rankedSpot?.confidence == b.rankedSpot?.confidence
+            && coarse(a.userCoord) == coarse(b.userCoord)
+            && a.isBest == b.isBest
+            && a.bestWorstETA == b.bestWorstETA
+            && a.soloETA == b.soloETA
+    }
+
+    /// The user's coordinate at ~100 m: the card shows a 0.1 mi distance and a
+    /// "~N min" estimate, neither of which GPS jitter can change — comparing
+    /// the raw fix would re-render every card on every tick anyway.
+    private static func coarse(_ c: CLLocationCoordinate2D?) -> [Double]? {
+        c.map { [($0.latitude * 1_000).rounded(), ($0.longitude * 1_000).rounded()] }
+    }
+}
+
 /// Compact action buttons for result cards. The global Tween primary style is
 /// intentionally broad for full-width CTAs; search rows need denser controls.
 /// Same rounded-rect language as `TweenPrimaryButtonStyle`, scaled down for a

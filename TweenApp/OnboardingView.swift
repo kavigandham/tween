@@ -659,6 +659,7 @@ struct OnboardingView: View {
             GroupStatusBar(members: groupBarMembers,
                            onCycleMode: cycleTravelMode,
                            onSetMode: { setTravelMode($1, for: $0) })
+                .equatable()
                 .padding(.leading, Tokens.Spacing.s3)
         }
     }
