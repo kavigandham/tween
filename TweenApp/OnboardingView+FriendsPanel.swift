@@ -651,6 +651,7 @@ extension OnboardingView {
         .buttonStyle(.plain)
         .accessibilityLabel("Friends")
         .accessibilityHint("Opens your friends, meetup roster, and rides")
+        .coachTarget(.friendsButton)
     }
 
     static func initials(for name: String) -> String {
@@ -697,6 +698,7 @@ extension OnboardingView {
                     .accessibilityLabel(preset.title)
                     .accessibilityHint("Searches for \(preset.searchQuery.lowercased()) near the midpoint")
                     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                    .coachTarget(preset == .coffee ? .coffeeChip : nil)
                 }
             }
             .padding(.horizontal)
@@ -861,6 +863,7 @@ extension OnboardingView {
             .buttonStyle(.tweenPrimary())
             .disabled(awaitingImIn || provider.status == .requesting)
             .accessibilityHint("Shares where you are and finds fair places to meet")
+            .coachTarget(.imInButton)
 
             // Join with a place you're HEADING to instead of where you are now
             // (a plan for later while you're driving).
@@ -1094,6 +1097,7 @@ extension OnboardingView {
         } else {
             // One plan read for the whole list, not one per card body.
             let soloMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
+            let firstItem = displayedItems.first
             ForEach(displayedItems, id: \.self) { item in
                 ResultCard(
                     item: item,
@@ -1110,6 +1114,7 @@ extension OnboardingView {
                     // Body runs only when the card's DATA changes — see the
                     // Equatable conformance in ResultRows.swift.
                     .equatable()
+                    .coachTarget(item == firstItem ? .firstResultCard : nil)
                     .contentShape(Rectangle())
                     // Tapping the card body (outside its buttons) highlights the
                     // pin and focuses the map, matching a pin tap.

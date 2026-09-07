@@ -229,7 +229,7 @@ extension OnboardingView {
         // way in — Maps shows your dot on open; Tween used to sit blank until
         // you tapped "I'm in", which is what actually triggered the prompt.
         // Same rule as scenePhase: never prompt over the tutorial —
-        // dismissTutorial() asks once the guide is gone.
+        // the tour asks when the user starts it (advanceTour).
         if showTutorial {
             provider.startContinuous()
             return

@@ -78,6 +78,13 @@ extension OnboardingView {
         // always on screen — so it works with no spot card open.
         .sheet(item: $planSheet) { planSheetContent($0) }
         .overlay(alignment: .bottom) { toastView }
+        // The tour's sheet-layer slice: spotlights the sheet's controls and
+        // hosts the target-less cards (welcome, done).
+        .overlayPreferenceValue(CoachTargetKey.self) { anchors in
+            CoachMarkOverlay(step: tourOverlayStep, layer: .sheet,
+                             calloutLayer: tourCalloutLayer, edge: sheetEdge,
+                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+        }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)
         .alert("Your Name", isPresented: $showNamePrompt) {
@@ -186,6 +193,7 @@ extension OnboardingView {
         }
         .padding(Tokens.Spacing.s1)
         .modifier(TweenGlassControl(shape: Capsule()))
+        .coachTarget(.mapToolbar)
         .padding(.top, Tokens.Spacing.s2)
         .padding(.trailing, Tokens.Spacing.s4)
     }
@@ -216,7 +224,7 @@ extension OnboardingView {
 
             // Dismiss another selection sheet before presenting the guide;
             // SwiftUI allows one secondary presentation on this hierarchy.
-            Button { activeSheet = nil; showTutorial = true } label: {
+            Button { activeSheet = nil; startTour() } label: {
                 Label("Tween guide", systemImage: "info.circle")
             }
         } label: {

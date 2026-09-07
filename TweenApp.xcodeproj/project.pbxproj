@@ -47,6 +47,7 @@
 		488D3DDCB1FFAD9709030BCA /* ExpandedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B247391C7D7142F3F01BCD /* ExpandedView.swift */; };
 		4950890A2E71EDC93C9F344F /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FD34C21C893A47710A971 /* UserProfile.swift */; };
 		49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */; };
+		4A2309DC8F7043A3E9101140 /* CoachMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A18E4436E3EDF67035DCFE /* CoachMarks.swift */; };
 		4A4214D010C99E1E835C2EAF /* OnboardingView+HandOff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599F65AE96C48934F6E45CA7 /* OnboardingView+HandOff.swift */; };
 		4AD34505977F6725209584E8 /* SearchQueryRewriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AC914AE6CA76221D4E4646 /* SearchQueryRewriterTests.swift */; };
 		4B1187625EDE93478FB970AC /* PendingGroupFriendsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F419938405B50BDDEE4FDAE /* PendingGroupFriendsTests.swift */; };
@@ -153,6 +154,7 @@
 		E05187F445D8B2BD72070548 /* DeadlinedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15041440F39F2AC637946392 /* DeadlinedSearch.swift */; };
 		E42DC8813A4CE5996F08A2C2 /* CompactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7900C8435D6EC0638415B8B9 /* CompactView.swift */; };
 		E8A357B79105FA3BB3F88D6C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7E5E55042E7E84CB3CC43ABE /* PrivacyInfo.xcprivacy */; };
+		EA2BCE1D153EF43767D855D1 /* OnboardingView+Tour.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFD51C7FBB6CFEDC510023D /* OnboardingView+Tour.swift */; };
 		EFA00EAD5278E8299C9A7189 /* MapGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD43B944D80A6936C7A19AB /* MapGeometry.swift */; };
 		F0033D16E761466DDFD9FF94 /* ExpandedView+SpotCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CD8B6A6ED843B821B266E3 /* ExpandedView+SpotCards.swift */; };
 		F0530B026C0ECE982F213FEB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C8D82F71D0698CFE660B31 /* Assets.xcassets */; };
@@ -234,12 +236,14 @@
 		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		32924B4A54F474D511ED1002 /* ProEntitlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProEntitlement.swift; sourceTree = "<group>"; };
 		381612D9C7DEFDA4B7B0A0C6 /* GroupStatusBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStatusBarTests.swift; sourceTree = "<group>"; };
+		42A18E4436E3EDF67035DCFE /* CoachMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMarks.swift; sourceTree = "<group>"; };
 		4409F1D7CA9CCA8F5B58A494 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
 		45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRosterTests.swift; sourceTree = "<group>"; };
 		464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		49CB07DDC9A48E0BB2BF3C7D /* SearchIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIntentTests.swift; sourceTree = "<group>"; };
 		4AD43B944D80A6936C7A19AB /* MapGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometry.swift; sourceTree = "<group>"; };
 		4C2E0702ADD1F5E4390852C4 /* FriendPlacesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendPlacesSheet.swift; sourceTree = "<group>"; };
+		4CFD51C7FBB6CFEDC510023D /* OnboardingView+Tour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+Tour.swift"; sourceTree = "<group>"; };
 		4DABE7630D89B338603DE226 /* SpotETADisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotETADisplay.swift; sourceTree = "<group>"; };
 		4DC52AECB9B816328EF102D1 /* MapLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinks.swift; sourceTree = "<group>"; };
 		4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPreset.swift; sourceTree = "<group>"; };
@@ -494,6 +498,7 @@
 				73C8D82F71D0698CFE660B31 /* Assets.xcassets */,
 				938AF591BFFD00D6BDB98B24 /* CalendarExport.swift */,
 				4DD7BC3089BEF680E65918F6 /* CategoryPreset.swift */,
+				42A18E4436E3EDF67035DCFE /* CoachMarks.swift */,
 				31774B86CC587B67A1B6CB6A /* ContentView.swift */,
 				4C2E0702ADD1F5E4390852C4 /* FriendPlacesSheet.swift */,
 				8EBCDCBCABEF7D73D5CBFB72 /* FriendsPanel.swift */,
@@ -516,6 +521,7 @@
 				BFA5ADF3691A225A3572C019 /* OnboardingView+Search.swift */,
 				76BC23D4923182547F265803 /* OnboardingView+SpotSheet.swift */,
 				C03074FC82A06A234A492AD3 /* OnboardingView+Sync.swift */,
+				4CFD51C7FBB6CFEDC510023D /* OnboardingView+Tour.swift */,
 				B8F1AE4B186C366F4408259C /* PaywallSheet.swift */,
 				4F2559986024A1F16C793B57 /* PlanMeetupSheet.swift */,
 				8B8B73BBC0076511215471D3 /* PrivacyInfo.xcprivacy */,
@@ -776,6 +782,7 @@
 				A9D9B29FCA7BE722351EEAD2 /* BubbleImageRenderer.swift in Sources */,
 				8F509BBD6B7675D1A9308898 /* CalendarExport.swift in Sources */,
 				A13D9CDA508C629081B615E2 /* CategoryPreset.swift in Sources */,
+				4A2309DC8F7043A3E9101140 /* CoachMarks.swift in Sources */,
 				E42DC8813A4CE5996F08A2C2 /* CompactView.swift in Sources */,
 				6337DDFAED991B745FEA5412 /* CompletionRegionFilter.swift in Sources */,
 				3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */,
@@ -818,6 +825,7 @@
 				51470F08E26F5F318DE8CC2E /* OnboardingView+Search.swift in Sources */,
 				8147E368F8F56F3BFF3AFC51 /* OnboardingView+SpotSheet.swift in Sources */,
 				8C7FD4381C8CAE4C026C0344 /* OnboardingView+Sync.swift in Sources */,
+				EA2BCE1D153EF43767D855D1 /* OnboardingView+Tour.swift in Sources */,
 				AE0CA6C4068224E66E7D32DA /* OnboardingView.swift in Sources */,
 				8E12CCF6479042ABFD1371E5 /* OutgoingDraft.swift in Sources */,
 				02855529C5710F5C0A5BD01D /* Participant.swift in Sources */,

@@ -291,8 +291,16 @@ struct OnboardingView: View {
     @State var syncToken: MeetupSyncToken?
 
     // Hand-off / onboarding
-    @State var showTutorial = !OnboardingFlags.hasSeenOnboarding
+    /// The interactive first-run tour (CoachMarks.swift); nil when it isn't
+    /// running. A fresh install opens on the welcome card unless a
+    /// harness/screenshot run opts out with -SKIP_TUTORIAL.
+    @State var tourStep: TourStep? = (!OnboardingFlags.hasSeenOnboarding
         && !CommandLine.arguments.contains("-SKIP_TUTORIAL")
+        && !OnboardingView.isHostTabHarness) ? .welcome : nil
+
+    /// True while the welcome card is up. Location is asked for when the user
+    /// starts the tour — the card explains why first — never over it.
+    var showTutorial: Bool { tourStep == .welcome }
 
     /// The single secondary sheet currently presented. Consolidated into one
     /// enum-driven `.sheet(item:)` because stacking multiple `.sheet` modifiers
@@ -774,7 +782,11 @@ struct OnboardingView: View {
         }
     }
 
-    var body: some View {
+    /// The map with its floating chrome, the tour's map-layer slice and the
+    /// tour observers — extracted from `body`, which the added modifiers
+    /// pushed past the type-checker's limit ("unable to type-check this
+    /// expression in reasonable time").
+    var mapStage: some View {
         // Full-bleed map with floating controls laid out inside the safe area
         // (the ZStack respects it; only the map ignores it). No top gradient
         // or glass — Apple Maps runs the map clean to the screen edge, and
@@ -807,6 +819,22 @@ struct OnboardingView: View {
                 action: searchHereTapped)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
+        // The tour's map-layer slice: dims the map behind every step and cuts
+        // the spotlight for the map-toolbar step. The sheet has its own.
+        .overlayPreferenceValue(CoachTargetKey.self) { anchors in
+            CoachMarkOverlay(step: tourOverlayStep, layer: .map,
+                             calloutLayer: tourCalloutLayer, edge: sheetEdge,
+                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+        }
+        .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
+        .onChange(of: isUserIn) { _, _ in tourDidObserveChange() }
+        .onChange(of: searchState) { _, _ in tourDidObserveChange() }
+        .onChange(of: isSearchLoading) { _, _ in tourDidObserveChange() }
+        .onChange(of: activeSheet?.id) { _, _ in tourDidObserveChange() }
+    }
+
+    var body: some View {
+        mapStage
         .onChange(of: selectedResult) { _, item in
             resetNextTapReturnsToUser = false
             if let item {
@@ -909,9 +937,6 @@ struct OnboardingView: View {
                 // this bottom sheet, and a view can only present one sheet at a
                 // time — attaching these to the Map silently no-ops (Add Friend /
                 // Invite / the detail card never appeared).
-                .fullScreenCover(isPresented: $showTutorial) {
-                    OnboardingTutorialView(onDone: dismissTutorial)
-                }
                 .sheet(item: $activeSheet, onDismiss: {
                     // Closing the place sheet deselects its pin, so the map
                     // returns to browse state and the search peek restores
@@ -1176,7 +1201,7 @@ struct OnboardingView: View {
             if phase == .active {
                 // Asks on first foreground rather than waiting for "I'm in",
                 // so the map has your dot the way Maps does — but never over
-                // the tutorial; dismissTutorial() picks it up instead.
+                // the tour's welcome card; advanceTour() asks instead.
                 if showTutorial {
                     provider.startContinuous()
                 } else {
