@@ -64,14 +64,23 @@ extension OnboardingView {
         guard let step = tourStep else { return }
         switch step {
         case .imIn:
-            // The tap itself counts (awaitingImIn flips synchronously) — a
-            // denied or slow fix must not strand the tour on this step.
-            if awaitingImIn || isUserIn { setTourStep(nextAfterJoin) }
+            // Wait for the JOIN, not the tap: advancing on the tap parked a
+            // denied user on "Tap Coffee" with a search that can never run
+            // (audit 2026-09-06 — the App Review path). A denied or failed
+            // fix skips the search steps instead; the button shows "Finding
+            // you…" meanwhile, which is the honest state.
+            if isUserIn {
+                setTourStep(nextAfterJoin)
+            } else if !awaitingImIn, provider.status == .denied || provider.status == .failed {
+                setTourStep(.friends)
+            }
         case .coffeeChip:
             if searchState == .results, !isSearchLoading {
                 // Nothing nearby (offline, a remote area): skip the card step
                 // rather than spotlight a card that doesn't exist.
                 setTourStep(displayedItems.isEmpty ? .friends : .openSpot)
+            } else if !monitor.isOnline || !hasSearchAnchor {
+                setTourStep(.friends)
             }
         case .openSpot:
             if case .spot = activeSheet { setTourStep(.friends) }
@@ -83,9 +92,16 @@ extension OnboardingView {
     }
 
     /// After joining: straight to the results if a search is already on
-    /// screen (tour restarted from the menu), else to the chip.
+    /// screen (tour restarted from the menu), else to the chip — or past
+    /// both when a search can't run (offline, no anchor).
     private var nextAfterJoin: TourStep {
-        searchState == .results && !displayedItems.isEmpty ? .openSpot : .coffeeChip
+        guard monitor.isOnline, hasSearchAnchor else { return .friends }
+        return searchState == .results && !displayedItems.isEmpty ? .openSpot : .coffeeChip
+    }
+
+    /// Mirrors `canSearch`'s anchor rule: something to search around.
+    private var hasSearchAnchor: Bool {
+        savedCoordinate != nil || peerCoordinate != nil || !manualParticipants.isEmpty
     }
 
     /// Moves to `step` and puts the sheet where that step's control is
@@ -99,6 +115,17 @@ extension OnboardingView {
                 if isMinimalDetent || selectedSheetDetent == Self.fullDetent {
                     selectedSheetDetent = .fraction(0.45)
                 }
+                // A stale Coffee selection would make the spotlit tap a
+                // DESELECT (selectCategory toggles) — two taps to proceed.
+                if step == .coffeeChip, selectedCategory == .coffee { selectedCategory = nil }
+            case .openSpot:
+                // Full height: at the half detent the first card sits below
+                // the fold on small phones, with scrolling disabled.
+                selectedSheetDetent = Self.fullDetent
+            case .friends:
+                // The place sheet's dismiss restores peek, where a pending
+                // meetup swaps the header and unmounts the Friends button.
+                if isMinimalDetent { selectedSheetDetent = .fraction(0.45) }
             case .mapControls:
                 searchFocused = false
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)

@@ -296,6 +296,9 @@ struct OnboardingView: View {
     /// harness/screenshot run opts out with -SKIP_TUTORIAL.
     @State var tourStep: TourStep? = (!OnboardingFlags.hasSeenOnboarding
         && !CommandLine.arguments.contains("-SKIP_TUTORIAL")
+        // Screenshot/UI-test recipes seed a state and expect to see it, not
+        // a welcome card over it.
+        && !CommandLine.arguments.contains(where: { $0.hasPrefix("-DEMO_") })
         && !OnboardingView.isHostTabHarness) ? .welcome : nil
 
     /// True while the welcome card is up. Location is asked for when the user
@@ -827,6 +830,7 @@ struct OnboardingView: View {
                              anchors: anchors, onNext: advanceTour, onSkip: skipTour)
         }
         .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
+        .onChange(of: provider.status) { _, _ in tourDidObserveChange() }
         .onChange(of: isUserIn) { _, _ in tourDidObserveChange() }
         .onChange(of: searchState) { _, _ in tourDidObserveChange() }
         .onChange(of: isSearchLoading) { _, _ in tourDidObserveChange() }

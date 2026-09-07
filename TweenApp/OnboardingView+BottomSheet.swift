@@ -77,7 +77,6 @@ extension OnboardingView {
         // The banner's plan sheet. Presented from the bottom sheet — which is
         // always on screen — so it works with no spot card open.
         .sheet(item: $planSheet) { planSheetContent($0) }
-        .overlay(alignment: .bottom) { toastView }
         // The tour's sheet-layer slice: spotlights the sheet's controls and
         // hosts the target-less cards (welcome, done).
         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
@@ -85,6 +84,9 @@ extension OnboardingView {
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
                              anchors: anchors, onNext: advanceTour, onSkip: skipTour)
         }
+        // Toasts sit ABOVE the tour's dim, or "Couldn't get your location"
+        // renders under 55 % black exactly when it matters.
+        .overlay(alignment: .bottom) { toastView }
         .sensoryFeedback(trigger: isUserIn) { _, isIn in isIn ? .success : nil }
         .sensoryFeedback(.impact, trigger: pingTick)
         .alert("Your Name", isPresented: $showNamePrompt) {

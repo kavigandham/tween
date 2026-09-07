@@ -135,12 +135,12 @@ struct CoachTargetKey: PreferenceKey {
 extension View {
     /// Registers this view as a tour target. Nil is a no-op so a call site can
     /// tag one element of a ForEach (`item == first ? .firstResultCard : nil`).
-    @ViewBuilder
     func coachTarget(_ target: CoachTarget?) -> some View {
-        if let target {
-            anchorPreference(key: CoachTargetKey.self, value: .bounds) { [target: $0] }
-        } else {
-            self
+        // One view type either way. An if/else here made the first result
+        // row a different branch from its siblings, so every re-rank that
+        // changed the first item tore two rows down and rebuilt them.
+        anchorPreference(key: CoachTargetKey.self, value: .bounds) { anchor in
+            target.map { [$0: anchor] } ?? [:]
         }
     }
 }
@@ -179,6 +179,7 @@ struct CoachMarkOverlay: View {
     let onSkip: () -> Void
 
     @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Breathing room between the control's edge and the spotlight.
     private let inset: CGFloat = Tokens.Spacing.s2
@@ -203,9 +204,12 @@ struct CoachMarkOverlay: View {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .strokeBorder(Tokens.Palette.onBrand, lineWidth: 3)
                             .frame(width: hole.width, height: hole.height)
-                            .scaleEffect(pulse && !UIAccessibility.isReduceMotionEnabled ? 1.05 : 1)
+                            .scaleEffect(pulse && !reduceMotion ? 1.05 : 1)
                             .position(x: hole.midX, y: hole.midY)
                             .allowsHitTesting(false)
+                            // Fresh ring per step, so the repeat-forever
+                            // animation restarts instead of freezing mid-pulse.
+                            .id(step)
                             .onAppear {
                                 withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
                                     pulse = true
@@ -224,7 +228,15 @@ struct CoachMarkOverlay: View {
             // proxy's space, so the spotlight stays aligned.
             .ignoresSafeArea()
             .transition(.opacity)
-            .accessibilityAddTraits(.isModal)
+            // NOT `.isModal`: that scopes VoiceOver to the overlay's own
+            // descendants, and the spotlit control is a sibling beneath it —
+            // every performed step became Skip-only under VoiceOver (audit
+            // 2026-09-06). The callout is announced on each step instead.
+            .onChange(of: step, initial: true) { _, step in
+                AccessibilityNotification.Announcement(
+                    "Tour step \(step.ordinal) of \(TourStep.count). \(step.title). \(step.body)"
+                ).post()
+            }
         }
     }
 
@@ -302,6 +314,8 @@ struct CoachMarkOverlay: View {
         .tweenElevation(.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tour step \(step.ordinal) of \(TourStep.count): \(step.title). \(step.body)")
+        // Read first, then the spotlit control, then everything else.
+        .accessibilitySortPriority(1)
     }
 }
 
