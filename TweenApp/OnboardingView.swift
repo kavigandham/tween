@@ -1250,6 +1250,17 @@ struct OnboardingView: View {
             // definition (post-push audit).
             reframe()
         }
+        // The keyboard raising or lowering the sheet is expected motion, not
+        // a drag. Armed from the keyboard's OWN notification, not only from
+        // the focus edge: the 0.7 s window armed at focus covers a warm
+        // keyboard, but a cold launch's first keyboard can take longer to
+        // present on device, and its sheet shift would then have read as a
+        // drag and resigned the field the moment it appeared (audit
+        // 2026-09-06 on 2da3e7e).
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIResponder.keyboardWillChangeFrameNotification)) { _ in
+            sheetEdge.expectMotion()
+        }
         .onReceive(appGroupDidChangePublisher) { _ in
             // Catches in-process writes (e.g. host app's own "I'm in" button).
             // Extension writes don't fire this — see pollPeer + scenePhase
