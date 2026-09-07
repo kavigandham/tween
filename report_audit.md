@@ -1,154 +1,153 @@
 # AUDIT REPORT — Tween — 2026-09-06
 
-Read-only post-push audit at HEAD `fc1809f` (after `2da3e7e` perf work and `fc1809f` camera-follow fix). No files were modified and no builds were run by the auditors.
+Read-only audit at HEAD `3759dac` (main). Covers the areas the `fc1809f` report could not — the extension state machine (`TweenMessages/MessagesViewController*.swift`), the extension views (`Shared/ExpandedView*.swift`, `Shared/CompactView.swift`), `BubbleImageRenderer` / `TweenMapSnapshotView`, and a full pass over `TweenAppTests/` — then re-verifies every CRITICAL/MAJOR from the previous report against the current tree, and reviews the six commits since `fc1809f` (`3a0726c`, `f8a162d`, `6d39717`, `d3d7483`, `2b74aa2`, `3759dac`). No files were modified; no builds or tests were run. Findings below the 70 % bar were dropped.
 
-**Coverage note.** The orchestrating auditor was cut off by a session rate limit before it could assemble the final report. Four of its seven sub-auditors completed and their findings are consolidated here: (1) OnboardingView core + the two recent commits, (2) OnboardingView feature extensions, SpotDetailCard, ResultRows, (3) Shared codec and stores (TweenState, Participant, ConversationMeetupStore, LocationCache, RosterMerge, all preference stores), (4) FairnessRanker, DeadlinedSearch, LocationProvider, NetworkMonitor, geometry helpers, TweenApp sheets, plists, entitlements, project.yml. **Not covered in this pass:** `TweenMessages/MessagesViewController*.swift` (the extension state machine), `Shared/ExpandedView*.swift` / `Shared/CompactView.swift`, `BubbleImageRenderer.swift`, and a systematic pass over `TweenAppTests/`. Sections 1 and 4 of the brief, and the test-coverage matrix, should be re-run when capacity allows.
+**Re-verification summary of the previous report:** both CRITICALs still hold; of the MAJORs, one is FIXED by `d3d7483` (0.7 s keyboard window), one is half-mitigated (M2's `participants` half is sanitised, the `agreedNames` half is not — and the extension has the same hole), M7's magnitude is smaller than stated (≈16–24 concurrent legs, not 40); everything else still holds at the line numbers given below.
+
+**Post-audit note (same day):** the two MINOR hardening items on the recent commits — `allowsHitTesting(!isMinimalDetent)` on the collapsed sheet block and the `soloMode` input in `ResultCard ==` — plus the stale "hidden at 0.90" comment were applied immediately after this report.
 
 ## CRITICAL (will crash, corrupt state, or break core flow)
 
 ### Codec / revision ordering
-- An inbound bubble with an absurdly large `rev` (up to `Int.max`) is stored unconditionally as the conversation's revision floor; the receiver's next `lastRevision + 1` mint traps on integer overflow, in both processes, and the sync key is TTL-exempt so it never heals. Any very large rev also rejects every later legitimate bubble as stale and propagates via floor+1 mints. — `Shared/TweenState.swift:~451`, `Shared/ConversationMeetupStore.swift:~441`, `TweenMessages/MessagesViewController+Decoding.swift:~188`, `TweenApp/OnboardingView+Actions.swift:~371`
-  Suggested fix: reject `rev < 0 || rev > floor + 1_000_000` on decode and mint with `addingReportingOverflow`.
-
-- The `pj=` JSON roster path skips coordinate validation (`Participant.init(from:)` never calls `validCoordinate`), so `lat: 200` flows into MKMapSnapshotter / MKDirections / CLLocation — the NSException class the 2026-08-07 audit closed for `lat`/`lon`. — `Shared/TweenState.swift:~402`, `Shared/Participant.swift:~78`
-  Suggested fix: filter decoded participants through `validCoordinate`, or fall back to the compact `p=` path when any entry fails.
+- Inbound `rev` is parsed with bare `Int.init` and stored unconditionally as the conversation's revision floor; the next mint is an unchecked `lastRevision + 1` in both processes, so a bubble carrying `rev=9223372036854775807` traps the receiver's next send forever (sync key is TTL-exempt, `clear(key:)` keeps it by design). — `Shared/TweenState.swift:~451`, `Shared/ConversationMeetupStore.swift:~438-444, ~236-248`, `TweenMessages/MessagesViewController+Decoding.swift:~188`, `TweenApp/OnboardingView+Actions.swift:~371`
+  Suggested fix: reject `rev < 0 || rev > floor + 1_000_000` on decode; mint with `addingReportingOverflow`.
+- `pj=` (the preferred decode path, tried before `p=`) never runs `validCoordinate`: `Participant.init(from:)` decodes raw `Double`s, and nothing downstream (RosterMerge, FairnessRanker, MKPlacemark/MKDirections, CLLocation centroid) re-validates, so `lat: 200` reaches MapKit's NSException class the 2026-08-07 hardening closed for `lat`/`lon`. — `Shared/TweenState.swift:~402-404, ~282-285`, `Shared/Participant.swift:~78-84`
+  Suggested fix: filter decoded `pj` participants through `validCoordinate`, falling back to `p=` when any entry fails.
 
 ## MAJOR (wrong behavior, UX broken, data loss risk)
 
+### Extension state machine / views
+- `ExpandedView` derives its roster from the bubble (`received.participants`) or the device-global 5-minute legacy peer blob, never from the controller's `currentParticipants`. On a snapshot restore with no `selectedMessage` (drawer open at the invite stage — `.invite` stores participants but no `proposedState`, so `received == nil`) the controller ranks 2+ people and fills `rankedSpots`, but the view's `otherParticipants == []` → `coordinateParticipantCount == 1` → `canSendSpotFromCurrentPeople == false` → `primaryCTA` lands on `else if isUserIn { EmptyView() }`. Rows render and select, but there is no Send button. `refreshLocationIfUserIsIn` repairs the peer blob only if a fresh fix lands; a manual "I'll be at…" location, a denied/slow fix, or the first seconds after open leave it broken. The restore branch also never calls `saveParticipantSnapshot`. — `Shared/ExpandedView.swift:~134-167, ~207-215, ~613`, `TweenMessages/MessagesViewController.swift:~204-213`
+  Suggested fix: pass `currentParticipants` into `ExpandedView` (CompactView already receives a count) and prefer it in `otherParticipants`; at minimum `saveParticipantSnapshot(snapshot.participants, …)` in the restore branch.
+- Cross-conversation phantom "Friend": the `switchedConversation` block clears `received`/`currentParticipants` but not `LocationCache.setPeerActive(false)`, and `ExpandedView.legacyPeerCoord` reads the device-global peer blob whenever `received == nil`, so within 5 minutes of a decode in chat A, chat B's expanded view plots chat A's friend on the map and in the roster strip. — `TweenMessages/MessagesViewController.swift:~161-180`, `Shared/ExpandedView.swift:~161-167`
+  Suggested fix: `LocationCache.setPeerActive(false)` in the switch block, or drop the `isPeerActive` fallback and trust only `received`/the controller roster.
+
 ### Identity / consensus
-- "Own proposal" detection in the host deep-link path is name-only (`state.senderName == myName`). A friend with your display name has their proposal treated as yours: peer coordinate not saved, reply banner suppressed, Agree/Change sheet never shown, "Waiting for them to agree" toast fires. `senderID` is available on the same line. — `TweenApp/OnboardingView+DeepLinks.swift:~58`
+- Own-proposal detection in the host deep-link path is name-only (`state.senderName == myName`); a friend with your display name has their proposal treated as yours (no peer save, no Agree/Change sheet, wrong toast). `senderID`/`TweenIdentity.stableID` are in scope on the same lines. Aggravated by `outgoingName` blanking "You", so an unnamed user's own proposal never matches. — `TweenApp/OnboardingView+DeepLinks.swift:~58`
   Suggested fix: `state.senderID == TweenIdentity.stableID || (state.senderID == nil && state.senderName == myName)`.
-- The Agree path is not wrapped in `ensureNamed`, so an unnamed user broadcasts the fallback "You" into `agreedNames`, `participants`, and the local roster entry — the "sanitize every name path" regression class. — `TweenApp/OnboardingView+DeepLinks.swift:~279`, `TweenApp/OnboardingView+FriendsPanel.swift:~1369`
-  Suggested fix: `sendAgreeReply` → `ensureNamed { performAgreeReply(...) }`, mirroring `pingFriend`/`performPing`.
+- The literal `"You"` fallback ships in `agreed=` from BOTH processes: `encodeNames(agreedNames)` has no `outgoingName` sanitisation, the host's `sendAgreeReply`/`agreeToPendingProposal` never call `ensureNamed`, and the extension's `sendAgreedPlace` appends `Self.localParticipantName()` ("You") with no way to prompt. Peers' captions/"waiting for" lists then show "You". (`participants` entries ARE sanitised — that half of the old finding is fixed.) — `TweenApp/OnboardingView+DeepLinks.swift:~279-293`, `TweenApp/OnboardingView+FriendsPanel.swift:~1369-1379`, `TweenMessages/MessagesViewController+Sending.swift:~290, ~358-359`, `Shared/TweenState.swift:~196-198`
+  Suggested fix: sanitise in `encodeNames` for the `agreed=` item (drop/blank `UserName.fallback`; consensus already rides on `agreedIDs`), and wrap the host Agree path in `ensureNamed`.
 
 ### Conversation scoping
-- `lastActiveConversationKey` is set only by the extension on activation and never cleared in production, yet the host uses it as the sole key for every canonical write (local participant, leave, revision, proposed, agreed, draft binding). Peek chat C's drawer, then send from the host to friend A: A's roster, revision floor and tombstones are filed under C, and a stale leave tombstone under that key dams all global-mirror writes. — `Shared/ConversationMeetupStore.swift:~176`, `TweenApp/OnboardingView+Actions.swift:~434`, `Shared/LocationCache.swift:~127`
-  Suggested fix: nil the key when its snapshot is TTL-expired or on cold launch with no live meetup; longer term let host sends choose their key.
+- `lastActiveConversationKey` is written only by the extension on activation (`MessagesViewController.swift:~159`) and never cleared in production (only `#if DEBUG` demo paths), yet the host keys every canonical write on it (local participant, leave, revision mint, proposed/agreed, draft binding, `activeMeetupDeparted` dam, `hasLiveMeetup`). Peek chat C's drawer, then send from the host to friend A: A's roster, floor and tombstones are filed under C. — `Shared/ConversationMeetupStore.swift:~172-180`, `TweenApp/OnboardingView+Actions.swift:~265, ~321, ~370, ~434`, `Shared/LocationCache.swift:~126-129`
+  Suggested fix: nil the key when its snapshot is TTL-expired / on cold launch with no live meetup; longer term let host sends pick their key.
 
-### Search / keyboard (includes the two recent commits)
-- Return while an autocorrect candidate is pending: UIKit commits the correction (`textDidChange`) then calls `searchBarSearchButtonClicked` in the same turn; `commitSearch` runs, but `.onChange(of: searchText)` fires on the next pass with `suppressNextQueryChange == false`, cancels the search and flips back to `.suggesting`. Autocorrect is deliberately ON. — `TweenApp/SearchCompleter.swift:~92`, `TweenApp/OnboardingView+Search.swift:~112, ~201`
-  Suggested fix: defer `parent.onSubmit()` with `DispatchQueue.main.async` (same technique as the responder deferral) so the text-change lands first.
-- `2da3e7e` drop-focus rule: the expected-motion window is a fixed 0.7 s from the focus edge, but the first keyboard presentation after a cold launch can exceed that on device (keyboard process spin-up). The keyboard-induced sheet motion is then read as a drag and the field is resigned the moment the keyboard appears. Not reproducible on the simulator (no software keyboard). — `TweenApp/OnboardingView.swift:~870`, `TweenApp/OnboardingView+BottomSheet.swift:~300`
-  Suggested fix: arm/extend the window from `UIResponder.keyboardWillChangeFrameNotification`, or only allow the drop once the keyboard is known to be up.
-
-### Sheet presentation
-- `presentSpot` assigns `activeSheet = .spot(B)` while `.spot(A)` is presented (bubble tap / `onOpenURL` with a card up) — the iOS 26 dismiss-then-re-present drop the file documents; only the child `spotSubSheet` is disarmed, the new card itself can be lost. — `TweenApp/OnboardingView+FriendsPanel.swift:~1193`, `TweenApp/OnboardingView+DeepLinks.swift:~30`
-  Suggested fix: if a spot sheet is up, nil `activeSheet` and park the new presentation in a pending action run from the sheet's `onDismiss` (the `pendingFriendSheetAction` pattern).
+### Search / sheets (host)
+- Return while an autocorrect candidate is pending: UIKit commits the correction (`textDidChange` → binding write) then calls `searchBarSearchButtonClicked` → `commitSearch`, which never arms `suppressNextQueryChange`; on the next pass `.onChange(of: searchText)` → `handleQueryChange` cancels the just-started `searchTask`, empties results and flips back to `.suggesting`. — `TweenApp/SearchCompleter.swift:~94-108`, `TweenApp/OnboardingView+Search.swift:~115-143, ~201-234`, `TweenApp/OnboardingView+FriendsPanel.swift:~598-605`
+  Suggested fix: defer `parent.onSubmit()` with `DispatchQueue.main.async` so the text change lands first, or arm the suppression flag in `commitSearch`.
+- `presentSpot` swaps `activeSheet = .spot(B)` while `.spot(A)` is presented; the code comment acknowledges iOS 26 drops the dismiss-then-re-present silently but only disarms the child `spotSubSheet`. Callers include the bubble-tap/`onOpenURL` path with a card already up. — `TweenApp/OnboardingView+FriendsPanel.swift:~1196-1207`, `TweenApp/OnboardingView+DeepLinks.swift:~183`
+  Suggested fix: nil `activeSheet` and park the new selection in a pending action run from the sheet's `onDismiss` (the `pendingFriendSheetAction` pattern).
 
 ### Ranking / entitlement
-- MKDirections fan-out is unbounded: one task per capped candidate × one per participant, up to 20 legs (40 when transit fails and each leg re-issues driving) all in flight at once, inviting `MKError.loadingThrottled`, which silently degrades legs to straight-line guesses. — `Shared/FairnessRanker.swift:~219, ~291, ~352`
-  Suggested fix: limit concurrency (≈4 in flight) or chunk candidates.
-- Two different straight-line driving speeds: the ranker's `fallbackSpeed` 13.4 m/s vs `mode.fallbackMetresPerSecond` 11.5 m/s used by `ResultCard`, which claims to show "the same numbers" — ~14% apart for the same leg. — `Shared/FairnessRanker.swift:~137, ~417`, `TweenApp/ResultRows.swift:~171`, `Shared/MeetupPlan.swift:~48`
+- MKDirections fan-out is unbounded — `rank` opens a task per capped candidate and `rankOne` a nested task per participant with no semaphore/chunking: 16 legs for the host 2-person case (`rankCap = 8`), ≈20 for ≥3 people (`recommendedCap`, growing 3×n past 7 people), ≤20 in the extension, plus a sequential driving retry per failed transit leg — inviting `MKError.loadingThrottled`, which silently degrades legs to straight-line guesses. — `Shared/FairnessRanker.swift:~212-232, ~290-317, ~359-373`
+  Suggested fix: bound in-flight legs (≈4) with a chunked task group.
+- Two straight-line driving speeds: ranker `fallbackSpeed = 13.4` m/s vs `TravelMode.driving.fallbackMetresPerSecond = 11.5` used by `ResultCard`'s "~" estimate and `MeetupPlan` — ~17 % apart for "the same numbers". — `Shared/FairnessRanker.swift:~137, ~417`, `Shared/MeetupPlan.swift:~46-49`, `TweenApp/ResultRows.swift:~170-171`
   Suggested fix: delete `fallbackSpeed`; use `mode.fallbackMetresPerSecond` everywhere.
-- Paywall scenePhase / initial refresh assign `unlocked = await refresh()` unconditionally; StoreKit's payment sheet bounces scenePhase as `buy()` completes, and a propagation-lag `false` flips the sheet back to plan cards and writes `false` into the App Group — the exact case `sawVerifiedPurchase` protects in `restore()`. — `TweenApp/PaywallSheet.swift:~83, ~98`, `Shared/ProEntitlement.swift:~101`
-  Suggested fix: `let fresh = await refresh(); if !fresh && sawVerifiedPurchase { return }` in both places.
+- Paywall `.task` and `.onChange(of: scenePhase)` assign `unlocked = await ProEntitlement.refresh()` unconditionally; `refresh()` writes `setUnlocked(false)` to the App Group whenever `currentEntitlements` has no verified match, and `sawVerifiedPurchase` is consulted only in `restore()`. A scenePhase bounce as the StoreKit sheet closes can downgrade a purchase that just verified. — `TweenApp/PaywallSheet.swift:~83, ~91-96, ~710`, `Shared/ProEntitlement.swift:~85-102`
+  Suggested fix: `let fresh = await refresh(); if !fresh && (purchasing || sawVerifiedPurchase) { return }` in both places.
 
 ## MINOR (suboptimal, cleanup, hardening)
 
-### Camera / map (`fc1809f`)
-- `shouldReframe` fires on the first live fix regardless of `position.positionedByUser`; on a slow first fix (permission prompt, cold launch) a user who already panned gets yanked. — `TweenApp/OnboardingView.swift:~1102`
-  Suggested fix: `if shouldReframe, !position.positionedByUser { reframe() }` (keep `awaitingImIn` unconditional).
-- Three animated camera writes per committed search (`frameSearchResults` twice, then `frameResultsWithParticipants`). — `TweenApp/OnboardingView+Search.swift:~733, ~765, ~794`
-  Suggested fix: keep only the final framing call.
-- `midpointCoordinate` reimplements `MapGeometry.centroid(of:)`. — `TweenApp/OnboardingView+Search.swift:~24`
-  Suggested fix: call the shared helper.
-- Antimeridian: raw longitude averaging / min-max gives a wrong-side centroid and ~358° span; `padding 1.4` can exceed 180° latitude delta, which MKMapSnapshotter rejects. — `Shared/MapGeometry.swift:~37, ~61`
-  Suggested fix: clamp deltas and take the shorter longitude arc.
-
-### Sheets / alerts
-- Plan sheet, tutorial cover and `activeSheet` all hang off the bottom-sheet content; a deep link while the plan sheet or the first-run tutorial is up sets `activeSheet = .spot` from a presenting VC and is silently dropped. — `TweenApp/OnboardingView.swift:~852-906`, `TweenApp/OnboardingView+BottomSheet.swift:~54`
-  Suggested fix: guard `handleIncomingURL` — stash the selection and present from the respective `onDismiss` / `dismissTutorial`.
-- `ensureNamed` routes the "Your Name" prompt to the root alert while a `.spot` sheet is up (Send from the place card for an unnamed user) — the W13 under-sheet-alert shape. — `TweenApp/OnboardingView+Actions.swift:~97`
-  Suggested fix: park `showNamePrompt = true` in a pending action run from the spot sheet's `onDismiss`.
-- Overlapping toasts: each `showToast` spawns an unkeyed 2 s task; a second toast within 2 s is cleared by the first timer. — `TweenApp/OnboardingView+FriendsSync.swift:~128`
-  Suggested fix: keep the task in `@State`, cancel on re-entry.
-- `openGroup` swaps `manualParticipants` without re-ranking; on-screen rankings stay scored against the old set while the group bar shows the new one. — `TweenApp/OnboardingView+FriendsPanel.swift:~242`
-  Suggested fix: funnel a `rerankCurrentResults()` through `searchTask` like `addManualPoint`.
-- Draft is staged (with a Darwin post) before `composeTweenMessage`; a nil compose returns silently with the draft still armed — the W7 hazard. — `TweenApp/OnboardingView+HandOff.swift:~131`
-  Suggested fix: clear the draft and toast in the guard, or save after compose succeeds.
-- `ABDistanceLabel` reads legacy positional `etaFromA/etaFromB`; with peer + manual points and no self fix, "A" is the peer's time. — `TweenApp/ResultRows.swift:~67`
-  Suggested fix: resolve A by stable id / name like `SpotDetailCard.myDriveETA`, then delete the legacy accessors.
-
-### Codec / stores
-- Gossip cap (8) enforced only at the composers; decode accepts unbounded `gone=` and writes it into TTL-exempt sync state. — `Shared/TweenState.swift:~452`, `Shared/ConversationMeetupStore.swift:~404`
-  Suggested fix: `.prefix(RosterMerge.gossipCap)` on decode.
-- One invalid compact `p=` entry drops all `pids` (count mismatch) and the whole roster falls back to name ids. — `Shared/TweenState.swift:~409`
-  Suggested fix: zip ids with entries before filtering.
-- `RosterMerge` lets an accepted inbound bubble overwrite the local user's own roster entry (coordinate + `needsRide`), reverting a locally toggled, undelivered ride flag. — `Shared/RosterMerge.swift:~87`
-  Suggested fix: never replace the entry matching `localContext` except from own sends.
-- Pre-delivery save writes `isActive: LocationCache.isActive` (freshness-gated) instead of `isOptedIn`; a failed send with a >5 min cache leaves the user silently "out". — `TweenMessages/MessagesViewController+Sending.swift:~53, ~324`
-  Suggested fix: pass `LocationCache.isOptedIn`.
-- `isFullyAgreed` legacy name path loses multiplicity (`Set(agreedNames)`) and treats `senderName == nil` as proposer `""`, excluding unnamed legacy participants. Legacy senders only. — `Shared/TweenState.swift:~111`
-  Suggested fix: compare as arrays with counts, or require ids.
-- Snapshot TTL is refreshed by the activation-refresh save on every drawer open, so a dead meetup never expires while the user keeps opening Tween in that chat; only the extension deletes expired snapshots. — `Shared/ConversationMeetupStore.swift:~218`, `TweenMessages/MessagesViewController.swift:~284`
-  Suggested fix: stamp `updatedAt` only on content changes.
-- `conversationMeetup.sync.*` keys accumulate forever (never reaped in production). — `Shared/ConversationMeetupStore.swift:~350`
-  Suggested fix: reap sync keys whose snapshot has been gone for a long window.
-- `DriveTimePreference` falls back to `.standard` when the App Group suite is nil (invisible to the other process); every other store no-ops silently with no log. — `Shared/DriveTimePreference.swift:~22`, `Shared/LocationCache.swift:~59`
-  Suggested fix: make it optional like its siblings; log/assert once in `LocationCache`.
-- `.leave` carries the leaver's raw cached coordinate of any age. — `TweenMessages/MessagesViewController+Sending.swift:~152`, `TweenApp/OnboardingView+Actions.swift:~246`
-  Suggested fix: send the map default centre; nothing pins a leave.
-
-### Ranking / search / location
-- `DeadlinedSearch` returns `[]` for both timeout and zero results, so the rescue ladder runs every rewrite rung (each up to 8 s) on a throttled search; worst case ~96 s of "Finding places…" with no overall budget. — `Shared/DeadlinedSearch.swift:~107`, `TweenApp/OnboardingView+Search.swift:~323, ~366`
-  Suggested fix: return a `timedOut` flag and pass a shared deadline (~15 s) through the ladder.
-- Ranking ties are non-deterministic (completion order, then score only), so the list can reorder between the estimated and routed passes. — `Shared/FairnessRanker.swift:~226`
-  Suggested fix: secondary sort key.
-- `LocationProvider` mutates `fixWatchdog` / `awaitingFirstFreshFix` from the delegate thread while the main actor writes them; theoretical since a main-created manager delivers on main. — `Shared/LocationProvider.swift:~268, ~340`
-  Suggested fix: mark the class `@MainActor` or hop the whole delegate body.
+### Extension state machine
+- Staged (insert-fallback) `.invite`/`.propose`/`.counter` commit local state immediately — floor bump, canonical snapshot, `setActive(true)`, tombstone clear, roster adoption — while only `.leave`/`.agree` defer to `didStartSending`. Deleting the staged invite leaves this device "in" and ranking with a roster no peer holds (self-heals on the next delivered send). — `TweenMessages/MessagesViewController+Delivery.swift:~78-101`, `TweenMessages/MessagesViewController+Sending.swift:~88-107`
+  Suggested fix: extend the `pendingStagedSend` deferral to every staged message type.
+- `commitStagedSendIfNeeded` rejects a staged leave/agree whose revision is below the floor — but the floor also advances when the user taps a peer's NEWER bubble after the staged bubble was actually sent (the natural reading order). The leave then never commits locally: peers removed the user, this device keeps them "in", and gossip can't fix it because decode filters the local user out of `departed`. — `TweenMessages/MessagesViewController.swift:~405-408`, `TweenMessages/MessagesViewController+Decoding.swift:~91-93`
+  Suggested fix: compare against the floor recorded WHEN the bubble was staged (store it with the marker), not the live floor.
+- The conversation-scoped draft survives a leave from either arm (`commitDeliveredLeave` clears the in-memory draft and the global blob; the host's leave clears the global blob) — `willBecomeActive` re-adopts it via `loadDraft(key:)`, force-expands into a "Send X" CTA the comment says must not survive a leave, and `hasLiveMeetup` counts it as live for 24 h. — `TweenMessages/MessagesViewController+Sending.swift:~236-237`, `TweenApp/OnboardingView+Actions.swift:~352`, `TweenMessages/MessagesViewController.swift:~233`, `Shared/ConversationMeetupStore.swift:~152-156`
+  Suggested fix: `ConversationMeetupStore.clearDraft(key:)` in both leave arms.
+- `searchCandidates` runs up to three sequential searches each with the 8 s deadline (POI, region-required text, iOS 18 unconstrained text) — a 24 s "Finding fair spots…" worst case against the documented 8 s. — `TweenMessages/MessagesViewController+Ranking.swift:~115-141`
+  Suggested fix: share one deadline across the ladder.
+- `"Couldn't open Google Maps. Try from the Tween app."` is not in `errorStatuses`, so the failure renders as a plain status line, not the warning banner. — `TweenMessages/MessagesViewController.swift:~90-94`, `TweenMessages/MessagesViewController+Delivery.swift:~219`
+- Pre-delivery cache write uses `isActive: LocationCache.isActive` (freshness-gated) instead of `isOptedIn`; a failed send with a >5 min cache silently stamps the user "out". — `TweenMessages/MessagesViewController+Sending.swift:~53-54, ~324-325`
+- `.leave` carries the raw cached self coordinate of any age. — `TweenMessages/MessagesViewController+Sending.swift:~152`, `TweenApp/OnboardingView+Actions.swift:~246`
+- Snapshot TTL is refreshed on every drawer open (activation location refresh → `saveParticipants` → `save` stamps `updatedAt`), so a dead meetup never expires while the user keeps opening Tween there. — `TweenMessages/MessagesViewController.swift:~282-287`, `Shared/ConversationMeetupStore.swift:~217-218`
 - Extension offline banner is a one-time snapshot of `isOnline` at `presentUI`. — `TweenMessages/MessagesViewController.swift:~457`
-  Suggested fix: `withObservationTracking` on `isOnline`.
-- `SpotCategoryMark` substring matching without word boundaries ("inn" → Dinner Club gets the hotel glyph). — `Shared/SpotCategoryMark.swift:~93`
-  Suggested fix: tokenise and match whole words.
-- Calendar attendees filtered by raw id equality that the same file says is unsafe for legacy payloads. — `TweenApp/PlanMeetupSheet.swift:~259`
-  Suggested fix: reuse the `matches` predicate.
-- Inert "I'm out" button in the tutorial announces as a button and does nothing. — `TweenApp/OnboardingTutorial.swift:~430`
-- `AddPointSheet` dismisses silently when a picked place doesn't resolve. — `TweenApp/AddPointSheet.swift:~69`
-- Stale "300 ms" poll comments (poll is 2 s). — `TweenApp/OnboardingView.swift:~1207`, `TweenApp/OnboardingView+Sync.swift:~36, ~296`
+
+### Extension views / renderers
+- `TweenMapSnapshotView.draw` composites with a default-format `UIGraphicsImageRenderer` (screen scale, 3× on device) although the snapshot was capped at 2×: every cached image is 2.25× the intended bytes, the 24 MB cache holds ~3 maps instead of ~7, and the compositing transient is larger than the comment claims. — `Shared/TweenMapSnapshotView.swift:~167, ~208`
+  Suggested fix: `format.scale = snapshot.image.scale`.
+- `BubbleImageRenderer.snapshot` timeout child skips `snapshotter.cancel()` when the outer task is cancelled (`Task.sleep` throws → `!Task.isCancelled` false), so `withTaskGroup` blocks until the callback-bridged `start()` finishes on its own. — `TweenMessages/BubbleImageRenderer.swift:~62-72`
+  Suggested fix: cancel unconditionally (a finished snapshotter ignores it).
+- `.sensoryFeedback(.success, trigger: isMeetupSet)` sits inside `meetupSetView`, which only exists while `isMeetupSet == true`; the trigger never transitions, so the "It's a plan!" haptic never fires. — `Shared/ExpandedView+SpotList.swift:~112`
+- Dead code: `CompactView.markers(for:)` (and its `MapKit` import), `@ScaledMetric spotCardWidth/spotCardHeight`, and the `etas.isEmpty` A/B branches in `SpotETADisplay.chipItems`/`compactLabel` (unreachable — the legacy init already synthesises A/B legs). — `Shared/CompactView.swift:~292-322`, `Shared/ExpandedView.swift:~119-120`, `Shared/SpotETADisplay.swift:~19-20, ~37-38`
+
+### Recent host commits (`6d39717`, `2b74aa2`, `d3d7483`, `3759dac`)
+- Collapsed-at-peek block: `.frame(maxHeight: 0)` proposes 0 to a VStack whose fixed-height children (the chips' horizontal ScrollView ≈ 44 pt, Divider, any banners) don't compress, so the child overflows centred — half above the zero frame, into the header's bottom edge. `.clipped()` is drawing-only in SwiftUI and `.opacity(0)` is not documented to remove a subtree from hit testing; nothing sets `allowsHitTesting(false)`. VoiceOver (`accessibilityHidden`), keyboard/first-responder (`NativeSearchBar` is in the header; nothing focusable below) and scrolling (both ScrollViews get a 0 proposal) are fine. — `TweenApp/OnboardingView+BottomSheet.swift:~46-55`
+  Suggested fix: add `.allowsHitTesting(!isMinimalDetent)` to the collapsed container. **(Applied.)**
+- `ResultCard ==` omits the local travel mode read inside `myETAString` for the solo case (`MeetupPlanStore.current.mode(for:)`), so a mode change from the place sheet leaves the "~N min" estimate stale until `soloETA` lands and forces a re-render. Everything else the card draws (item identity, `etas` incl. `modeUnavailable`, `confidence`, coarse user coordinate, `isBest`, `bestWorstETA`, `soloETA`) is compared; `RankedSpot.id` is deterministic so `rankedMatch`'s per-pass estimated spots compare equal; closures captured by a skipped body read `@State` through the storage box, not a stale copy. `GroupStatusBar ==` over `members` covers all drawn fields. — `TweenApp/ResultRows.swift:~163-171, ~305-322`
+  Suggested fix: pass the mode in as a stored input (`let soloMode: TravelMode`) and compare it. **(Applied.)**
+- Stale comment: "hidden at 0.90" after `3759dac` moved the top detent to `.large`. — `TweenApp/OnboardingView+BottomSheet.swift:~353` **(Applied.)**
+- `shouldReframe` ignores `position.positionedByUser` — a slow first fix yanks a user who already panned. — `TweenApp/OnboardingView.swift:~40-50, ~1103-1105`, `TweenApp/OnboardingView+Framing.swift:~14-29`
+
+### Host sheets / actions (still standing from the previous report)
+- Plan sheet / tutorial cover / `activeSheet` all hang off the bottom-sheet content; a deep link while either is up sets `.spot` from a presenting VC and is dropped. — `TweenApp/OnboardingView.swift:~860-915`, `TweenApp/OnboardingView+BottomSheet.swift:~73`
+- `ensureNamed` routes the name alert to the root while a `.spot` sheet is up. — `TweenApp/OnboardingView+Actions.swift:~97-108`
+- Overlapping toasts (unkeyed 2 s tasks). — `TweenApp/OnboardingView+FriendsSync.swift:~128`
+- `openGroup` swaps `manualParticipants` without re-ranking. — `TweenApp/OnboardingView+FriendsPanel.swift:~242`
+- Draft staged (with a Darwin post) before `composeTweenMessage`; nil compose leaves it armed. — `TweenApp/OnboardingView+HandOff.swift:~131`
+- `ABDistanceLabel` reads positional `etaFromA/etaFromB`. — `TweenApp/ResultRows.swift:~67-73`
+- Three animated camera writes per committed search; `midpointCoordinate` duplicates `MapGeometry.centroid`. — `TweenApp/OnboardingView+Search.swift:~24, ~733-794`
+
+### Codec / stores (still standing)
+- Gossip cap (8) enforced only at composers; decode writes unbounded `gone=` into TTL-exempt sync state. — `Shared/TweenState.swift:~452`, `Shared/ConversationMeetupStore.swift:~404`
+- One invalid compact `p=` entry drops all `pids` (count mismatch). — `Shared/TweenState.swift:~409`
+- `RosterMerge` lets an accepted inbound bubble overwrite the local user's own entry (coordinate + `needsRide`). — `Shared/RosterMerge.swift:~87`
+- `isFullyAgreed` legacy name path: `filter { $0 != proposer }` drops EVERY participant sharing the proposer's name, so `[Hassan(proposer), Hassan, Carol]` + `agreed: [Carol]` is "fully agreed". Legacy (rev-less/ID-less) senders only. — `Shared/TweenState.swift:~109-117`
+- `conversationMeetup.sync.*` keys accumulate forever. — `Shared/ConversationMeetupStore.swift:~236-258`
+- `DriveTimePreference` falls back to `.standard` when the suite is nil; siblings no-op silently. — `Shared/DriveTimePreference.swift:~22`
+- `DeadlinedSearch` conflates timeout and zero results; the rescue ladder can run ~96 s. — `Shared/DeadlinedSearch.swift:~107`, `TweenApp/OnboardingView+Search.swift:~323, ~366`
+- Non-deterministic ranking ties; antimeridian centroid/span; `SpotCategoryMark` substring matching; calendar attendees by raw id; inert tutorial "I'm out"; silent `AddPointSheet` dismiss; stale "300 ms" comments. — `Shared/FairnessRanker.swift:~226`, `Shared/MapGeometry.swift:~37-61`, `Shared/SpotCategoryMark.swift:~93`, `TweenApp/PlanMeetupSheet.swift:~259`, `TweenApp/OnboardingTutorial.swift:~430`, `TweenApp/AddPointSheet.swift:~69`, `TweenApp/OnboardingView+Sync.swift:~36, ~296`
 
 ## ARCHITECTURE NOTES
-- `OnboardingView.swift`: `body` ≈ 499 lines, `init()` ≈ 159, `mapLayer` ≈ 99 — all over the 80-line bar. `presentSearchResults` ≈ 103. Extract the secondary-sheet switch and the DEBUG demo seeds.
-- Unused imports across the `OnboardingView*` files (`MessageUI` in all four, `Combine` in three, plus `MapKit`/`CoreLocation`/`Messages`/`UIKit`/`os` in `+BottomSheet`, `Messages`/`UIKit` in `+Framing`, `MapKit`/`Messages`/`UIKit` in `+Sync`); `GroupStatusBar.swift` imports MapKit unused.
-- Dead code: `FairnessRanker.rank(candidates:from:and:cap:)` (zero callers), `MapGeometry.midpoint` (zero callers), `CalendarExport.swift:25-27` unreachable `else` at iOS 17 target, dead property defaults in `GroupEditorSheet`, `AddPointSheet` `#Preview` previews the wrong view.
-- Duplicated logic: participant-list building (app `buildRankingParticipants` vs extension `rankingParticipants()`), centroid (three copies), region framing (`MapGeometry.region` vs `participantsSearchRegion`), default-centre literal (three copies), straight-line ETA (two speeds). `formatETA` is single-sourced.
-- `PlanMeetupSheet` decodes `MeetupPlanStore.current` three times at init.
-- Styling bypassing `Tokens` in `GroupStatusBar`, `OnboardingTutorial`, `FriendsPanel` (documented Maps-parity colours in `SpotCategoryMark` excepted).
-- The brief's file list is stale: `Shared/TweenViews.swift` no longer exists (views live in `ExpandedView*.swift` / `CompactView.swift`); `ResultRow`, `RankedResultRow`, `ETAChip` do not exist (the chip family is `SpotETAStrip`/`SpotETAChip`); the poll is 2 s, not 300 ms.
-- The two recent commits were checked specifically: `2da3e7e`'s edge tracker, once-per-pass marker roles, cached suites and responder deferral are consistent and idempotent (findings above are the keyboard-timing window and the pre-existing Return/autocorrect race it makes more visible); `fc1809f`'s `shouldReframe` is a pure static with five unit cases (finding: `positionedByUser` not consulted).
+- **Extension state machine (brief §1) traced and sound in the main paths:** `willBecomeActive` resets per-chat state on a key switch (incl. cancelling `sendTask`/`rankingTask` and dropping `lastKnownSession`); `decodeAndCache` skips own bubbles (with the staged-commit backstop), applies the W2 tie-break with the `.invite`-at-floor exception scoped to `==` only, merges rosters additively with tombstones, and writes partial agrees as `proposedState` (via the `kind == .place` arm); `effectiveReceived` is conversation-scoped when a key exists and falls back to the global cache only keyless; `handleImIn`/`handleImOut`/`sendAgreedPlace`/`sendBubble` all carry re-entrancy guards, cancellation checks around the only send await, and defer leave/agree commits for staged inserts; `kickOffRanking` caps at `min(5, recommendedCap)` up front; `willResignActive` cancels all three tasks. No MKMapView/`Map` anywhere in the extension; all snapshots via `MKMapSnapshotter` with a bounded NSCache; `locationProvider` is a retained `let`; fallback tile inserted at index 0 under the hosting view; hosting controller reused with a `rootView` swap.
+- **Recent commits:** `6d39717` — Equatable conformances are correct for what the views draw (one omitted input noted above); keeping the sheet content mounted at peek is sound apart from the hit-testing hardening. `d3d7483` — resolves the 0.7 s keyboard-window finding: `keyboardWillChangeFrame` re-arms `expectMotion()` so a slow cold keyboard's sheet shift is no longer read as a drag; side effects nil (`expectMotion` is idempotent, fires for any app keyboard incl. the name alert, which is harmless). `2b74aa2` — one VStack container + spacing 0 at peek fixes the Group-forwarded-frame overflow; correct. `3759dac` — no remaining `.fraction(0.90)` comparisons or writes (`scrollDisabled` gate, pill visibility, harness/demo initial detents, results expand all go through `fullDetent`); `.large` is a distinct `PresentationDetent` case so equality is exact; behavioural delta is the intended glass→opaque morph, with `interactiveDismissDisabled()` still preventing pull-down dismissal at `.large`. `f8a162d`/`3a0726c` — version/report only.
+- **God members:** `OnboardingView.body` ≈ 500 lines, `init` ≈ 160, `mapLayer` ≈ 100, `presentSearchResults` ≈ 103; `ExpandedView.primaryCTA` 104 lines (`Shared/ExpandedView.swift:~530-633`, a 6-way chain worth splitting); `MessagesViewController.willBecomeActive` 103 lines (`:153-255`); `deliverBubble` 88 (`+Delivery.swift:21-108`); `handleImIn` 120 (`+Sending.swift:16-135`); `sendAgreedPlace` 128 (`:289-416`).
+- **Duplicated logic:** `isMeetupSet`/`isInvitePrompt` gates duplicated verbatim in `+Ranking.swift:26-27` and `ExpandedView.swift:~181-193`; participant-list building (host `buildRankingParticipants` vs extension `rankingParticipants()`); centroid (three copies); region framing; default-centre literal; straight-line ETA (two speeds). `formatETA` is single-sourced.
+- `ExpandedView` reads `UserProfile.displayName` and `LocationCache` in computed properties on every render; identity should come from the controller (see the two extension MAJORs).
+- Unused imports across the `OnboardingView*` files (`MessageUI` ×4, `Combine` ×3, assorted `MapKit`/`Messages`/`UIKit`/`os`); `GroupStatusBar.swift` imports MapKit unused; `CompactView.swift` MapKit unused once `markers(for:)` goes.
+- Dead code: `FairnessRanker.rank(candidates:from:and:cap:)`, `MapGeometry.midpoint`, `CalendarExport.swift:25-27` unreachable `else`, dead defaults in `GroupEditorSheet`, wrong-view `#Preview` in `AddPointSheet`.
+- The brief's file list is stale (`TweenViews.swift`, `ResultRow`/`RankedResultRow`/`ETAChip`, 300 ms poll); audited what exists.
 
 ## LEGACY DEBT INVENTORY
-- `RankedSpot.etaFromA` / `etaFromB` / `worseETA` / `fairnessGap` — `Shared/FairnessRanker.swift:104-107`, 2-person init :111, DEBUG init :125. Production callers: `Shared/SpotETADisplay.swift:20,38` (empty-`etas` fallback), `TweenApp/ResultRows.swift:67,72` (`ABDistanceLabel`, live via `+FriendsPanel.swift:1325,1414`). Previews: `Shared/ExpandedView.swift:818-819`, `TweenApp/SpotDetailCard.swift:728`. Tests: `FairnessRankerTests`, `DriveTimePreferenceTests`, `MapGeometryTests`.
-- `FairnessRanker.rank(candidates:from:and:cap:)` :240-251 — zero callers.
-- "Slice" comments: `Shared/FairnessRanker.swift:101,110` (Slice 5), `:238` (Slice 3/6), `TweenMessages/MessagesViewController+Decoding.swift:19` (Slice 6; its "we replace, not merge" doc is now wrong).
-- `LocationCache.saveParticipantSnapshot(_:localName:)` :197 — harness + tests only.
-- `MeetupSnapshot.pendingDraft/lastRevision/localUserLeft/departedKeys` :91-94 — legacy-decode shims.
-- `tween.cache.*.active` mirror keys and the `loadPeer`/`isPeerActive` single-peer projection (readers `ExpandedView.swift:166`, `OnboardingView+Sync.swift:145`).
-- `tween.pro.redeemedCode` — reap-only by design.
-- No `@available(*, deprecated)` in the repo.
+- `RankedSpot.etaFromA` / `etaFromB` / `worseETA` / `fairnessGap` — `Shared/FairnessRanker.swift:~96-107`, 2-person init `:~111`, DEBUG init `:~124-129`. Production callers: `Shared/SpotETADisplay.swift:~19-20, ~37-38` (unreachable A/B fallback), `TweenApp/ResultRows.swift:~67, ~72` (`ABDistanceLabel`, live via `+FriendsPanel.swift:~1325, ~1414`). Previews: `Shared/ExpandedView.swift:~818-819`, `TweenApp/SpotDetailCard.swift:~728`. Tests: `FairnessRankerTests`, `DriveTimePreferenceTests`, `MapGeometryTests`, `SpotETADisplayTests` (the last pins the A/B placeholder — see coverage).
+- `FairnessRanker.rank(candidates:from:and:cap:)` `:~238-251` — zero callers.
+- "Slice" comments: `Shared/FairnessRanker.swift:~101, ~110` (Slice 5), `:~238` (Slice 3/6); `TweenMessages/MessagesViewController+Decoding.swift:~19` (Slice 6 — its "we replace, not merge" doc is wrong; the code merges).
+- `LocationCache.saveParticipantSnapshot(_:localName:)` `:~197` — harness + tests only; `loadPeer`/`isPeerActive`/`savePeer` single-peer projection and the `tween.cache.*.active` mirror keys — readers `Shared/ExpandedView.swift:~165-166`, `TweenApp/OnboardingView+Sync.swift:~145`, writers `+Decoding.swift:~134, ~138, ~145`.
+- `MessagesViewController.legacyLocalParticipantID()` and the `$0.id == legacyID` filters (`+Decoding.swift:~109-110, ~279-283, ~291-294`, `+Sending.swift:~343-344`) — conversation-UUID transition shims.
+- `MeetupSnapshot.pendingDraft/lastRevision/localUserLeft/departedKeys` `:~91-94` and the `loadSync`/`migrateDraftIfNeeded` rescue paths — legacy-decode shims.
+- `TweenState.participantCoordinate` legacy peer fallback — `+Decoding.swift:~144-147`.
+- `tween.pro.redeemedCode` — reap-only. No `@available(*, deprecated)` in the repo.
 
 ## TEST COVERAGE GAPS
-Not systematically audited this pass (the tests sub-auditor did not complete). Observed from the file-level passes:
-- ConversationSyncState revision tie-breaking and the `.invite`-at-floor exception — not seen covered.
-- Departure gossip propagation and the decode-side cap — no decode-side test (cap only exists at composers).
-- `effectiveReceived` sticky rule and `deliverBubble` staged delivery — extension state machine not audited.
-- MeetupSync posting/observing — no test.
-- `isFullyAgreed` with duplicate names — covered for the ID path (`ParticipantCodecTests:234-254`), not for the legacy name path.
-- `conversationKey` — covered (`ParticipantCodecTests:395-402`).
-- `shouldReframe` — covered (`CameraReframeTests`, 5 cases).
-- `rev` bounds / overflow — no test.
-- `pj=` coordinate validation — no test.
+Structural: `project.yml` compiles only `TweenMessages/BubbleImageRenderer.swift` into the `TweenApp` target, so every `MessagesViewController*.swift` file is unreachable from the unit bundle — the whole extension state machine (brief §1/§4) has zero coverage by construction.
+- `effectiveReceived` sticky rule — NONE.
+- `deliverBubble` staged-delivery path and `commitStagedSendIfNeeded` — NONE (only the store primitive `setPendingStagedSend`, `ParticipantCodecTests:~696-717`).
+- MeetupSync Darwin posting/observing (`Shared/ConversationMeetupStore.swift:~11-49`) — NONE.
+- Snapshot TTL expiration — PARTIAL: `clear(key:)` keeps sync state (`testTTLClearKeepsRevisionFloorAndTombstones` `:~674-694`), but no test ages `updatedAt` past `snapshotTTL`; the age comparisons at the five call sites are untested.
+- Revision tie-break and `.invite`-at-floor — COVERED (`testRevisionTieBreakMatrix` `:~788-815`, `testConcurrentInviteAcceptedAtFloorButNotBelow` `:~822-845`).
+- Departure gossip — PARTIAL: composer cap and URL round-trip covered (`RosterMergeTests:~105-141`); the oversize `gone=` drop, decode-side (un)capping, and both consumers (`+Decoding.swift:~92-95`, `+DeepLinks.swift:~97-100`) untested.
+- `freshSelfCoordinate` vs `loadSelf` — COVERED (`ParticipantCodecTests:~890-916`, `ManualLocationTests:~36-69`); boundary `<=` and `isPeerActive` freshness untested.
+- `Participant.matches` name fallback — COVERED (`ParticipantCodecTests:~448-484`, `NameIntegrityTests:~75-82`); `id==name==""` edge untested.
+- `isFullyAgreed` with duplicate names — ID path only (`:~234-254`); the legacy name path has the bug above and no test.
+- `rev` bounds/overflow — NONE (only value 7 round-trips). `pj=` coordinate validation — NONE (and no such validation exists).
+- `ResultCard ==` / `GroupStatusBar ==` (`6d39717`) — NONE; `coarse()` is pure and testable.
+- `DeadlinedSearch` timeout vs zero results — NONE. `FairnessRanker.rank` routed path, transit fallback behaviour, `mostCentral`, the 5-vs-8 cap constants — NONE.
+- `OutgoingDraftStore`, `RosterMerge`, `conversationKey`, `shouldReframe` — COVERED.
+- Hygiene: `MapGeometryTests` reads `DriveTimePreference` through `RankedSpot.score` with no App Group reset (latent order dependence on `DriveTimePreferenceTests.tearDown`); `ProEntitlementTests` has no `tearDown`, and `testCancelledRefreshLeavesAnExistingUnlockAlone` (`:~60-67`) races `task.cancel()` against the refresh — passes on scheduling, not on the guard; the four StoreKit tests fail on the untouched tree (per the commit message); `SearchCompleterTests.testPhaseLifecycle` kicks off a live `MKLocalSearchCompleter` request.
+- Tests pinning wrong behaviour: `SpotETADisplayTests.testChipItemsFallsBackToABWhenEtasEmpty` (`:~47-53`) asserts the "A 0 min / B 0 min" placeholder; `FairnessRankerTests.testScoreFormula` (`:~36-40`) documents a formula without the `penaltyMultiplier` term and passes only because `setUp` wiped the preference; `GroupStatusBarTests.testLegacyNameKeyedETAStillResolves` (`:~84-94`) would stay green through the same-name ETA mis-attribution in `groupMembers` (`+GroupBar.swift:~33-34`).
 
 ## FIX-FIRST PRIORITY LIST
 1. Bound `rev` on decode and mint with overflow checking (CRITICAL; permanent, cross-process, unrecoverable).
-2. Validate `pj=` participant coordinates (CRITICAL; NSException from MapKit).
-3. Own-proposal detection by `senderID` (MAJOR; wrong flow for name collisions).
-4. Wrap the Agree path in `ensureNamed` (MAJOR; "You" leaks into payloads).
-5. Defer `onSubmit` in the search bar so Return with autocorrect doesn't cancel its own search (MAJOR; common on device).
-6. Arm the drop-focus window from the keyboard notification instead of a 0.7 s timer (MAJOR; guards the just-shipped `2da3e7e` on slow first keyboard).
-7. Guard the `.spot → .spot` sheet swap with a pending action (MAJOR).
-8. Clear or rescope `lastActiveConversationKey` (MAJOR; cross-chat state bleed).
-9. Guard the paywall's scenePhase/initial refresh with `sawVerifiedPurchase` (MAJOR; downgrades a real purchase).
-10. Limit MKDirections concurrency and unify the straight-line speed (MAJOR).
-11. `positionedByUser` guard on the first-fix reframe (MINOR; polish on `fc1809f`).
-12. Toast task keying, `openGroup` re-rank, draft-clear on nil compose, single camera framing per search (MINOR batch).
-13. Re-run the uncovered sections: extension state machine, ExpandedView/CompactView, BubbleImageRenderer, and the test matrix.
+2. Validate `pj=` participant coordinates (CRITICAL; MapKit NSException from a crafted or corrupted link).
+3. Feed the controller's `currentParticipants` into `ExpandedView` and clear the peer projection on conversation switch (MAJOR ×2; missing Send CTA and cross-chat phantom pin — the extension's core flow).
+4. Sanitise `agreed=` at the encoder and wrap the host Agree path in `ensureNamed` (MAJOR; "You" leaks from both processes).
+5. Own-proposal detection by `senderID` (MAJOR).
+6. Defer `onSubmit` in `NativeSearchBar` (MAJOR; Return-with-autocorrect cancels its own search on device).
+7. Clear or rescope `lastActiveConversationKey` (MAJOR; cross-chat state bleed).
+8. Guard the `.spot → .spot` sheet swap with a pending action (MAJOR).
+9. Guard the paywall's scenePhase/initial refresh (MAJOR; downgrades a real purchase).
+10. Bound MKDirections concurrency and unify the straight-line speed (MAJOR).
+11. Extension staging batch: defer all staged message types, compare staged commits against the floor at staging time, clear the scoped draft on leave (MINOR ×3; all split-brain-adjacent).
+12. ~~`allowsHitTesting(!isMinimalDetent)` on the collapsed sheet block and the `soloMode` input in `ResultCard ==`~~ (applied the same day).
+13. `TweenMapSnapshotView` renderer scale, `BubbleImageRenderer` unconditional cancel, the never-firing success haptic (MINOR; extension memory + polish).
+14. Make the extension state machine testable (move `MessagesViewController*` logic behind a target-neutral type or add it to the test-visible target) and add the `rev`/`pj`/legacy-`isFullyAgreed`/TTL-age tests.

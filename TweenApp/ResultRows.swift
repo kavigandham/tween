@@ -138,6 +138,13 @@ struct ResultCard: View {
     /// fairness-ranked (solo). Display-only; the estimate below covers the
     /// moment before it lands.
     var soloETA: TimeInterval? = nil
+    /// The local user's planned travel mode, read ONCE per pass by the list
+    /// and passed in: the solo "~N min" estimate divides by this mode's
+    /// speed, and a card that read it from the store inside its body was
+    /// invisible to the Equatable skip — a mode change from the place sheet
+    /// left the estimate stale until a routed time landed (audit
+    /// 2026-09-06).
+    var soloMode: TravelMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
@@ -167,8 +174,7 @@ struct ResultCard: View {
             let target = item.placemark.coordinate
             let metres = CLLocation(latitude: userCoord.latitude, longitude: userCoord.longitude)
                 .distance(from: CLLocation(latitude: target.latitude, longitude: target.longitude))
-            let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
-            return "~" + formatETA(metres / mode.fallbackMetresPerSecond)
+            return "~" + formatETA(metres / soloMode.fallbackMetresPerSecond)
         }
         guard let etas = rankedSpot?.etas, !etas.isEmpty else { return nil }
         let myName = UserProfile.displayName ?? UserName.fallback
@@ -312,6 +318,7 @@ extension ResultCard: Equatable {
             && a.isBest == b.isBest
             && a.bestWorstETA == b.bestWorstETA
             && a.soloETA == b.soloETA
+            && a.soloMode == b.soloMode
     }
 
     /// The user's coordinate at ~100 m: the card shows a 0.1 mi distance and a

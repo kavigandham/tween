@@ -1092,6 +1092,8 @@ extension OnboardingView {
                 description: Text("Nothing matched near your meetup area. Try a simpler term like sushi, coffee, or parks."))
                 .frame(maxWidth: .infinity, minHeight: 180)
         } else {
+            // One plan read for the whole list, not one per card body.
+            let soloMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
             ForEach(displayedItems, id: \.self) { item in
                 ResultCard(
                     item: item,
@@ -1100,6 +1102,7 @@ extension OnboardingView {
                     isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
                     bestWorstETA: rankedSpots.map(\.worstETA).min(),
                     soloETA: soloRanked.first(where: { $0.item == item })?.etas.first?.eta,
+                    soloMode: soloMode,
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))

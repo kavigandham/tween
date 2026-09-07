@@ -52,6 +52,12 @@ extension OnboardingView {
             .frame(maxHeight: isMinimalDetent ? 0 : .infinity)
             .clipped()
             .opacity(isMinimalDetent ? 0 : 1)
+            // `.clipped()` is drawing-only and opacity 0 does not remove a
+            // subtree from hit testing: the chips row keeps its intrinsic
+            // height inside the zero frame and overflows, invisibly, up
+            // into the header — where a tap meant for the search bar could
+            // land on a hidden chip (audit 2026-09-06).
+            .allowsHitTesting(!isMinimalDetent)
             .accessibilityHidden(isMinimalDetent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
