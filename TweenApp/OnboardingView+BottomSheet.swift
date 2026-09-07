@@ -16,7 +16,11 @@ extension OnboardingView {
 
     @ViewBuilder
     var sheetContent: some View {
-        VStack(spacing: Tokens.Spacing.s3) {
+        // Zero spacing at peek: the collapsed block below must add NOTHING to
+        // the header's height — a leftover 12 pt gap made the peek content
+        // taller than the peek sheet, SwiftUI centred the overflow, and the
+        // search bar rode up under the handle (device report 2026-09-06).
+        VStack(spacing: isMinimalDetent ? 0 : Tokens.Spacing.s3) {
             // The persistent search row lives in a FIXED-HEIGHT header
             // exactly one peek tall, centered within it — a constant
             // offset from the sheet's top edge in every phase so it
@@ -36,7 +40,10 @@ extension OnboardingView {
             // its natural size the hidden stack overflowed the peek sheet and
             // SwiftUI centred the overflow, pushing the search bar half off
             // the top edge.
-            Group {
+            // ONE container, not a Group: Group forwards modifiers to each
+            // child, so the zero-height frame applied per child and the outer
+            // stack still laid spacing between four empty slots.
+            VStack(spacing: Tokens.Spacing.s3) {
                 if !monitor.isOnline { offlineBanner }
                 plannedMeetupBanner
                 replyBanner
