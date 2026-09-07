@@ -730,7 +730,7 @@ extension OnboardingView {
         // the idle discovery stack must stay scrollable at the half detent
         // or its lower rows become unreachable on smaller devices
         // (post-push audit at 42fdc68).
-        .scrollDisabled(searchState == .results && selectedSheetDetent != .fraction(0.90))
+        .scrollDisabled(searchState == .results && selectedSheetDetent != Self.fullDetent)
     }
 
     /// The collapsed sheet is still useful after a meetup exists: its fixed

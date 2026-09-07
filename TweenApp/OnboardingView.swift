@@ -23,6 +23,14 @@ struct OnboardingView: View {
     /// How many candidates the fairness engine resolves routes for in the app.
     static let rankCap = 8
 
+    /// The sheet's top detent. `.large`, not a 0.90 fraction: on iOS 26 the
+    /// system morphs a Liquid Glass sheet from glass to OPAQUE only when it
+    /// reaches the large detent — the Apple Maps full-height look. A custom
+    /// fraction never counts as "full", so the results list stayed
+    /// see-through over the map (device feedback 2026-09-06). Every
+    /// comparison against the top detent goes through this constant.
+    static let fullDetent: PresentationDetent = .large
+
     /// A reply banner shows only while the last inbound bubble is this fresh.
     static let replyFreshness: TimeInterval = 60 * 60 // 1 hour
 
@@ -566,7 +574,7 @@ struct OnboardingView: View {
         _activeSheet = State(initialValue: wantsFriendsSheet ? .friends : nil)
         let hostHarnessDetent: PresentationDetent = CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP")
             ? .height(Tokens.Layout.sheetPeekHeight)
-            : .fraction(0.90)
+            : Self.fullDetent
         // -START_AT_PEEK: screenshot/UI-test hook for the collapsed pill,
         // which is otherwise only reachable by dragging.
         let defaultDetent: PresentationDetent = CommandLine.arguments.contains("-START_AT_PEEK")
@@ -576,7 +584,7 @@ struct OnboardingView: View {
         // them to preselect a spot for screenshot/UI-test verification.
         var demoSelection: MKMapItem?
         var initialDetent = Self.isHostTabHarness ? hostHarnessDetent : defaultDetent
-        if demoAgreedMeetup != nil { initialDetent = .fraction(0.90) }
+        if demoAgreedMeetup != nil { initialDetent = Self.fullDetent }
         #if DEBUG
         // -DEMO_SPOT_CARD: preselects a synthesized spot (no place
         // identifier → fallback sheet layout) without a live search
@@ -795,7 +803,7 @@ struct OnboardingView: View {
             SearchHerePillOverlay(
                 edge: sheetEdge,
                 // Hidden at the full detent — the list covers the map there.
-                isVisible: showSearchHere && selectedSheetDetent != .fraction(0.90),
+                isVisible: showSearchHere && selectedSheetDetent != Self.fullDetent,
                 action: searchHereTapped)
         }
         .animation(Tokens.Motion.snappy, value: selectedResult)
@@ -878,7 +886,7 @@ struct OnboardingView: View {
                     }
                 }
                 .presentationDetents(
-                    [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), .fraction(0.90)],
+                    [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), Self.fullDetent],
                     selection: $selectedSheetDetent
                 )
                 // iOS 26 gets the system's Liquid Glass floating panel — the
@@ -1237,7 +1245,7 @@ struct OnboardingView: View {
             if pendingProposal != nil || agreedMeetup != nil {
                 #if DEBUG
                 selectedSheetDetent = CommandLine.arguments.contains("-DEMO_SPOT_LIBRARY")
-                    ? .fraction(0.90)
+                    ? Self.fullDetent
                     : .height(Tokens.Layout.sheetPeekHeight)
                 #else
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)

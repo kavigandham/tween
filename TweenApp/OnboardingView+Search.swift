@@ -805,7 +805,7 @@ extension OnboardingView {
         case .list:
             // Results arrived — expand to full so the cards fill the screen
             // (the framed map becomes the backdrop, visible on drag-down).
-            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = .fraction(0.90) }
+            withAnimation(Tokens.Motion.snappy) { selectedSheetDetent = Self.fullDetent }
         case .map:
             // Keep the sheet at its peek so the freshly framed pins stay visible.
             withAnimation(Tokens.Motion.snappy) {
