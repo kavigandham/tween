@@ -1,3 +1,41 @@
+# AUDIT REPORT — Tween — 2026-09-08 (immersive tour, 70e6942)
+
+Read-only audit at `70e6942`. Re-verified every carried CRITICAL/MAJOR from the 6f4b671 report (all still present at their anchors) and traced `c8579e6` + `70e6942`. **Post-audit note (2026-09-08, commit 555e024):** the items marked (applied) below were fixed the same day.
+
+## CRITICAL (carried, unchanged)
+- Unbounded inbound `rev` → permanent trap — `Shared/TweenState.swift:~451`, `Shared/ConversationMeetupStore.swift:~438-444`.
+- `pj=` participants skip `validCoordinate` — `Shared/TweenState.swift:~402-404`, `Shared/Participant.swift:~78-84`.
+
+## MAJOR
+### Tour inside the place sheet
+- "Back to the map" sat below the fold at the place sheet's `.medium` detent on 6.1"/SE phones (card ≈ 290 pt placed below a header-row spotlight), and Apple's own close control is under the dim; soft strand (swipe still works). — `TweenApp/CoachMarks.swift:~296-308` **(applied: in-sheet callouts are bounded and scrollable on whichever side of the spotlight has more room)**
+### Carried (still present)
+- `ExpandedView` roster / missing Send CTA; cross-conversation phantom peer; own-proposal by name; `"You"` in `agreed=`; `lastActiveConversationKey` never cleared; Return-with-autocorrect; `.spot → .spot` swap (now also strands `.spotSheet`); MKDirections fan-out + two speeds; paywall refresh downgrade.
+
+## MINOR
+- `.friends` lift from peek undone by the spot sheet's deselect restore — `+Tour.swift:~155`. (Superseded: the chat step now sits between them, so the lift runs long after the dismiss; verified at 0.45 on the sim.)
+- `.imIn` skipped on a failure the user never triggered — `+Tour.swift:~96-100` **(applied: `tourJoinTapped` latch)**
+- `.openSpot` hole passes taps to the card's Send/Directions buttons — `+FriendsPanel.swift:~1103-1122` (open; recoverable).
+- Fallback place layout had no `.sendToChat` anchor — `SpotDetailCard.swift:~592-600` **(applied)**
+- Keyed pulse ring still froze (`pulse` lived on the overlay) — `CoachMarks.swift:~245-258` **(applied: `PulseRing` owns its state)**
+- Dynamic Type: bottom-aligned callout grew past the top edge — `CoachMarks.swift:~296-319` **(applied for spotlit steps via the bounded ScrollView; target-less map-layer cards still unbounded)**
+- Every home step announced twice (both home overlays posted) — `CoachMarks.swift:~276-280` **(applied: only the callout layer announces)**
+- Informational steps are VoiceOver-live (contentShape gates touch only) — `CoachMarks.swift:~233-240` (open; documented).
+- `-DEMO_*` runs now prompt for location at launch (tour opted out) — `+Actions.swift:224-236` (open; grant location in capture recipes).
+- `-DEMO_PRO_*` flags opt out of the tour; use `-FORCE_TUTORIAL` (documented).
+
+## ARCHITECTURE NOTES
+- Transitions traced end to end; layer ownership sound (no state draws two callouts); overlay z-order: sub-sheets and alerts present above the dim; informational hit-testing swallows everything but the card's buttons; `startsTourOnLaunch` is read once at `@State` init.
+- Cosmetic: `advanceTour(.spotSheet)` flips the home overlay while the spot sheet is still animating out.
+
+## TEST COVERAGE GAPS
+- No tour tests (the transition table reads `@State`); `-FORCE_TUTORIAL` not driven by any UI test; prior gaps stand. (555e024 adds `NudgePolicyTests` and `TourDemoFriendTests`.)
+
+## FIX-FIRST PRIORITY LIST
+1–2. The two codec CRITICALs (carried). 3. ~~Bounded in-sheet callout~~ (applied). 4–7. Carried MAJORs as before. 8. ~~Join-tap latch, announcements, pulse ring~~ (applied); gate the `.openSpot` card's action row (open). 9. Lift the tour transition table into a testable value type.
+
+---
+
 # AUDIT REPORT — Tween — 2026-09-06 (tour)
 
 Read-only audit at HEAD `6f4b671` (main). The previous full report (audit at `3759dac` plus the two hardening fixes in `3ee2b2e`) is in git history at `3ee2b2e:report_audit.md`; this pass re-verifies its CRITICAL/MAJOR items and spends its effort on the new first-run tour: `TweenApp/CoachMarks.swift`, `TweenApp/OnboardingView+Tour.swift`, and the wiring in `OnboardingView.swift`, `+BottomSheet`, `+FriendsPanel`, `+HandOff`, `+Actions`, and `project.pbxproj`. No files modified, no builds or tests run. Findings below the 70 % bar were dropped.
