@@ -13,11 +13,27 @@ extension OnboardingView {
         activeSheet == nil ? tourStep : nil
     }
 
+    /// The step a SECONDARY sheet's overlay draws: only while that sheet is
+    /// the presented one and the step belongs to it. The home layers show
+    /// nothing meanwhile, and the secondary layers show nothing otherwise.
+    func tourStep(inside layer: CoachLayer) -> TourStep? {
+        guard let step = tourStep, step.layer == layer else { return nil }
+        switch (layer, activeSheet) {
+        case (.spot, .spot?), (.friends, .friends?): return step
+        default: return nil
+        }
+    }
+
     /// The map layer can't be seen under a full-height (opaque) sheet, and a
     /// peek sheet can't fit a card — so the callout lives on the map unless
-    /// the sheet is at full height. See `CoachMarkOverlay.calloutLayer`.
+    /// the sheet is at full height. Steps inside a secondary sheet draw
+    /// there. See `CoachMarkOverlay.calloutLayer`.
     var tourCalloutLayer: CoachLayer {
-        selectedSheetDetent == Self.fullDetent ? .sheet : .map
+        switch tourStep?.layer {
+        case .spot?:    return .spot
+        case .friends?: return .friends
+        default:        return selectedSheetDetent == Self.fullDetent ? .sheet : .map
+        }
     }
 
     /// From the menu's "Tween guide", or a fresh install's first launch.
@@ -39,6 +55,14 @@ extension OnboardingView {
             provider.startContinuousAskingIfNeeded()
             // Restarting the tour mid-meetup: skip what's already done.
             setTourStep(isUserIn ? nextAfterJoin : .imIn)
+        case .spotSheet:
+            // "Back to the map": close the sheet the step explained and move
+            // on in the same transaction, so the observer can't race it.
+            activeSheet = nil
+            setTourStep(.friends)
+        case .friendsSheet:
+            activeSheet = nil
+            setTourStep(.mapControls)
         case .mapControls:
             setTourStep(.done)
         case .done:
@@ -83,9 +107,15 @@ extension OnboardingView {
                 setTourStep(.friends)
             }
         case .openSpot:
-            if case .spot = activeSheet { setTourStep(.friends) }
+            if case .spot = activeSheet { setTourStep(.spotSheet) }
+        case .spotSheet:
+            // Closed by the X or a swipe instead of the card's button: the
+            // explanation was on screen, so carry on.
+            if activeSheet == nil { setTourStep(.friends) }
         case .friends:
-            if case .friends = activeSheet { setTourStep(.mapControls) }
+            if case .friends = activeSheet { setTourStep(.friendsSheet) }
+        case .friendsSheet:
+            if activeSheet == nil { setTourStep(.mapControls) }
         default:
             break
         }

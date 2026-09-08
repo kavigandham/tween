@@ -294,12 +294,20 @@ struct OnboardingView: View {
     /// The interactive first-run tour (CoachMarks.swift); nil when it isn't
     /// running. A fresh install opens on the welcome card unless a
     /// harness/screenshot run opts out with -SKIP_TUTORIAL.
-    @State var tourStep: TourStep? = (!OnboardingFlags.hasSeenOnboarding
-        && !CommandLine.arguments.contains("-SKIP_TUTORIAL")
-        // Screenshot/UI-test recipes seed a state and expect to see it, not
-        // a welcome card over it.
-        && !CommandLine.arguments.contains(where: { $0.hasPrefix("-DEMO_") })
-        && !OnboardingView.isHostTabHarness) ? .welcome : nil
+    @State var tourStep: TourStep? = OnboardingView.startsTourOnLaunch ? .welcome : nil
+
+    /// A fresh install starts the tour unless a harness/screenshot run opts
+    /// out. `-FORCE_TUTORIAL` wins over everything so the tour can be driven
+    /// on a seeded simulator (`-DEMO_*` alone opts out: those recipes expect
+    /// to see the state they seeded, not a welcome card over it).
+    static var startsTourOnLaunch: Bool {
+        let args = CommandLine.arguments
+        if args.contains("-FORCE_TUTORIAL") { return true }
+        return !OnboardingFlags.hasSeenOnboarding
+            && !args.contains("-SKIP_TUTORIAL")
+            && !args.contains(where: { $0.hasPrefix("-DEMO_") })
+            && !isHostTabHarness
+    }
 
     /// True while the welcome card is up. Location is asked for when the user
     /// starts the tour — the card explains why first — never over it.
@@ -1004,6 +1012,14 @@ struct OnboardingView: View {
                                 }
                         }
                         .presentationDetents([.large])
+                        // The tour continues INSIDE this sheet (the "Friends
+                        // screen" step) — its own overlay, over the whole
+                        // stack including the bar.
+                        .overlayPreferenceValue(CoachTargetKey.self) { anchors in
+                            CoachMarkOverlay(step: tourStep(inside: .friends), layer: .friends,
+                                             calloutLayer: .friends, edge: sheetEdge,
+                                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+                        }
                         // Children of the FRIENDS sheet — presented from it,
                         // not by swapping `activeSheet` (the swap's dismiss-
                         // then-represent silently drops on iOS 26; the

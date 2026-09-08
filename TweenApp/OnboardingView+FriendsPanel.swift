@@ -136,6 +136,7 @@ extension OnboardingView {
             }
             .buttonStyle(.tweenPrimary())
             .accessibilityHint("Picks someone from your contacts")
+            .coachTarget(.addFriend)
 
             Button { friendsSubSheet = .invite } label: {
                 Label("Invite", systemImage: "square.and.arrow.up")

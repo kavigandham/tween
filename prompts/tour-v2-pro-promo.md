@@ -1,7 +1,9 @@
 # Tween — Tour v2 (fake friend + iMessage step) and Pro promotion
 
 Implementation brief. Written 2026-09-06 against `main` at `6f4b671` (the
-interactive coach-mark tour). Read `CLAUDE.md` first: its hard constraints
+interactive coach-mark tour); updated 2026-09-08 for the 9-step tour that
+continues inside the place and Friends sheets (`TourStep.spotSheet`,
+`.friendsSheet`). Read `CLAUDE.md` first: its hard constraints
 apply to everything below, especially #6 (App Group holds coordinates and
 preferences only) and the manual-participant isolation invariant (locally
 added points are never broadcast in any payload).
@@ -74,8 +76,9 @@ not know the two sides talk to each other automatically.
 
 **What to build.**
 
-- Insert a new step after "Open a spot" (before Friends): **"Send it to the
-  chat"**. It is informational (Next button) — do NOT make the user actually
+- Insert a new step after "The place sheet" (`.spotSheet`, before Friends):
+  **"Send it to the chat"**, drawn in the map/sheet layer once the place
+  sheet has closed. It is informational (Next button) — do NOT make the user actually
   send during the tour. The card contains an illustration ABOVE the copy:
   a phone-shaped frame showing an iMessage thread with the Tween bubble
   ("Let's meet at Coffeebar" with the map thumbnail) and the friend's
@@ -98,7 +101,7 @@ not know the two sides talk to each other automatically.
   iPhone 17e as the smallest available in this Xcode). If it does not fit,
   the step must raise the sheet to peek first (`setTourStep` already does
   detent choreography).
-- Renumber: the tour becomes 8 steps. `TourStep.count` is derived, so only
+- Renumber: the tour becomes 10 steps. `TourStep.count` is derived, so only
   the copy "N of 8" changes automatically — check nothing hard-codes 7.
 
 **Verify.** Screenshot of the step on the iPhone 17 Pro and the smallest
@@ -120,7 +123,7 @@ and Settings. Nothing ever *introduces* it.
 
 **What to build — three surfaces, one shared frequency cap.**
 
-1. **Tour step 8, "Tween Pro" (before "You're set").** Informational card
+1. **Tour step "Tween Pro" (before "You're set").** Informational card
    with a 3-line feature list (Groups · Saved places · Plan ahead) and two
    buttons: "See Tween Pro" (opens `PaywallSheet` via the Friends child
    sheet route the code already uses — `activeSheet = .friends;
@@ -157,7 +160,7 @@ preference blob, within constraint #6. A pure `ProNudgePolicy.shouldShow(
 trigger:state:now:)` decides, unit tested for: the 7-day cap, per-trigger
 once, two dismissals retire, and Pro-unlocked never shows.
 
-**Do not do:** no nudge during the tour other than step 8; no nudge while
+**Do not do:** no nudge during the tour other than the Pro step; no nudge while
 a secondary sheet is up or a send is in flight; no nudge in the Messages
 extension (memory ceiling, and App Review dislikes upsells in the drawer);
 no countdown timers, fake discounts, or "last chance" copy — App Review
@@ -165,11 +168,11 @@ guideline 3.1.2 already required the EULA link once; keep the paywall the
 only place that states prices, except the third-meetup nudge above.
 
 **Verify.** Unit tests for `ProNudgePolicy`. Simulator with
-`-DEMO_PRO_LOCKED`: run the tour to step 8, tap "See Tween Pro", confirm
+`-DEMO_PRO_LOCKED`: run the tour to the Pro step, tap "See Tween Pro", confirm
 the paywall presents and dismisses back to the tour's final card. Run
 `-DEMO_GROUPS -DEMO_PRO_LOCKED`, open the group, search, and confirm the
 group nudge appears once and not again on a second search. With
-`-DEMO_PRO_UNLOCKED`, confirm no step 8 and no nudges anywhere.
+`-DEMO_PRO_UNLOCKED`, confirm no Pro step and no nudges anywhere.
 
 ---
 

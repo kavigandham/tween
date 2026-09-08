@@ -426,6 +426,8 @@ struct SpotDetailCard: View {
                 }
                 .sensoryFeedback(.impact, trigger: sendTick)
                 .accessibilityHint("Drops \(name) into your conversation")
+                // The tour's place-sheet step spotlights this tile.
+                .coachTarget(.sendToChat)
             }
         }
     }

@@ -21,7 +21,13 @@ enum TourStep: Int, CaseIterable, Equatable {
     case imIn
     case coffeeChip
     case openSpot
+    /// INSIDE the place sheet: what every control on it does, then a way
+    /// back. The tour must never leave the user on a screen it hasn't
+    /// explained (product feedback 2026-09-08: "fully immersive, A to Z").
+    case spotSheet
     case friends
+    /// INSIDE the Friends sheet, same rule.
+    case friendsSheet
     case mapControls
     case done
 
@@ -31,39 +37,47 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .imIn:           return .imInButton
         case .coffeeChip:     return .coffeeChip
         case .openSpot:       return .firstResultCard
+        case .spotSheet:      return .sendToChat
         case .friends:        return .friendsButton
+        case .friendsSheet:   return .addFriend
         case .mapControls:    return .mapToolbar
         }
     }
 
     var title: String {
         switch self {
-        case .welcome:     return "Welcome to Tween"
-        case .imIn:        return "Tap I'm in"
-        case .coffeeChip:  return "Find fair spots"
-        case .openSpot:    return "Open a spot"
-        case .friends:     return "Your friends"
-        case .mapControls: return "Map controls"
-        case .done:        return "You're set"
+        case .welcome:      return "Welcome to Tween"
+        case .imIn:         return "Tap I'm in"
+        case .coffeeChip:   return "Find fair spots"
+        case .openSpot:     return "Open a spot"
+        case .spotSheet:    return "The place sheet"
+        case .friends:      return "Your friends"
+        case .friendsSheet: return "The Friends screen"
+        case .mapControls:  return "Map controls"
+        case .done:         return "You're set"
         }
     }
 
     var body: String {
         switch self {
         case .welcome:
-            return "Tween finds the fairest place to meet by travel time — nobody drives the long way. Here's a quick tour."
+            return "This is your map — the blue dot is you. The panel below is where you search, see who's in, and pick a place. Tween ranks spots by everyone's travel time, so nobody drives the long way. Here's a quick tour."
         case .imIn:
-            return "Share where you are. Tween only uses your location while the app is open."
+            return "Share where you are. Tween only uses your location while the app is open, and your friends only see it once you send them a spot."
         case .coffeeChip:
-            return "Tap Coffee. Tween searches between everyone who's in and ranks places by how far each person travels."
+            return "Tap Coffee. Tween searches between everyone who's in and ranks places by how far each person travels. The other chips work the same way."
         case .openSpot:
-            return "Tap a card for directions, a call, and Send — which drops the spot straight into your chat."
+            return "Each card shows a place, how far it is, and everyone's travel time. Tap the top card to open it."
+        case .spotSheet:
+            return "Everything about one spot. The tiles give you directions in your travel mode, a call, and the website. Send to chat drops the spot into iMessage so your friends can tap Agree — or suggest somewhere else. Add to Favorites keeps it handy; Plan sets a time and a calendar invite (Tween Pro)."
         case .friends:
-            return "Add friends here, ping them to join, and save groups for the people you meet most."
+            return "Tap here for your people."
+        case .friendsSheet:
+            return "Add Friend saves someone from Contacts so you can ping them to join. Invite shares Tween. Current meetup lists who's in right now. Groups remember your whole crew for one-tap planning (Tween Pro), and Rides tracks who needs a lift."
         case .mapControls:
-            return "Recenter on yourself, or switch map styles. You can drag the sheet down any time to see more map."
+            return "Recenter on yourself, or switch map styles. Drag the panel down any time to see more map, and up to see the full list."
         case .done:
-            return "Search any spot from the bar, or open Tween from the + in an iMessage chat to plan right there."
+            return "Search any place from the bar, or open Tween from the + in an iMessage chat to plan right there. This guide is always in the ⋯ menu."
         }
     }
 
@@ -71,11 +85,18 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// waits for a real tap on the spotlit control.
     var nextTitle: String? {
         switch self {
-        case .welcome:     return "Start the tour"
-        case .mapControls: return "Next"
-        case .done:        return "Finish"
-        default:           return nil
+        case .welcome:      return "Start the tour"
+        case .spotSheet:    return "Back to the map"
+        case .friendsSheet: return "Back to the map"
+        case .mapControls:  return "Next"
+        case .done:         return "Finish"
+        default:            return nil
         }
+    }
+
+    /// Steps whose Next button also CLOSES the sheet they live in.
+    var closesSheetOnNext: Bool {
+        self == .spotSheet || self == .friendsSheet
     }
 
     /// Where the callout (or the card, for target-less steps) renders.
@@ -91,10 +112,15 @@ enum TourStep: Int, CaseIterable, Equatable {
     static var count: Int { allCases.count }
 }
 
-/// Which presentation the target lives in.
+/// Which presentation the target lives in. Each is its own UIKit
+/// presentation, so each hosts its own `CoachMarkOverlay`.
 enum CoachLayer {
     case map
     case sheet
+    /// The place sheet (`activeSheet == .spot`).
+    case spot
+    /// The Friends sheet (`activeSheet == .friends`).
+    case friends
 }
 
 /// A spotlit control. Each attaches `.coachTarget(_:)` to its own view.
@@ -104,9 +130,16 @@ enum CoachTarget: Hashable {
     case firstResultCard
     case friendsButton
     case mapToolbar
+    case sendToChat
+    case addFriend
 
     var layer: CoachLayer {
-        self == .mapToolbar ? .map : .sheet
+        switch self {
+        case .mapToolbar: return .map
+        case .sendToChat: return .spot
+        case .addFriend:  return .friends
+        default:          return .sheet
+        }
     }
 
     /// The spotlight follows the control's own shape: circles stay circles,
@@ -118,6 +151,8 @@ enum CoachTarget: Hashable {
         case .mapToolbar:      return size.width / 2
         case .imInButton:      return Tokens.Radius.action
         case .firstResultCard: return Tokens.Radius.card
+        case .sendToChat:      return Tokens.Radius.action
+        case .addFriend:       return Tokens.Radius.action
         }
     }
 }
@@ -195,7 +230,13 @@ struct CoachMarkOverlay: View {
                     // beneath the dim does.
                     SpotlightShape(hole: hole, radius: radius)
                         .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
-                        .contentShape(SpotlightShape(hole: hole, radius: radius), eoFill: true)
+                        // The hole passes taps ONLY on steps that wait for
+                        // the user's tap. An informational step (the sheet
+                        // explainers) highlights a control without making it
+                        // live — a tap on the spotlit Send would otherwise
+                        // open the composer mid-explanation.
+                        .contentShape(SpotlightShape(hole: step.waitsForUser ? hole : nil, radius: radius),
+                                      eoFill: true)
                         .onTapGesture {}
 
                     if let hole {
