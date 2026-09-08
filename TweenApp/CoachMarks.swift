@@ -25,15 +25,20 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// back. The tour must never leave the user on a screen it hasn't
     /// explained (product feedback 2026-09-08: "fully immersive, A to Z").
     case spotSheet
+    /// What happens after Send: the iMessage side, and that both apps
+    /// update on their own.
+    case chatDemo
     case friends
     /// INSIDE the Friends sheet, same rule.
     case friendsSheet
     case mapControls
+    /// One introduction to Tween Pro. Skipped entirely when unlocked.
+    case pro
     case done
 
     var target: CoachTarget? {
         switch self {
-        case .welcome, .done: return nil
+        case .welcome, .chatDemo, .pro, .done: return nil
         case .imIn:           return .imInButton
         case .coffeeChip:     return .coffeeChip
         case .openSpot:       return .firstResultCard
@@ -51,9 +56,11 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .coffeeChip:   return "Find fair spots"
         case .openSpot:     return "Open a spot"
         case .spotSheet:    return "The place sheet"
+        case .chatDemo:     return "Send it to the chat"
         case .friends:      return "Your friends"
         case .friendsSheet: return "The Friends screen"
         case .mapControls:  return "Map controls"
+        case .pro:          return "Tween Pro"
         case .done:         return "You're set"
         }
     }
@@ -63,19 +70,23 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .welcome:
             return "This is your map — the blue dot is you. The panel below is where you search, see who's in, and pick a place. Tween ranks spots by everyone's travel time, so nobody drives the long way. Here's a quick tour."
         case .imIn:
-            return "Share where you are. Tween only uses your location while the app is open, and your friends only see it once you send them a spot."
+            return "Share where you are. Tween only uses your location while the app is open, and your friends only see it once you send them a spot. We'll add a demo friend, Sam, about 20 minutes away so you can see how fair spots work."
         case .coffeeChip:
-            return "Tap Coffee. Tween searches between everyone who's in and ranks places by how far each person travels. The other chips work the same way."
+            return "Tap Coffee. Tween searches between you and Sam and ranks places by how far each of you travels. The other chips work the same way."
         case .openSpot:
-            return "Each card shows a place, how far it is, and everyone's travel time. Tap the top card to open it."
+            return "Each card shows a place and everyone's travel time — yours and Sam's. Tap the top card to open it."
         case .spotSheet:
             return "Everything about one spot. The tiles give you directions in your travel mode, a call, and the website. Send to chat drops the spot into iMessage so your friends can tap Agree — or suggest somewhere else. Add to Favorites keeps it handy; Plan sets a time and a calendar invite (Tween Pro)."
+        case .chatDemo:
+            return "Send drops the spot into your iMessage. Your friend taps Agree — or suggests somewhere else — and both of your apps update on their own. No accounts, nothing to sign up for."
         case .friends:
             return "Tap here for your people."
         case .friendsSheet:
             return "Add Friend saves someone from Contacts so you can ping them to join. Invite shares Tween. Current meetup lists who's in right now. Groups remember your whole crew for one-tap planning (Tween Pro), and Rides tracks who needs a lift."
         case .mapControls:
             return "Recenter on yourself, or switch map styles. Drag the panel down any time to see more map, and up to see the full list."
+        case .pro:
+            return "Groups save your crew for one-tap fair spots. Saved places cover friends who aren't on Tween yet. Plan sets a time, a leave-by reminder, and a calendar invite."
         case .done:
             return "Search any place from the bar, or open Tween from the + in an iMessage chat to plan right there. This guide is always in the ⋯ menu."
         }
@@ -87,12 +98,22 @@ enum TourStep: Int, CaseIterable, Equatable {
         switch self {
         case .welcome:      return "Start the tour"
         case .spotSheet:    return "Back to the map"
+        case .chatDemo:     return "Next"
         case .friendsSheet: return "Back to the map"
         case .mapControls:  return "Next"
+        case .pro:          return "Not now"
         case .done:         return "Finish"
         default:            return nil
         }
     }
+
+    /// A second, PRIMARY action some cards carry (the Pro step's "See
+    /// Tween Pro"); `nextTitle` becomes the quiet alternative beside it.
+    var secondaryTitle: String? {
+        self == .pro ? "See Tween Pro" : nil
+    }
+
+    var showsChatIllustration: Bool { self == .chatDemo }
 
     /// Steps whose Next button also CLOSES the sheet they live in.
     var closesSheetOnNext: Bool {
@@ -212,9 +233,9 @@ struct CoachMarkOverlay: View {
     let anchors: [CoachTarget: Anchor<CGRect>]
     let onNext: () -> Void
     let onSkip: () -> Void
+    /// The card's second action, when the step has one (`secondaryTitle`).
+    var onSecondary: () -> Void = {}
 
-    @State private var pulse = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Breathing room between the control's edge and the spotlight.
     private let inset: CGFloat = Tokens.Spacing.s2
@@ -240,22 +261,12 @@ struct CoachMarkOverlay: View {
                         .onTapGesture {}
 
                     if let hole {
-                        // The ring that says "this one" — pulses gently unless
-                        // Reduce Motion is on.
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(Tokens.Palette.onBrand, lineWidth: 3)
-                            .frame(width: hole.width, height: hole.height)
-                            .scaleEffect(pulse && !reduceMotion ? 1.05 : 1)
-                            .position(x: hole.midX, y: hole.midY)
-                            .allowsHitTesting(false)
-                            // Fresh ring per step, so the repeat-forever
-                            // animation restarts instead of freezing mid-pulse.
+                        // The ring that says "this one". Its own view, keyed
+                        // on the step, so each step's ring starts its pulse
+                        // from scratch (state on the overlay froze after the
+                        // first ring — audit 2026-09-08).
+                        PulseRing(hole: hole, radius: radius)
                             .id(step)
-                            .onAppear {
-                                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                                    pulse = true
-                                }
-                            }
                     }
 
                     if calloutLayer == layer {
@@ -274,6 +285,9 @@ struct CoachMarkOverlay: View {
             // every performed step became Skip-only under VoiceOver (audit
             // 2026-09-06). The callout is announced on each step instead.
             .onChange(of: step, initial: true) { _, step in
+                // Only the layer drawing the card announces, or the two
+                // home overlays read every step twice.
+                guard calloutLayer == layer else { return }
                 AccessibilityNotification.Announcement(
                     "Tour step \(step.ordinal) of \(TourStep.count). \(step.title). \(step.body)"
                 ).post()
@@ -298,14 +312,21 @@ struct CoachMarkOverlay: View {
             .frame(maxWidth: 360)
             .padding(.horizontal, Tokens.Spacing.s4)
         if let hole {
-            // Prefer below; a spotlight in the lower half flips the card above.
-            let below = hole.midY < geo.size.height / 2
-            card
-                .frame(maxWidth: .infinity,
-                       maxHeight: .infinity,
-                       alignment: below ? .top : .bottom)
-                .padding(.top, below ? hole.maxY + Tokens.Spacing.s4 : 0)
-                .padding(.bottom, below ? 0 : geo.size.height - hole.minY + Tokens.Spacing.s4)
+            // Whichever side of the spotlight has more room, and the card
+            // scrolls inside that room — a long explainer must never push
+            // its own button off a medium-height sheet or a small phone
+            // (audit 2026-09-08), nor off the top at accessibility text
+            // sizes.
+            let roomBelow = geo.size.height - hole.maxY - Tokens.Spacing.s4
+            let roomAbove = hole.minY - Tokens.Spacing.s4
+            let below = roomBelow >= roomAbove
+            ScrollView(.vertical, showsIndicators: false) {
+                card.padding(.vertical, Tokens.Spacing.s4)
+            }
+            .frame(maxWidth: .infinity, maxHeight: max(below ? roomBelow : roomAbove, 0))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: below ? .top : .bottom)
+            .padding(.top, below ? hole.maxY : 0)
+            .padding(.bottom, below ? 0 : geo.size.height - hole.minY)
         } else if layer == .map {
             let mapBottom = geo.frame(in: .global).maxY
             let aboveSheet = edge.topGlobalY.map { max(mapBottom - $0, 0) } ?? 0
@@ -330,6 +351,9 @@ struct CoachMarkOverlay: View {
                     .foregroundStyle(Tokens.Palette.accent)
                     .accessibilityHint("Ends the tour")
             }
+            if step.showsChatIllustration {
+                ChatIllustration()
+            }
             Text(step.title)
                 .font(Tokens.Typography.headline)
                 .foregroundStyle(Tokens.Palette.textPrimary)
@@ -337,13 +361,21 @@ struct CoachMarkOverlay: View {
                 .font(Tokens.Typography.subheadline)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let secondary = step.secondaryTitle {
+                Button(action: onSecondary) {
+                    Text(secondary)
+                        .font(Tokens.Typography.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                }
+                .buttonStyle(.tweenPrimary())
+            }
             if let next = step.nextTitle {
                 Button(action: onNext) {
                     Text(next)
                         .font(Tokens.Typography.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 }
-                .buttonStyle(.tweenPrimary())
+                .buttonStyle(step.secondaryTitle == nil ? .tweenPrimary() : .tweenPrimary(.subtle))
             } else {
                 Label("Tap the highlighted control to continue", systemImage: "hand.tap")
                     .font(Tokens.Typography.footnote)
@@ -360,3 +392,25 @@ struct CoachMarkOverlay: View {
     }
 }
 
+/// The spotlight's ring. Owns its pulse state so a fresh instance (keyed on
+/// the step) always starts the repeat-forever animation from rest.
+private struct PulseRing: View {
+    let hole: CGRect
+    let radius: CGFloat
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(Tokens.Palette.onBrand, lineWidth: 3)
+            .frame(width: hole.width, height: hole.height)
+            .scaleEffect(pulse && !reduceMotion ? 1.05 : 1)
+            .position(x: hole.midX, y: hole.midY)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
+    }
+}

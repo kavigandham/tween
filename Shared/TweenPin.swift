@@ -116,7 +116,11 @@ struct TweenPin: View {
     /// "Hassan Ahmed" → "HA"; single names give one letter. Shared so the
     /// host map and extension map agree on avatars.
     static func initials(for name: String) -> String {
-        let letters = name.split(separator: " ").prefix(2)
+        // Words only: a parenthetical like "Sam (demo)" must read "S", not
+        // "S(" (the tour's demo friend).
+        let letters = name.split(separator: " ")
+            .filter { $0.first?.isLetter == true }
+            .prefix(2)
             .compactMap { $0.first.map(String.init) }
         return letters.joined().uppercased()
     }

@@ -47,6 +47,7 @@ extension OnboardingView {
             Group {
                 nameFieldRow
                 friendActionButtons
+                if !ProEntitlement.isUnlocked { proPromoRow }
                 meetupStatusSection
                 groupsSection
             }
@@ -124,6 +125,35 @@ extension OnboardingView {
         .onChange(of: nameFieldFocused) { _, focused in
             if !focused { saveProfileName() }
         }
+    }
+
+    /// One quiet row while locked: what Pro adds to THIS screen.
+    var proPromoRow: some View {
+        Button { friendsSubSheet = .paywall } label: {
+            HStack(spacing: Tokens.Spacing.s3) {
+                TweenRowIcon(systemImage: "sparkles", color: Tokens.Palette.brand)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tween Pro")
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                    Text("Groups, saved places, and plans with a time")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(Tokens.Typography.captionBold)
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+            }
+            .padding(Tokens.Spacing.s3)
+            .frame(maxWidth: .infinity)
+            .background(Tokens.Palette.surfaceSecondary,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the Tween Pro options")
     }
 
     var friendActionButtons: some View {

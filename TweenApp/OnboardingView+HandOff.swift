@@ -148,6 +148,7 @@ extension OnboardingView {
                         body: Self.spotBody(prefix: "Let's meet at", name: selection.name, coordinate: coord),
                         message: message,
                         onSent: {
+                            noteEngagement(.sendToChat)
                             noteOutgoingRevision(revision)
                             if let key = ConversationMeetupStore.lastActiveConversationKey {
                                 ConversationMeetupStore.saveProposed(state, key: key)

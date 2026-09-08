@@ -1,5 +1,13 @@
 # Tween — Tour v2 (fake friend + iMessage step) and Pro promotion
 
+> **Status 2026-09-08: IMPLEMENTED** (see `git log` for the commit on top of `70e6942`).
+> Items 1–3 shipped with these deviations: the Pro pop-up and the review ask
+> share one engine (`Shared/Engagement.swift`) whose triggers are a random
+> threshold of positive events (I'm in / Send / Agree) rather than the three
+> named moments below; the review ask uses Apple's `requestReview` only;
+> the iMessage step draws in the map layer after the place sheet closes;
+> the extension does not count events yet. Kept for the rationale.
+
 Implementation brief. Written 2026-09-06 against `main` at `6f4b671` (the
 interactive coach-mark tour); updated 2026-09-08 for the 9-step tour that
 continues inside the place and Friends sheets (`TourStep.spotSheet`,

@@ -48,6 +48,7 @@ extension OnboardingView {
             lastPersistedCoordinate = coord
             isUserIn = true
         }
+        noteEngagement(.imIn)
         awaitingImIn = false
         reframe()
         if let action = pendingLocationAction {
@@ -72,6 +73,7 @@ extension OnboardingView {
             savedCoordinate = coord
             savedCoordinateAt = Date()
             isUserIn = true
+            noteEngagement(.imIn)
             LocationCache.save(coord, isActive: true, isManual: true)
             saveLocalParticipant(coord)   // this is what travels to the group
             withAnimation(Tokens.Motion.spring) {
@@ -133,6 +135,12 @@ extension OnboardingView {
     /// (the coordinate-only demo pin can't exercise it).
     func openDemoSpotSheetIfRequested() async {
         #if DEBUG
+        // -DEMO_PRO_NUDGE: present the Pro pop-up directly. The events that
+        // raise it (a join, a send) can't happen on the simulator.
+        if CommandLine.arguments.contains("-DEMO_PRO_NUDGE") {
+            activeSheet = .proNudge
+            return
+        }
         if CommandLine.arguments.contains("-DEMO_SPOT_LIBRARY_DETAIL"),
            let meetup = agreedMeetup {
             presentAgreedMeetup(meetup)

@@ -6,6 +6,7 @@ import Messages
 import UIKit
 import Combine
 import os
+import StoreKit
 
 /// The host app's primary surface: a full-screen map with an "I'm in" flow and
 /// a draggable bottom sheet. Capturing your location drops a self pin; once a
@@ -312,6 +313,14 @@ struct OnboardingView: View {
     /// True while the welcome card is up. Location is asked for when the user
     /// starts the tour — the card explains why first — never over it.
     var showTutorial: Bool { tourStep == .welcome }
+    /// The tour's stand-in friend ("Sam (demo)") while it is on the map —
+    /// its manual-participant id, so the tour can remove exactly it.
+    @State var tourDemoFriendID: String?
+    /// Set once the user has actually pressed I'm in during the tour, so a
+    /// location failure skips the join step only after a real attempt.
+    @State var tourJoinTapped = false
+    /// Apple's review prompt; the engine decides when (`noteEngagement`).
+    @Environment(\.requestReview) var requestReview
 
     /// The single secondary sheet currently presented. Consolidated into one
     /// enum-driven `.sheet(item:)` because stacking multiple `.sheet` modifiers
@@ -392,6 +401,11 @@ struct OnboardingView: View {
         case addPoint
         case whereIllBe
         case settings
+        /// The Tween Pro pop-up `NudgePolicy` raises after a random number of
+        /// good moments.
+        case proNudge
+        /// The paywall, opened directly (the tour's Pro step, the ⋯ menu).
+        case paywall
 
         var id: String {
             switch self {
@@ -401,6 +415,8 @@ struct OnboardingView: View {
             case .addPoint:          return "addPoint"
             case .whereIllBe:        return "whereIllBe"
             case .settings:          return "settings"
+            case .proNudge:          return "proNudge"
+            case .paywall:           return "paywall"
             }
         }
     }
@@ -835,7 +851,8 @@ struct OnboardingView: View {
         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
             CoachMarkOverlay(step: tourOverlayStep, layer: .map,
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
-                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+                             anchors: anchors, onNext: advanceTour, onSkip: skipTour,
+                             onSecondary: tourSecondaryAction)
         }
         .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
         .onChange(of: provider.status) { _, _ in tourDidObserveChange() }
@@ -1114,6 +1131,10 @@ struct OnboardingView: View {
                                       onAdd: setManualSelf)
                     case .settings:
                         SettingsSheet()
+                    case .proNudge:
+                        ProNudgeSheet(onNotNow: noteProNudgeDismissed)
+                    case .paywall:
+                        PaywallSheet()
                     }
                 }
                 // Alerts triggered from inside the sheet must present FROM the
@@ -1247,6 +1268,9 @@ struct OnboardingView: View {
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
             if phase != .active {
+                // A demo friend must not sit in the ranking when the user
+                // comes back an hour later.
+                removeTourDemoFriend()
                 searchTask?.cancel()
                 // A backgrounding cancel returns at runSearch's Task.isCancelled
                 // guard, before `isSearchLoading = false` — reset it here or the

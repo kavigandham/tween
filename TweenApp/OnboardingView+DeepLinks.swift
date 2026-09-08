@@ -349,6 +349,7 @@ extension OnboardingView {
                 body: Self.spotBody(prefix: "I'm in —", name: selection.name, coordinate: selection.coordinate),
                 message: message,
                 onSent: {
+                    noteEngagement(.agreed)
                     noteOutgoingRevision(revision)
                     if let key = ConversationMeetupStore.lastActiveConversationKey {
                         if state.isFullyAgreed {

@@ -599,6 +599,7 @@ struct SpotDetailCard: View {
                 }
                 .buttonStyle(.tweenPrimary())
                 .accessibilityHint("Drops \(name) into your conversation")
+                .coachTarget(.sendToChat)
 
                 Button {
                     openInPreferredMaps()

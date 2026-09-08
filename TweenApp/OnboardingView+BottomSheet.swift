@@ -82,7 +82,8 @@ extension OnboardingView {
         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
             CoachMarkOverlay(step: tourOverlayStep, layer: .sheet,
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
-                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+                             anchors: anchors, onNext: advanceTour, onSkip: skipTour,
+                             onSecondary: tourSecondaryAction)
         }
         // Toasts sit ABOVE the tour's dim, or "Couldn't get your location"
         // renders under 55 % black exactly when it matters.
@@ -219,6 +220,13 @@ extension OnboardingView {
             }
 
             Divider()
+
+            // The quiet, always-there way in — no badges, no red dots.
+            if !ProEntitlement.isUnlocked {
+                Button { activeSheet = .paywall } label: {
+                    Label("Tween Pro", systemImage: "sparkles")
+                }
+            }
 
             Button { activeSheet = .settings } label: {
                 Label("Settings", systemImage: "gearshape")
