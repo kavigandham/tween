@@ -60,6 +60,7 @@ struct PaywallSheet: View {
                     // device on a flaky network saw the link-free state
                     // (audit 2026-08-03).
                     restoreAndErrors
+                    if !unlocked { referralOffer }
                     subscriptionDisclosure
                 }
                 .padding(Tokens.Spacing.s5)
@@ -227,6 +228,36 @@ struct PaywallSheet: View {
     ]
 
     // MARK: - Purchase
+
+    /// The free way in: three referred friends, three months. Progress comes
+    /// from the same store the Friends card reads.
+    private var referralOffer: some View {
+        let state = ReferralStore.load()
+        let filled = ReferralPolicy.progress(state)
+        return HStack(spacing: Tokens.Spacing.s3) {
+            TweenRowIcon(systemImage: "gift.fill", color: Tokens.Palette.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Or invite 3 friends — 3 months free")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text("\(filled) of \(ReferralPolicy.required) joined so far")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            Spacer(minLength: 0)
+            ShareLink(item: OnboardingView.inviteText) {
+                Text("Invite")
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .padding(.horizontal, Tokens.Spacing.s4)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
 
     private var unlockedBadge: some View {
         Label("You have Tween Pro", systemImage: "checkmark.seal.fill")

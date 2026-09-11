@@ -323,6 +323,7 @@ extension OnboardingView {
 
         lastReplyAt = PingLog.lastIncomingReplyAt
         lastGenericInviteAt = PingLog.lastGenericInviteAt
+        announcePendingReferralGrant()
         // Camera writes obey the same self-jump gate as detent writes: a
         // background poll/notification tick detecting a change (e.g. a peer
         // coordinate update) must not yank the map out from under a user

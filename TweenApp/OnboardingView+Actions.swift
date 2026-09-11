@@ -401,6 +401,9 @@ extension OnboardingView {
                 departed: ConversationMeetupStore.departedParticipants(key: key),
                 roster: state.participants)
         }
+        // Referral credit, mirroring the extension's deliverBubble.
+        outgoing.referredBy = Referrals.outboundReferrer
+        Referrals.noteOutbound()
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             participants: state.participants,

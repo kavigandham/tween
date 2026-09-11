@@ -42,3 +42,39 @@ extension OnboardingView {
         EngagementStore.save(state)
     }
 }
+
+// MARK: - Referrals
+
+extension OnboardingView {
+    /// A referral event decoded in THIS process (a friend's bubble opened
+    /// from the chat). Grants that land in the extension are announced by
+    /// `announcePendingReferralGrant` on the next refresh instead.
+    func announceReferral(_ event: ReferralPolicy.Event, from senderName: String?) {
+        switch event {
+        case .attributed:
+            break
+        case .referral(let count):
+            let who = senderName.map(UserName.peerDisplayName) ?? "A friend"
+            showToast("\(who) joined from your invite — \(count % ReferralPolicy.required == 0 ? ReferralPolicy.required : count % ReferralPolicy.required) of \(ReferralPolicy.required)")
+        case .granted(let until):
+            markReferralGrantAnnounced(until)
+            showToast("\(ReferralPolicy.required) friends joined — Tween Pro is yours for 3 months 🎉")
+        }
+    }
+
+    /// Called from every App Group refresh: a grant the extension awarded is
+    /// celebrated once, the next time the app looks.
+    func announcePendingReferralGrant() {
+        let state = ReferralStore.load()
+        guard let until = state.grantedUntil, ReferralPolicy.grantActive(state),
+              state.announcedGrantUntil != until else { return }
+        markReferralGrantAnnounced(until)
+        showToast("\(ReferralPolicy.required) friends joined — Tween Pro is yours for 3 months 🎉")
+    }
+
+    private func markReferralGrantAnnounced(_ until: Date) {
+        var state = ReferralStore.load()
+        state.announcedGrantUntil = until
+        ReferralStore.save(state)
+    }
+}

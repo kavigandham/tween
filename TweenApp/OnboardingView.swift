@@ -65,8 +65,10 @@ struct OnboardingView: View {
     let logger = Logger(subsystem: "com.kavigandham.TweenApp", category: "Host")
 
     /// Prefilled body for an out-of-band SMS nudge to a friend.
+    /// Carries the App Store link: an invite that can't be installed from
+    /// can't be referred from either (see `ReferralPolicy`).
     static let inviteText =
-        "Where should we meet? Open Tween and tap “I'm in” so we can find a fair spot. 📍"
+        "Where should we meet? Get Tween and tap “I'm in” so we can find a fair spot. 📍 https://apps.apple.com/app/id6782279087"
 
     /// Plain-text body for a spot message. Keep this human-readable: the rich
     /// MSMessage bubble already carries the route payload, and exposing the raw
@@ -663,6 +665,11 @@ struct OnboardingView: View {
             GroupStore.save([FriendGroup(name: "The crew", memberIDs: [kavi.id, maya.id])])
             _friends = State(initialValue: FriendRoster.load())
             _groups = State(initialValue: GroupStore.load())
+        }
+        // -DEMO_REFERRALS: two of the three friends already counted, for the
+        // Friends card and the paywall row.
+        if CommandLine.arguments.contains("-DEMO_REFERRALS") {
+            ReferralStore.save(ReferralState(hasSentAny: true, referrals: ["demo-a", "demo-b"]))
         }
         // -DEMO_WHERE_ILL_BE: seeds a DECLARED future self location so the
         // "You'll be at X" label + active state can be screenshot-verified.

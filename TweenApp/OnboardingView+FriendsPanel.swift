@@ -47,6 +47,7 @@ extension OnboardingView {
             Group {
                 nameFieldRow
                 friendActionButtons
+                if !ProEntitlement.isPurchased { referralCard }
                 if !ProEntitlement.isUnlocked { proPromoRow }
                 meetupStatusSection
                 groupsSection
@@ -125,6 +126,54 @@ extension OnboardingView {
         .onChange(of: nameFieldFocused) { _, focused in
             if !focused { saveProfileName() }
         }
+    }
+
+    /// Refer three friends, get three months of Pro. Progress is verified the
+    /// only way a serverless app can — a friend counts once they've sent a
+    /// Tween bubble after first seeing yours (`ReferralPolicy`).
+    var referralCard: some View {
+        let state = ReferralStore.load()
+        let active = ReferralPolicy.grantActive(state)
+        let filled = ReferralPolicy.progress(state)
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+            HStack(spacing: Tokens.Spacing.s3) {
+                TweenRowIcon(systemImage: "gift.fill", color: Tokens.Palette.brand)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(active
+                         ? "Pro until \(state.grantedUntil!.formatted(date: .abbreviated, time: .omitted))"
+                         : "Invite 3 friends, get 3 months of Pro")
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                    Text(active
+                         ? "Three more friends add another 3 months."
+                         : "A friend counts once they've got Tween and sent you an I'm in or a spot.")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(spacing: Tokens.Spacing.s2) {
+                ForEach(0..<ReferralPolicy.required, id: \.self) { index in
+                    Capsule()
+                        .fill(index < filled ? Tokens.Palette.brand : Tokens.Palette.elevatedStrong)
+                        .frame(height: 6)
+                }
+                Text("\(filled) of \(ReferralPolicy.required)")
+                    .font(Tokens.Typography.captionBold.monospacedDigit())
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(filled) of \(ReferralPolicy.required) friends joined")
+            ShareLink(item: Self.inviteText) {
+                Label("Invite friends", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .accessibilityHint("Shares an invite with the App Store link")
+        }
+        .padding(Tokens.Spacing.s3)
+        .background(Tokens.Palette.surfaceSecondary,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
     }
 
     /// One quiet row while locked: what Pro adds to THIS screen.

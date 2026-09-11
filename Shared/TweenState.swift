@@ -85,6 +85,10 @@ struct TweenState: Equatable {
     /// for payloads from older builds. `var` so the composers can inject the
     /// device's current tombstones at send time without rebuilding the state.
     var departed: [String]
+    /// Install id of whoever introduced this sender to Tween (`ref=`), carried
+    /// for a while after their first bubble so the introducer's device can
+    /// count the referral. See `ReferralPolicy`. Nil for most bubbles.
+    var referredBy: String? = nil
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -207,6 +211,9 @@ struct TweenState: Equatable {
         if let revision {
             items.append(URLQueryItem(name: "rev", value: String(revision)))
         }
+        if let referredBy, !referredBy.isEmpty {
+            items.append(URLQueryItem(name: "ref", value: referredBy))
+        }
         components.queryItems = items
         guard let url = components.url else { return nil }
         if url.absoluteString.count <= 5000 { return url }
@@ -311,7 +318,8 @@ struct TweenState: Equatable {
         agreedNames: [String] = [],
         agreedIDs: [String] = [],
         revision: Int? = nil,
-        departed: [String] = []
+        departed: [String] = [],
+        referredBy: String? = nil
     ) {
         self.text = text
         self.latitude = latitude
@@ -329,6 +337,7 @@ struct TweenState: Equatable {
         self.agreedIDs = agreedIDs
         self.revision = revision
         self.departed = departed
+        self.referredBy = referredBy
     }
 
     /// A parsed coordinate is trustworthy only if it is real. `Double.init`
@@ -450,6 +459,7 @@ struct TweenState: Equatable {
         }
         self.revision = items.first(where: { $0.name == "rev" })?.value.flatMap(Int.init)
         self.departed = items.first(where: { $0.name == "gone" })?.value.map(Self.decodeNames) ?? []
+        self.referredBy = items.first(where: { $0.name == "ref" })?.value.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {

@@ -39,6 +39,15 @@ enum ProEntitlement {
         defaults?.bool(forKey: purchasedKey) ?? false
     }
 
+    /// The end of an active referral grant (three friends → 90 days), or nil.
+    /// The second source `syncUnlockedFlag` was built to take: a reward the
+    /// user earned in-app, not a code typed in — so App Review still has to
+    /// exercise the IAPs to reach Pro any other way.
+    static var referralGrantUntil: Date? {
+        let state = ReferralStore.load()
+        return ReferralPolicy.grantActive(state) ? state.grantedUntil : nil
+    }
+
     /// Records StoreKit's verdict, then recomputes the gate.
     ///
     /// Kept as its own key rather than writing `unlockedKey` directly: the
@@ -63,7 +72,7 @@ enum ProEntitlement {
     /// comping job properly — server-side, revocable, cross-device, and with
     /// no app update needed to issue one.
     static func syncUnlockedFlag() {
-        let effective = isPurchased
+        let effective = isPurchased || referralGrantUntil != nil
         guard effective != isUnlocked else { return }
         defaults?.set(effective, forKey: unlockedKey)
         // Same contract as every other App Group writer: post so the other
@@ -124,6 +133,10 @@ enum ProEntitlement {
 
     static func activate() {
         if isDemoPinned { return }
+        // A referral grant that expired since the last launch re-locks here;
+        // one that landed in the extension unlocks here even before StoreKit
+        // answers.
+        syncUnlockedFlag()
         guard updatesTask == nil else { return }
         updatesTask = Task {
             await refresh()

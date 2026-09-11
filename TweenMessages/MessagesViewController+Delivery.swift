@@ -32,7 +32,11 @@ extension MessagesViewController {
         outgoing.departed = RosterMerge.gossipKeys(
             departed: ConversationMeetupStore.departedParticipants(key: deliveryKey),
             roster: state.participants)
+        // Referral credit: for 30 days after someone's bubble brought this
+        // user to Tween, every bubble they send names that introducer.
+        outgoing.referredBy = Referrals.outboundReferrer
         guard let url = outgoing.encodedURL() else { return false }
+        Referrals.noteOutbound()
 
         let localName = UserProfile.displayName
         let image = await BubbleImageRenderer.makeImage(

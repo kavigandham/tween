@@ -53,6 +53,9 @@ extension OnboardingView {
 
         guard let state = TweenState(url: url) else { return }
         logger.debug("Host opened Tween URL type=\(state.messageType.rawValue, privacy: .public) kind=\(state.kind.rawValue, privacy: .public)")
+        for event in Referrals.noteInbound(state, myID: TweenIdentity.stableID) {
+            announceReferral(event, from: state.senderName)
+        }
         let myName = UserProfile.displayName ?? UserName.fallback
         let activeConversationKey = ConversationMeetupStore.lastActiveConversationKey
         let openedOwnProposal = state.kind == .place && state.senderName == myName
