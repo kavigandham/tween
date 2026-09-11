@@ -31,6 +31,16 @@ struct EngagementState: Codable, Equatable {
     var proDismissals = 0
     var reviewNextAt: Int?
     var reviewLastAskedAt: Date?
+    /// Directions handed off to Apple/Google Maps — from the app or the
+    /// Messages extension. Most sessions are minutes long and END in Maps,
+    /// so this is the moment Tween actually worked for someone.
+    var mapsHandoffs = 0
+    /// Returns to the app from the background.
+    var sessions = 0
+    /// An ad earned by a hand-off or a return visit, shown the next time the
+    /// home screen is free (product ask 2026-09-11: "Pro ads after like 3
+    /// times opening in Maps").
+    var proAdPending = false
 
     /// "I'm in" taps + spots sent + agreements — the moments that mean the
     /// app just worked for this person.
@@ -91,6 +101,12 @@ enum NudgePolicy {
     static let reviewCooldown: TimeInterval = 60 * 86_400
     /// Positive events between a Pro pop-up and an already-due review ask.
     static let reviewSpacingAfterPro = 3
+    /// Every 3rd Maps hand-off, and every 3rd return visit, earns a Pro ad.
+    static let proAdEvery = 3
+    /// Ads are the lighter-touch surface, so a shorter floor than the event
+    /// pop-up — but they share its last-shown stamp and its dismissals.
+    static let proAdCooldown: TimeInterval = 3 * 86_400
+    static let proAdBackoffCooldown: TimeInterval = 14 * 86_400
 
     /// Counts `event`, arms any threshold that hasn't been rolled yet, and
     /// decides. When it returns a nudge it has ALREADY stamped it shown and
@@ -136,6 +152,35 @@ enum NudgePolicy {
         return record(event, in: &state, proUnlocked: proUnlocked, now: now, using: &rng)
     }
 
+    /// A hand-off to Maps (app or extension). Every `proAdEvery`th earns an ad.
+    static func recordMapsHandoff(in state: inout EngagementState) {
+        state.mapsHandoffs += 1
+        if state.mapsHandoffs % proAdEvery == 0 { state.proAdPending = true }
+    }
+
+    /// A return to the app. Every `proAdEvery`th earns an ad.
+    static func recordSession(in state: inout EngagementState) {
+        state.sessions += 1
+        if state.sessions % proAdEvery == 0 { state.proAdPending = true }
+    }
+
+    /// Whether to show a pending ad NOW. Stamps it shown when it says yes.
+    /// A pending ad that lands inside the cooldown is dropped, not deferred —
+    /// the next earned one will come round soon enough, and an ad firing at
+    /// an unrelated moment days later reads as random.
+    static func takeProAd(in state: inout EngagementState, proUnlocked: Bool, now: Date) -> Bool {
+        guard state.proAdPending else { return false }
+        state.proAdPending = false
+        guard !proUnlocked else { return false }
+        if let last = state.proLastShownAt {
+            let cooldown = state.proDismissals >= proBackoffAfterDismissals
+                ? proAdBackoffCooldown : proAdCooldown
+            guard now.timeIntervalSince(last) >= cooldown else { return false }
+        }
+        state.proLastShownAt = now
+        return true
+    }
+
     /// "Not now" on the Pro pop-up. Two of these move it to the long cooldown.
     static func noteProDismissed(in state: inout EngagementState) {
         state.proDismissals += 1
@@ -151,5 +196,15 @@ enum NudgePolicy {
     private static func reviewCooldownElapsed(_ state: EngagementState, now: Date) -> Bool {
         guard let last = state.reviewLastAskedAt else { return true }
         return now.timeIntervalSince(last) >= reviewCooldown
+    }
+}
+
+extension EngagementStore {
+    /// Store-backed hand-off counter — called from every "open in Maps" path
+    /// in both processes.
+    static func noteMapsHandoff() {
+        var state = load()
+        NudgePolicy.recordMapsHandoff(in: &state)
+        save(state)
     }
 }

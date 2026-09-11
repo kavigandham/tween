@@ -9,6 +9,9 @@ struct TweenAppApp: App {
         // opening the app silently erased the roster and marked the user out —
         // the exact opposite of the app and extension feeling interchangeable.
         // Harness runs seed their own caches and must not be wiped either.
+        // Before anything clears state: an install already in use is an
+        // existing user for referral purposes, never someone's new one.
+        Referrals.bootstrapIfNeeded()
         let isHarness = CommandLine.arguments.contains { $0.hasPrefix("-HARNESS_HOST") }
         if !isHarness,
            !ConversationMeetupStore.hasLiveMeetup(within: ConversationMeetupStore.snapshotTTL) {
@@ -20,6 +23,8 @@ struct TweenAppApp: App {
         if CommandLine.arguments.contains("-DEMO_PRO_UNLOCKED") {
             ProEntitlement.setUnlocked(true)
         } else if CommandLine.arguments.contains("-DEMO_PRO_LOCKED") {
+            // A referral grant left by an earlier run would OR Pro back on.
+            if !CommandLine.arguments.contains("-DEMO_REFERRALS") { ReferralStore.clear() }
             ProEntitlement.setUnlocked(false)
         }
         #endif

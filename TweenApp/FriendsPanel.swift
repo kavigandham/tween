@@ -50,11 +50,14 @@ struct FriendRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.s3) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(Tokens.Typography.title2)
-                .foregroundStyle(Tokens.Palette.accent)
-                .frame(width: Tokens.Spacing.s7)
-            VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
+            // Initials, the way Contacts and Find My show people.
+            Text(TweenPin.initials(for: friend.name))
+                .font(Tokens.Typography.subheadline.weight(.semibold))
+                .foregroundStyle(Tokens.Palette.onBrand)
+                .frame(width: 40, height: 40)
+                .background(Tokens.Palette.pinFriend, in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(friend.name)
                     .font(Tokens.Typography.headline)
                     .lineLimit(1)

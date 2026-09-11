@@ -40,6 +40,11 @@ struct PaywallSheet: View {
     /// less than the monthly, so it is the honest recommendation rather than
     /// the one that maximises revenue.
     @State private var selectedProductID = ProEntitlement.lifetimeProductID
+    /// The referral invite composer, presented from THIS sheet (the paywall
+    /// is itself presented from several places, none of which can host it).
+    @State private var inviteDraft: ReferralInviteDraft?
+    @State private var showInviteShare = false
+    @State private var referral = ReferralStore.load()
 
     var body: some View {
         NavigationStack {
@@ -229,34 +234,58 @@ struct PaywallSheet: View {
 
     // MARK: - Purchase
 
-    /// The free way in: three referred friends, three months. Progress comes
-    /// from the same store the Friends card reads.
+    /// The free way in: three referred friends, three months. Sends the same
+    /// Tween invite bubble as Friends → Invite.
     private var referralOffer: some View {
-        let state = ReferralStore.load()
-        let filled = ReferralPolicy.progress(state)
+        let filled = ReferralPolicy.progress(referral)
         return HStack(spacing: Tokens.Spacing.s3) {
-            TweenRowIcon(systemImage: "gift.fill", color: Tokens.Palette.brand)
+            ReferralProgressRing(filled: filled, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Or invite 3 friends — 3 months free")
-                    .font(Tokens.Typography.headline)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.textPrimary)
-                Text("\(filled) of \(ReferralPolicy.required) joined so far")
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(referral.invitesSent > 0
+                     ? "\(filled) of \(ReferralPolicy.required) joined · \(referral.invitesSent) invited"
+                     : "They count when they join Tween")
                     .font(Tokens.Typography.caption)
                     .foregroundStyle(Tokens.Palette.textSecondary)
             }
             Spacer(minLength: 0)
-            ShareLink(item: OnboardingView.inviteText) {
+            Button(action: startInvite) {
                 Text("Invite")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .padding(.horizontal, Tokens.Spacing.s4)
                     .frame(minHeight: Tokens.Layout.minTapTarget)
             }
             .buttonStyle(.tweenPrimary(.subtle))
+            .fixedSize()
         }
         .padding(Tokens.Spacing.s3)
         .background(Tokens.Palette.surfaceSecondary,
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .accessibilityElement(children: .combine)
+        .sheet(item: $inviteDraft) { draft in
+            MessageComposeSheet(recipients: [], body: ReferralInvite.bodyText,
+                                message: draft.message) { result in
+                inviteDraft = nil
+                if result == .sent {
+                    Referrals.noteInviteSent()
+                    referral = ReferralStore.load()
+                }
+            }
+        }
+        .sheet(isPresented: $showInviteShare) {
+            ActivityView(items: [ReferralInvite.bodyText]) { showInviteShare = false }
+        }
+    }
+
+    private func startInvite() {
+        guard ReferralInvite.canSendBubble,
+              let message = ReferralInvite.makeMessage(senderName: UserProfile.displayName) else {
+            showInviteShare = true
+            return
+        }
+        inviteDraft = ReferralInviteDraft(message: message)
     }
 
     private var unlockedBadge: some View {

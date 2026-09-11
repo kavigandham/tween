@@ -53,9 +53,10 @@ extension OnboardingView {
 
         guard let state = TweenState(url: url) else { return }
         logger.debug("Host opened Tween URL type=\(state.messageType.rawValue, privacy: .public) kind=\(state.kind.rawValue, privacy: .public)")
-        for event in Referrals.noteInbound(state, myID: TweenIdentity.stableID) {
-            announceReferral(event, from: state.senderName)
-        }
+        // No referral credit here: the host is only ever handed URLs by the
+        // extension or by whoever crafted a link — iMessage vouches for the
+        // sender only in the extension's decode (audit 2026-09-11: three
+        // crafted tween:// links were 90 days of Pro).
         let myName = UserProfile.displayName ?? UserName.fallback
         let activeConversationKey = ConversationMeetupStore.lastActiveConversationKey
         let openedOwnProposal = state.kind == .place && state.senderName == myName

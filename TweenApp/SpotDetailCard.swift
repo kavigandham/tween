@@ -692,6 +692,8 @@ struct SpotDetailCard: View {
     /// identity via the map item when one exists; both branches open driving
     /// directions.
     private func openInPreferredMaps() {
+        // Counted for the Pro ad (every 3rd hand-off to Maps).
+        EngagementStore.noteMapsHandoff()
         switch MapsPreference.current {
         case .apple:
             if let mapItem {

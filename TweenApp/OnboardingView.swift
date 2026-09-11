@@ -324,6 +324,17 @@ struct OnboardingView: View {
     /// True while the Pro pop-up is presented, so its dismissal — button OR
     /// swipe — is counted exactly once from the sheet's onDismiss.
     @State var proNudgeShowing = false
+    /// Which pitch the Pro pop-up leads with.
+    @State var proNudgeReason: ProNudgeSheet.Reason = .engagement
+    /// The referral blob, refreshed from the App Group on every refresh so
+    /// the Friends card never decodes it inside a body pass.
+    @State var referralSnapshot = ReferralStore.load()
+    /// A few seconds of "Invite sent ✓" on the referral card — a toast would
+    /// render under the Friends sheet, invisible.
+    @State var referralFlash: String?
+    /// Set when the scene reaches the background, so the next `.active`
+    /// counts as a return visit (and an `.inactive` blip doesn't).
+    @State var wasBackgrounded = false
     /// Apple's review prompt; the engine decides when (`noteEngagement`).
     @Environment(\.requestReview) var requestReview
 
@@ -669,7 +680,17 @@ struct OnboardingView: View {
         // -DEMO_REFERRALS: two of the three friends already counted, for the
         // Friends card and the paywall row.
         if CommandLine.arguments.contains("-DEMO_REFERRALS") {
-            ReferralStore.save(ReferralState(hasSentAny: true, referrals: ["demo-a", "demo-b"]))
+            ReferralStore.save(ReferralState(firstSeenAt: Date(), hasSentAny: true, invitesSent: 3,
+                                             referrals: ["demo-a", "demo-b"],
+                                             announcedReferralCount: 2))
+            _referralSnapshot = State(initialValue: ReferralStore.load())
+        }
+        // -DEMO_PRO_AD: an ad already earned, shown on launch.
+        if CommandLine.arguments.contains("-DEMO_PRO_AD") {
+            var engagement = EngagementStore.load()
+            engagement.proAdPending = true
+            engagement.proLastShownAt = nil
+            EngagementStore.save(engagement)
         }
         // -DEMO_WHERE_ILL_BE: seeds a DECLARED future self location so the
         // "You'll be at X" label + active state can be screenshot-verified.
@@ -870,7 +891,11 @@ struct OnboardingView: View {
         .onChange(of: isUserIn) { _, _ in tourDidObserveChange() }
         .onChange(of: searchState) { _, _ in tourDidObserveChange() }
         .onChange(of: isSearchLoading) { _, _ in tourDidObserveChange() }
-        .onChange(of: activeSheet?.id) { _, _ in tourDidObserveChange() }
+        .onChange(of: activeSheet?.id) { _, id in
+            tourDidObserveChange()
+            // An ad earned in Maps waits for the place sheet to close.
+            if id == nil { presentProAdIfDue() }
+        }
     }
 
     var body: some View {
@@ -1097,6 +1122,7 @@ struct OnboardingView: View {
                                                     message: pending.message) { result in
                                     friendsSubSheet = nil
                                     if result == .sent {
+                                        if pending.message != nil { Referrals.noteOutbound() }
                                         pending.onSent?()
                                     } else {
                                         pending.onCancelled?()
@@ -1129,6 +1155,7 @@ struct OnboardingView: View {
                                             message: pending.message) { result in
                             activeSheet = nil
                             if result == .sent {
+                                if pending.message != nil { Referrals.noteOutbound() }
                                 pending.onSent?()
                             } else {
                                 pending.onCancelled?()
@@ -1149,7 +1176,7 @@ struct OnboardingView: View {
                     case .settings:
                         SettingsSheet()
                     case .proNudge:
-                        ProNudgeSheet()
+                        ProNudgeSheet(reason: proNudgeReason)
                     case .paywall:
                         PaywallSheet()
                     }
@@ -1291,7 +1318,18 @@ struct OnboardingView: View {
             // (audit 2026-09-08).
             if phase == .background {
                 removeTourDemoFriend()
+                wasBackgrounded = true
             }
+            // A real return visit (not an .inactive blip) — every third
+            // earns a Pro ad, as does every third hand-off to Maps.
+            if phase == .active, wasBackgrounded {
+                wasBackgrounded = false
+                var engagement = EngagementStore.load()
+                NudgePolicy.recordSession(in: &engagement)
+                EngagementStore.save(engagement)
+                presentProAdIfDue()
+            }
+            // (Cold launches are counted by the launch `.task` below.)
             if phase != .active {
                 searchTask?.cancel()
                 // A backgrounding cancel returns at runSearch's Task.isCancelled
@@ -1325,6 +1363,14 @@ struct OnboardingView: View {
             await pollPeer()
         }
         .task { requestInitialLocation() }
+        // A cold launch is a visit too — and an ad earned in Maps from the
+        // Messages extension has no other moment to show.
+        .task {
+            var engagement = EngagementStore.load()
+            NudgePolicy.recordSession(in: &engagement)
+            EngagementStore.save(engagement)
+            presentProAdIfDue()
+        }
         .task { await openDemoSpotSheetIfRequested() }
         .onAppear {
             _ = refreshFromAppGroup()

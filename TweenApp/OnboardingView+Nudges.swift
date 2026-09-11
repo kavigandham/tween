@@ -26,6 +26,7 @@ extension OnboardingView {
             guard activeSheet == nil, tourStep == nil else { return }
             switch nudge {
             case .pro:
+                proNudgeReason = .engagement
                 proNudgeShowing = true
                 activeSheet = .proNudge
             case .review:
@@ -46,35 +47,87 @@ extension OnboardingView {
 // MARK: - Referrals
 
 extension OnboardingView {
-    /// A referral event decoded in THIS process (a friend's bubble opened
-    /// from the chat). Grants that land in the extension are announced by
-    /// `announcePendingReferralGrant` on the next refresh instead.
-    func announceReferral(_ event: ReferralPolicy.Event, from senderName: String?) {
-        switch event {
-        case .attributed:
-            break
-        case .referral(let count):
-            let who = senderName.map(UserName.peerDisplayName) ?? "A friend"
-            showToast("\(who) joined from your invite — \(count % ReferralPolicy.required == 0 ? ReferralPolicy.required : count % ReferralPolicy.required) of \(ReferralPolicy.required)")
-        case .granted(let until):
-            markReferralGrantAnnounced(until)
-            showToast("\(ReferralPolicy.required) friends joined — Tween Pro is yours for 3 months 🎉")
+    /// Sends a referral invite: a Tween bubble through the Messages composer
+    /// (from inside Friends, as its child sheet). No composer (iPad without
+    /// Messages, the simulator): the share sheet with the App Store link.
+    func sendReferralInvite() {
+        ensureNamed {
+            guard ReferralInvite.canSendBubble,
+                  let message = ReferralInvite.makeMessage(senderName: UserProfile.displayName) else {
+                if case .friends = activeSheet {
+                    friendsSubSheet = .invite
+                } else {
+                    UIPasteboard.general.string = ReferralInvite.bodyText
+                    showToast("Invite copied — paste it to a friend")
+                }
+                return
+            }
+            presentMessageCompose(PendingMessage(
+                recipients: [],
+                body: ReferralInvite.bodyText,
+                message: message,
+                onSent: {
+                    Referrals.noteInviteSent()
+                    referralSnapshot = ReferralStore.load()
+                    flashReferral("Invite sent ✓ — it counts when they join")
+                }))
         }
     }
 
-    /// Called from every App Group refresh: a grant the extension awarded is
-    /// celebrated once, the next time the app looks.
-    func announcePendingReferralGrant() {
-        let state = ReferralStore.load()
-        guard let until = state.grantedUntil, ReferralPolicy.grantActive(state),
-              state.announcedGrantUntil != until else { return }
-        markReferralGrantAnnounced(until)
-        showToast("\(ReferralPolicy.required) friends joined — Tween Pro is yours for 3 months 🎉")
+    func flashReferral(_ text: String) {
+        withAnimation(Tokens.Motion.snappy) { referralFlash = text }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(Tokens.Motion.snappy) {
+                if referralFlash == text { referralFlash = nil }
+            }
+        }
     }
 
-    private func markReferralGrantAnnounced(_ until: Date) {
-        var state = ReferralStore.load()
-        state.announcedGrantUntil = until
-        ReferralStore.save(state)
+    /// Every App Group refresh: pick up referrals the extension counted, and
+    /// celebrate them once — on the home screen, where a toast is visible.
+    /// Inside Friends the card updates live instead, and the announcement
+    /// waits for the sheet to close.
+    func refreshReferrals() {
+        let fresh = ReferralStore.load()
+        if fresh != referralSnapshot { referralSnapshot = fresh }
+        guard activeSheet == nil, tourStep == nil else { return }
+        var state = fresh
+        if let until = state.grantedUntil, ReferralPolicy.grantActive(state),
+           state.announcedGrantUntil != until {
+            state.announcedGrantUntil = until
+            state.announcedReferralCount = state.referrals.count
+            ReferralStore.save(state)
+            referralSnapshot = state
+            showToast("\(ReferralPolicy.required) friends joined — Tween Pro is yours for 3 months 🎉")
+        } else if state.referrals.count > state.announcedReferralCount {
+            state.announcedReferralCount = state.referrals.count
+            ReferralStore.save(state)
+            referralSnapshot = state
+            let progress = ReferralPolicy.progress(state)
+            showToast("A friend joined from your invite — \(progress) of \(ReferralPolicy.required) toward free Pro")
+        }
+    }
+}
+
+// MARK: - The Pro ad
+
+extension OnboardingView {
+    /// Shows an ad earned by a hand-off to Maps or a return visit, once the
+    /// home screen is free: not during the tour, not over a sheet (the place
+    /// sheet the user left for Maps stays until they close it).
+    func presentProAdIfDue() {
+        guard tourStep == nil, activeSheet == nil, EngagementStore.load().proAdPending else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard tourStep == nil, activeSheet == nil else { return }
+            var state = EngagementStore.load()
+            let show = NudgePolicy.takeProAd(in: &state, proUnlocked: ProEntitlement.isUnlocked, now: Date())
+            EngagementStore.save(state)
+            guard show else { return }
+            proNudgeReason = .welcomeBack
+            proNudgeShowing = true
+            activeSheet = .proNudge
+        }
     }
 }

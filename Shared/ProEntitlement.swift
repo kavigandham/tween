@@ -108,7 +108,11 @@ enum ProEntitlement {
         // (regression, audit 2026-08-31).
         guard !Task.isCancelled else { return isUnlocked }
         setUnlocked(unlocked)
-        return unlocked
+        // The GATE, not StoreKit's raw verdict: a referral grant keeps Pro on
+        // with no purchase, and callers bind UI to this return — returning
+        // `unlocked` showed a referral-granted user the locked paywall
+        // (audit 2026-09-11).
+        return isUnlocked
     }
 
     /// Starts the app-lifetime plumbing exactly once (host app only): an

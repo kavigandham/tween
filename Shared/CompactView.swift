@@ -17,6 +17,9 @@ struct CompactView: View {
     var onImIn: () -> Void
     var onImOut: () -> Void = {}
     var onExpand: () -> Void
+    /// "Hassan invited you — tell them you're on Tween." Replaces the
+    /// launcher's header while an invite is unanswered.
+    var referralReply: ReferralReplyPrompt? = nil
 
     var body: some View {
         VStack(spacing: Tokens.Spacing.s3) {
@@ -53,22 +56,10 @@ struct CompactView: View {
 
     private var launcherState: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
-            HStack(spacing: Tokens.Spacing.s3) {
-                compactAppIcon
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isUserIn ? "You're in" : "Start a meetup")
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                    Text(isUserIn ? "Waiting for others." : "Share in this chat.")
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-                rosterCountPill
+            if let referralReply {
+                ReferralReplyBanner(prompt: referralReply, isSending: isSending)
+            } else {
+                launcherHeader
             }
 
             compactPrimaryAction
@@ -109,6 +100,26 @@ struct CompactView: View {
         // grey card, and ate ~24pt of a keyboard-height budget doing it
         // (device report 2026-08-02: "looks bad until it's fully opened").
         // Apple's own compact Messages apps fill the surface edge to edge.
+    }
+
+    private var launcherHeader: some View {
+        HStack(spacing: Tokens.Spacing.s3) {
+            compactAppIcon
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isUserIn ? "You're in" : "Start a meetup")
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text(isUserIn ? "Waiting for others." : "Share in this chat.")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            rosterCountPill
+        }
     }
 
     private var activeMeetupState: some View {

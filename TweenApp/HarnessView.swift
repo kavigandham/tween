@@ -20,6 +20,18 @@ struct HarnessView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s5) {
                 if focus == .all {
+                    section("Compact View · Referral Invite") {
+                        CompactView(
+                            received: nil,
+                            isUserIn: false,
+                            onImIn: {},
+                            onExpand: {},
+                            referralReply: ReferralReplyPrompt(inviterName: "Hassan Ahmed", onReply: {})
+                        )
+                        .frame(height: 230)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+
                     section("Compact View") {
                         CompactView(
                             received: nil,

@@ -10,6 +10,17 @@ import SwiftUI
 /// anything and never shows during the tour or over another sheet (the
 /// host gates that — see `OnboardingView.noteEngagement`).
 struct ProNudgeSheet: View {
+    /// Which moment raised it, so the pitch fits the moment.
+    enum Reason {
+        /// A random threshold of good moments (I'm in, a spot sent, agreed).
+        case engagement
+        /// Back from Maps, or a third return visit — people use Tween for a
+        /// few minutes and head off; this catches them when they come back.
+        case welcomeBack
+    }
+
+    var reason: Reason = .engagement
+
     @State private var showPaywall = false
     @Environment(\.dismiss) private var dismiss
 
@@ -25,7 +36,9 @@ struct ProNudgeSheet: View {
                 .foregroundStyle(Tokens.Palette.accent)
             }
 
-            Text("You've been planning meetups. Pro makes the next ones one tap.")
+            Text(reason == .welcomeBack
+                 ? "Back from the drive? Pro plans the next one ahead — a time, a leave-by reminder, the whole crew in one tap."
+                 : "You've been planning meetups. Pro makes the next ones one tap.")
                 .font(Tokens.Typography.subheadline)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -50,6 +50,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     var isSending = false
     var sendStatusMessage: String?
     var recentlySentSpotName: String?
+    /// Set while the tapped bubble is an unanswered invite: the banner offers
+    /// one tap to tell the inviter this install exists. Per activation and
+    /// per conversation — replying in another chat would tell the wrong people.
+    var pendingReferralReply: (inviterID: String, name: String)?
     var conversationKey: String?
     var selectedSearchCategory: MessagesSearchCategory = .food
 
@@ -152,6 +156,11 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
+        // Referral bookkeeping: first run marks new vs existing installs, and
+        // an expired referral grant re-locks Pro here too — the extension may
+        // be the only surface someone opens for weeks.
+        Referrals.bootstrapIfNeeded()
+        ProEntitlement.syncUnlockedFlag()
         let key = Self.conversationKey(for: conversation)
         let switchedConversation = conversationKey != key
             || ConversationMeetupStore.lastActiveConversationKey != key
@@ -159,6 +168,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         ConversationMeetupStore.lastActiveConversationKey = key
 
         if switchedConversation {
+            pendingReferralReply = nil
             received = nil
             draft = nil
             rankedSpots = []
@@ -184,6 +194,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // Number of seats in the iMessage thread. The local participant always
         // counts as 1; remoteParticipantIdentifiers covers everyone else.
         totalConversationParticipants = 1 + conversation.remoteParticipantIdentifiers.count
+        handleReferralBubble(conversation.selectedMessage, in: conversation)
         presentUI(for: presentationStyle)
 
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
@@ -323,6 +334,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         if let session = message.session {
             lastKnownSession = session
         }
+        if handleReferralBubble(message, in: conversation) {
+            presentUI(for: presentationStyle)
+            return
+        }
         let decoded = decodeAndCache(message, in: conversation)
         if decoded {
             clearSnapshotHint()
@@ -340,6 +355,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         super.didReceive(message, conversation: conversation)
         if let session = message.session {
             lastKnownSession = session
+        }
+        if handleReferralBubble(message, in: conversation) {
+            presentUI(for: presentationStyle)
+            return
         }
         let savedPeer = decodeAndCache(message, in: conversation)
         recentlySentSpotName = nil
@@ -476,7 +495,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onOpenInMaps: { [weak self] state in self?.openInPreferredMaps(for: state) },
                     isSending: isSending,
                     statusMessage: sendStatusMessage,
-                    statusIsError: sendStatusIsError
+                    statusIsError: sendStatusIsError,
+                    referralReply: referralReplyPrompt
                 )
             )
         default:
@@ -490,7 +510,8 @@ final class MessagesViewController: MSMessagesAppViewController {
                     statusMessage: sendStatusMessage,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },
-                    onExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
+                    onExpand: { [weak self] in self?.requestPresentationStyle(.expanded) },
+                    referralReply: referralReplyPrompt
                 )
             )
         }

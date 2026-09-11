@@ -44,13 +44,23 @@ extension OnboardingView {
     /// detent the roster collapsed to zero height and clipped.
     var peoplePanel: some View {
         List {
+            // One quiet header, two tiles, one referral line — then the
+            // sections. The old stack of full-width cards (name card, two
+            // 56 pt buttons, a referral card with a SECOND invite button, a
+            // Pro row) read as a wall of chrome (device feedback 2026-09-11).
             Group {
-                nameFieldRow
-                friendActionButtons
-                if !ProEntitlement.isPurchased { referralCard }
-                if !ProEntitlement.isUnlocked { proPromoRow }
+                profileHeader
+                friendActionTiles
+                if !ProEntitlement.isPurchased { referralStrip }
                 meetupStatusSection
                 groupsSection
+                if !friends.isEmpty {
+                    sectionHeader("Friends", systemImage: "person.crop.circle") {
+                        Text("\(friends.count)")
+                            .font(Tokens.Typography.captionBold)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                    }
+                }
             }
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -101,129 +111,149 @@ extension OnboardingView {
         .listStyle(.plain)
     }
 
-    /// The profile-name field as a form row — icon badge, caption label, and an
-    /// opaque secondary surface — so it can't be mistaken for the place-search
-    /// bar. Persists on submit or when focus leaves the field, not per keystroke
-    /// (every write fans out through the App Group change publisher).
-    var nameFieldRow: some View {
+    /// Who you are on invites: an avatar and your name, editable in place —
+    /// the Apple-ID-row pattern, not a form card. Persists on submit or when
+    /// focus leaves the field, not per keystroke (every write fans out
+    /// through the App Group change publisher).
+    var profileHeader: some View {
         HStack(spacing: Tokens.Spacing.s3) {
-            TweenRowIcon(systemImage: "person.text.rectangle", color: Tokens.Palette.brand, size: 36)
+            Group {
+                if profileName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Image(systemName: "person.fill")
+                        .font(Tokens.Typography.title2)
+                } else {
+                    Text(Self.initials(for: profileName))
+                        .font(Tokens.Typography.title2.weight(.semibold))
+                }
+            }
+            .foregroundStyle(Tokens.Palette.onBrand)
+            .frame(width: 52, height: 52)
+            .background(Tokens.Palette.brand, in: Circle())
+            .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text("Your name")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
                 TextField("Add your name", text: $profileName)
+                    .font(Tokens.Typography.title2.weight(.semibold))
                     .textFieldStyle(.plain)
                     .focused($nameFieldFocused)
                     .submitLabel(.done)
                     .onSubmit(saveProfileName)
                     .accessibilityLabel("Your name")
                     .accessibilityHint("Shown to friends when you invite them")
+                Text("Friends see this on your invites")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            }
+            if !nameFieldFocused {
+                Image(systemName: "pencil")
+                    .font(Tokens.Typography.footnote.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+                    .accessibilityHidden(true)
             }
         }
-        .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .padding(.vertical, Tokens.Spacing.s2)
+        .contentShape(Rectangle())
+        .onTapGesture { nameFieldFocused = true }
         .onChange(of: nameFieldFocused) { _, focused in
             if !focused { saveProfileName() }
         }
     }
 
-    /// Refer three friends, get three months of Pro. Progress is verified the
-    /// only way a serverless app can — a friend counts once they've sent a
-    /// Tween bubble after first seeing yours (`ReferralPolicy`).
-    var referralCard: some View {
-        let state = ReferralStore.load()
-        let active = ReferralPolicy.grantActive(state)
-        let filled = ReferralPolicy.progress(state)
-        return VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
-            HStack(spacing: Tokens.Spacing.s3) {
-                TweenRowIcon(systemImage: "gift.fill", color: Tokens.Palette.brand)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(active
-                         ? "Pro until \(state.grantedUntil!.formatted(date: .abbreviated, time: .omitted))"
-                         : "Invite 3 friends, get 3 months of Pro")
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                    Text(active
-                         ? "Three more friends add another 3 months."
-                         : "A friend counts once they've got Tween and sent you an I'm in or a spot.")
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            HStack(spacing: Tokens.Spacing.s2) {
-                ForEach(0..<ReferralPolicy.required, id: \.self) { index in
-                    Capsule()
-                        .fill(index < filled ? Tokens.Palette.brand : Tokens.Palette.elevatedStrong)
-                        .frame(height: 6)
-                }
-                Text("\(filled) of \(ReferralPolicy.required)")
-                    .font(Tokens.Typography.captionBold.monospacedDigit())
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(filled) of \(ReferralPolicy.required) friends joined")
-            ShareLink(item: Self.inviteText) {
-                Label("Invite friends", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-            }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .accessibilityHint("Shares an invite with the App Store link")
-        }
-        .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary,
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-    }
-
-    /// One quiet row while locked: what Pro adds to THIS screen.
-    var proPromoRow: some View {
-        Button { friendsSubSheet = .paywall } label: {
-            HStack(spacing: Tokens.Spacing.s3) {
-                TweenRowIcon(systemImage: "sparkles", color: Tokens.Palette.brand)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tween Pro")
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                    Text("Groups, saved places, and plans with a time")
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.textTertiary)
-            }
-            .padding(Tokens.Spacing.s3)
-            .frame(maxWidth: .infinity)
-            .background(Tokens.Palette.surfaceSecondary,
-                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens the Tween Pro options")
-    }
-
-    var friendActionButtons: some View {
+    /// The two things you do here, as equal tiles — Contacts-card style.
+    /// Invite sends a Tween invite bubble (the referral), so there is one
+    /// invite action on this screen, not two.
+    var friendActionTiles: some View {
         HStack(spacing: Tokens.Spacing.s2) {
-            // friendsSubSheet, NOT activeSheet: these buttons live inside the
+            // friendsSubSheet, NOT activeSheet: these live inside the
             // presented Friends sheet, and swapping the parent's item drops
             // silently on iOS 26 (dead buttons — device feedback 2026-07-31).
             Button { friendsSubSheet = .contacts } label: {
-                Label("Add Friend", systemImage: "person.badge.plus")
+                FriendsTile(title: "Add Friend", systemImage: "person.badge.plus")
             }
-            .buttonStyle(.tweenPrimary())
+            .buttonStyle(FriendsTileStyle())
             .accessibilityHint("Picks someone from your contacts")
             .coachTarget(.addFriend)
 
-            Button { friendsSubSheet = .invite } label: {
-                Label("Invite", systemImage: "square.and.arrow.up")
+            Button { sendReferralInvite() } label: {
+                FriendsTile(title: "Invite", systemImage: "paperplane.fill")
             }
-            .buttonStyle(.tweenPrimary(.subtle))
-            .accessibilityHint("Shares an invite link to Tween")
+            .buttonStyle(FriendsTileStyle())
+            .accessibilityHint("Sends a Tween invite in Messages. Friends who join count toward free Pro.")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, Tokens.Spacing.s1)
+    }
+
+    /// Refer three friends, get three months of Pro — one line with a ring,
+    /// under the Invite tile it belongs to. A friend counts once their Tween
+    /// tells yours they joined (`ReferralPolicy`).
+    var referralStrip: some View {
+        let state = referralSnapshot
+        let active = ReferralPolicy.grantActive(state)
+        let filled = ReferralPolicy.progress(state)
+        let title: String
+        if active, let until = state.grantedUntil {
+            title = "Tween Pro until \(until.formatted(date: .abbreviated, time: .omitted))"
+        } else {
+            title = "3 months of Pro, free"
+        }
+        let subtitle: String
+        if let referralFlash {
+            subtitle = referralFlash
+        } else if active {
+            subtitle = "3 more friends add another 3 months"
+        } else if state.invitesSent > 0 {
+            subtitle = "\(filled) of \(ReferralPolicy.required) joined · \(state.invitesSent) invited"
+        } else {
+            subtitle = "Invite 3 friends. They count when they join."
+        }
+        return HStack(spacing: Tokens.Spacing.s3) {
+            ReferralProgressRing(filled: filled, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Tokens.Typography.subheadline.weight(.semibold))
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(referralFlash == nil ? Tokens.Palette.textSecondary : Tokens.Palette.success)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            Spacer(minLength: 0)
+            if !ProEntitlement.isUnlocked {
+                Button { friendsSubSheet = .paywall } label: {
+                    Text("Get Pro")
+                        .font(Tokens.Typography.footnote.weight(.semibold))
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .frame(minHeight: Tokens.Layout.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the Tween Pro options")
+            }
+        }
+        .padding(.horizontal, Tokens.Spacing.s3)
+        .padding(.vertical, Tokens.Spacing.s2)
+        .background(Tokens.Palette.surfaceSecondary,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// One section-header style for every section on this screen.
+    func sectionHeader<Trailing: View>(_ title: String, systemImage: String,
+                                        @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            Label(title, systemImage: systemImage)
+                .font(Tokens.Typography.captionBold)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .textCase(.uppercase)
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .padding(.top, Tokens.Spacing.s4)
+        .accessibilityAddTraits(.isHeader)
     }
 
     /// Pro: named groups that open straight into a fair-spot search from the
@@ -232,38 +262,46 @@ extension OnboardingView {
     /// users to the paywall.
     var groupsSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            HStack {
-                Label("Groups", systemImage: "person.3.fill")
-                    .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                if !ProEntitlement.isUnlocked {
-                    Image(systemName: "sparkles")
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.brand)
-                        .accessibilityLabel("Tween Pro feature")
-                }
-                Spacer()
+            sectionHeader(ProEntitlement.isUnlocked ? "Groups" : "Groups · Pro", systemImage: "person.3.fill") {
                 Button {
                     guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
                     friendsSubSheet = .groupEditor(nil)
                 } label: {
+                    // Header-height, like the other section headers; the
+                    // padding keeps a comfortable hit area without pushing
+                    // the header down.
                     Label("New", systemImage: "plus")
                         .font(Tokens.Typography.captionBold)
+                        .foregroundStyle(Tokens.Palette.accent)
+                        .padding(.vertical, Tokens.Spacing.s1)
+                        .padding(.horizontal, Tokens.Spacing.s2)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityHint("Creates a new friend group")
             }
-            if groups.isEmpty {
-                Text("Make a group — open it any time to find fair spots between everyone's home bases, no live locations needed.")
-                    .font(Tokens.Typography.caption)
-                    .foregroundStyle(Tokens.Palette.textTertiary)
-            } else {
-                ForEach(groups) { group in
-                    groupRow(group)
+            VStack(spacing: 0) {
+                if groups.isEmpty {
+                    HStack(spacing: Tokens.Spacing.s3) {
+                        TweenRowIcon(systemImage: "person.3", color: Tokens.Palette.textTertiary, size: 36)
+                        Text("Save your crew once — open the group any time to find fair spots between everyone's home bases.")
+                            .font(Tokens.Typography.footnote)
+                            .foregroundStyle(Tokens.Palette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                        groupRow(group)
+                        if index < groups.count - 1 {
+                            Divider().padding(.leading, 48)
+                        }
+                    }
                 }
             }
+            .padding(Tokens.Spacing.s3)
+            .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         }
-        .padding(Tokens.Spacing.s3)
-        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
     }
 
     func groupRow(_ group: FriendGroup) -> some View {
@@ -338,12 +376,7 @@ extension OnboardingView {
 
     var meetupStatusSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s2) {
-            HStack {
-                Label("Current meetup", systemImage: "person.2.fill")
-                    .font(Tokens.Typography.captionBold)
-                    .foregroundStyle(Tokens.Palette.textSecondary)
-                    .textCase(.uppercase)
-                Spacer(minLength: 0)
+            sectionHeader("Current meetup", systemImage: "person.2.fill") {
                 Text(pendingInvitesForDisplay.isEmpty
                      ? "\(activeParticipantsForDisplay.count) in"
                      : "\(activeParticipantsForDisplay.count) in · \(pendingInvitePersonCount) pending")
@@ -1659,4 +1692,31 @@ extension OnboardingView {
         return "Distance between you: \(distance)"
     }
 
+}
+
+/// A Contacts-card action tile: icon over label, equal width.
+struct FriendsTile: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(spacing: Tokens.Spacing.s1) {
+            Image(systemName: systemImage)
+                .font(Tokens.Typography.headline)
+            Text(title)
+                .font(Tokens.Typography.captionBold)
+                .lineLimit(1)
+        }
+        .foregroundStyle(Tokens.Palette.accent)
+        .frame(maxWidth: .infinity, minHeight: 58)
+    }
+}
+
+struct FriendsTileStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Tokens.Palette.neutralAction,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.action, style: .continuous))
+            .tweenPressFeedback(isPressed: configuration.isPressed)
+    }
 }

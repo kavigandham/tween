@@ -103,6 +103,8 @@ struct ExpandedView: View {
     /// progress/confirmation copy (neutral banner). One string channel carries
     /// both, so the sender must say which it is.
     var statusIsError: Bool = false
+    /// "Hassan invited you — tell them you're on Tween."
+    var referralReply: ReferralReplyPrompt? = nil
 
     @State var selectedSpotID: RankedSpot.ID?
     /// Bumped on every send so the CTA can fire an impact haptic.
@@ -260,10 +262,16 @@ struct ExpandedView: View {
         // `mapSection` + a bottom inset, so the top overlay lands identically
         // in each.
         .overlay(alignment: .top) {
-            if let pill = statusPill {
-                statusPillView(pill.text, isError: pill.isError)
-                    .padding(.top, Tokens.Spacing.s3)
+            VStack(spacing: Tokens.Spacing.s2) {
+                if let referralReply {
+                    ReferralReplyBanner(prompt: referralReply, isSending: isSending)
+                        .padding(.horizontal, Tokens.Spacing.s4)
+                }
+                if let pill = statusPill {
+                    statusPillView(pill.text, isError: pill.isError)
+                }
             }
+            .padding(.top, Tokens.Spacing.s3)
         }
         // Opaque background for the expanded surface for the same reason
         // CompactView sets one — never read as transparent against the

@@ -217,15 +217,18 @@ struct TweenState: Equatable {
         components.queryItems = items
         guard let url = components.url else { return nil }
         if url.absoluteString.count <= 5000 { return url }
+        // Oversize: the referral credit goes first — it's a nicety, and the
+        // same friend's next bubble carries it again.
+        let noRef = items.filter { $0.name != "ref" }
         // Oversize (large groups / long names): drop the base64 JSON roster —
         // `p=` + `pids=` carry the same data far more compactly — instead of
         // hard-failing the whole send.
-        components.queryItems = items.filter { $0.name != "pj" }
+        components.queryItems = noRef.filter { $0.name != "pj" }
         if let slim = components.url, slim.absoluteString.count <= 5000 { return slim }
         // Still oversize: sacrifice the departure gossip before failing the
         // send outright — tombstones also travel device-locally, so losing
         // the gossip degrades propagation, not correctness.
-        components.queryItems = items.filter { $0.name != "pj" && $0.name != "gone" }
+        components.queryItems = noRef.filter { $0.name != "pj" && $0.name != "gone" }
         guard let slimmer = components.url, slimmer.absoluteString.count <= 5000 else { return nil }
         return slimmer
     }
@@ -366,7 +369,10 @@ struct TweenState: Equatable {
         self.longitude = lon
         let senderName = items.first(where: { $0.name == "from" })?.value
         self.senderName = senderName
+        // Bounded: an id is a 36-char UUID. An unbounded one would ride back
+        // out in every reply (`ref=`) and could push payloads past 5000.
         self.senderID = items.first(where: { $0.name == "fromId" })?.value
+            .flatMap { $0.count <= 64 ? $0 : nil }
         let resolvedKind: Kind
         if let rawKind = items.first(where: { $0.name == "kind" })?.value,
            let kind = Kind(rawValue: rawKind) {
@@ -459,7 +465,8 @@ struct TweenState: Equatable {
         }
         self.revision = items.first(where: { $0.name == "rev" })?.value.flatMap(Int.init)
         self.departed = items.first(where: { $0.name == "gone" })?.value.map(Self.decodeNames) ?? []
-        self.referredBy = items.first(where: { $0.name == "ref" })?.value.flatMap { $0.isEmpty ? nil : $0 }
+        self.referredBy = items.first(where: { $0.name == "ref" })?.value
+            .flatMap { ReferralPolicy.isInstallID($0) ? $0 : nil }
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {

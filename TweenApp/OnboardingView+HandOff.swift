@@ -245,6 +245,7 @@ extension OnboardingView {
     /// opened a drive for the same spot and the same plan, with nothing to say
     /// which was right (audit 2026-08-05).
     func openDirections(to item: MKMapItem) {
+        EngagementStore.noteMapsHandoff()
         let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
         switch MapsPreference.current {
         case .apple:

@@ -36,7 +36,6 @@ extension MessagesViewController {
         // user to Tween, every bubble they send names that introducer.
         outgoing.referredBy = Referrals.outboundReferrer
         guard let url = outgoing.encodedURL() else { return false }
-        Referrals.noteOutbound()
 
         let localName = UserProfile.displayName
         let image = await BubbleImageRenderer.makeImage(
@@ -61,6 +60,7 @@ extension MessagesViewController {
             do {
                 try await conversation.send(message)
                 logger.debug("Sent outgoing Tween bubble kind=\(state.kind.rawValue, privacy: .public)")
+                Referrals.noteOutbound()
             } catch {
                 // Messages gates direct send on a recent user tap + a visible
                 // extension (one send per detected interaction, WWDC17 Direct
@@ -189,6 +189,8 @@ extension MessagesViewController {
     /// The single "Open in Maps" button — resolves the user's preference
     /// (host app Settings → Apple/Google, App Group-shared) at tap time.
     func openInPreferredMaps(for state: TweenState) {
+        // Counted for the host's Pro ad (every 3rd hand-off to Maps).
+        EngagementStore.noteMapsHandoff()
         switch MapsPreference.current {
         case .apple:  openAppleMaps(for: state)
         case .google: openGoogleMaps(for: state)
