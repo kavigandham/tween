@@ -52,6 +52,7 @@ extension OnboardingView {
                     isCounter: $0.isCounter)
             },
             isCurrentMeetup: isCurrentMeetup(selection),
+            opensLarge: tourStep != nil,
             isFavorite: isFavorite(selection),
             onToggleFavorite: { toggleFavorite(selection) },
             onSendToChat: { sendToChat(selection) },

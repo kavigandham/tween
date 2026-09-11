@@ -40,7 +40,10 @@ extension MessagesViewController {
                 if case .referral(let count) = event { return count } else { return nil }
             }.first
             if events.contains(where: { if case .granted = $0 { return true } else { return false } }) {
-                sendStatusMessage = "\(who) is on Tween — \(count ?? ReferralPolicy.required) friends joined. Tween Pro is yours for 3 more months 🎉"
+                let total = count ?? ReferralPolicy.required
+                sendStatusMessage = total <= ReferralPolicy.required
+                    ? "\(who) is on Tween — that's \(total). Tween Pro is yours for 3 months 🎉"
+                    : "\(who) is on Tween — \(total) friends joined. 3 more months of Tween Pro 🎉"
             } else if let count {
                 let progress = count % ReferralPolicy.required
                 sendStatusMessage = "\(who) is on Tween ✓ — \(progress) of \(ReferralPolicy.required) toward free Pro"

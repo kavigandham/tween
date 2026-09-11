@@ -6,7 +6,8 @@ Connect. Nothing here was submitted automatically.
 Build: **1.0.3**, pushed to `main` — Xcode Cloud's TestFlight workflow and
 Codemagic both build it. Take the **newest 1.0.3 build** in TestFlight → iOS
 builds (neither CI publishes release notes, so the build number is the only
-marker; newest = this code).
+marker; newest = this code). The tour was verified end to end on an iPhone 17 Pro
+and an **iPad Air 11" (M4)** simulator — App Review last used an iPad Air.
 
 ---
 

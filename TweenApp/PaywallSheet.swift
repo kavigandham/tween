@@ -285,7 +285,7 @@ struct PaywallSheet: View {
             }
         }
         .sheet(isPresented: $showInviteShare) {
-            ActivityView(items: [ReferralInvite.bodyText]) { showInviteShare = false }
+            ActivityView(items: [ReferralInvite.shareText]) { showInviteShare = false }
         }
         .alert("Your Name", isPresented: $askInviteName) {
             TextField("Name", text: $inviteName)

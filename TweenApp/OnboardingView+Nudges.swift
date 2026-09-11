@@ -57,7 +57,7 @@ extension OnboardingView {
                 if case .friends = activeSheet {
                     friendsSubSheet = .invite
                 } else {
-                    UIPasteboard.general.string = ReferralInvite.bodyText
+                    UIPasteboard.general.string = ReferralInvite.shareText
                     showToast("Invite copied — paste it to a friend")
                 }
                 return
@@ -89,6 +89,11 @@ extension OnboardingView {
     /// Inside Friends the card updates live instead, and the announcement
     /// waits for the sheet to close.
     func refreshReferrals() {
+        // A name saved elsewhere (the paywall's invite prompt) must reach
+        // the Friends field, or leaving that field would save it back empty.
+        if !nameFieldFocused, let stored = UserProfile.displayName, stored != profileName {
+            profileName = stored
+        }
         let fresh = ReferralStore.load()
         if fresh != referralSnapshot { referralSnapshot = fresh }
         guard activeSheet == nil, tourStep == nil else { return }

@@ -410,16 +410,42 @@ struct CoachMarkOverlay: View {
     /// what keeps the card where the eye expects it.
     private func fitsOrScrolls<Card: View>(_ card: Card, maxHeight: CGFloat,
                                            parkedAt edge: VerticalAlignment) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
-                if edge == .bottom { Spacer(minLength: 0) }
-                card.padding(.vertical, Tokens.Spacing.s4)
-                if edge == .top { Spacer(minLength: 0) }
-            }
-            .frame(minHeight: maxHeight)
+        // The CARD is bounded, not scrolled as a whole: when room is short,
+        // only its explanation scrolls (see `calloutCard`) and its buttons
+        // stay pinned in view. Scrolling the whole card hid "Back to the
+        // map" below the edge of the iPad's short, floating place sheet —
+        // the device App Review last used (verified 2026-09-11).
+        VStack(spacing: 0) {
+            if edge == .bottom { Spacer(minLength: 0) }
+            // A max-height frame is greedy: park the card at its edge inside
+            // it, or it floats in the middle of the room.
+            card
+                .frame(maxHeight: max(maxHeight - 2 * Tokens.Spacing.s4, 0),
+                       alignment: edge == .bottom ? .bottom : .top)
+                .padding(.vertical, Tokens.Spacing.s4)
+            if edge == .top { Spacer(minLength: 0) }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(maxWidth: .infinity, maxHeight: maxHeight)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(maxHeight, 0))
+    }
+
+    /// The illustration, title and body — the part that scrolls when space
+    /// is short, so the card's buttons never leave the screen.
+    @ViewBuilder
+    private func explainer(for step: TourStep) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
+            if step.showsChatIllustration {
+                ChatIllustration()
+            }
+            Text(step.title)
+                .font(Tokens.Typography.headline)
+                .foregroundStyle(Tokens.Palette.textPrimary)
+            Text(step.body(demoFriend: mentionsDemoFriend))
+                .font(Tokens.Typography.subheadline)
+                .foregroundStyle(Tokens.Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func calloutCard(for step: TourStep, pointsUp: Bool) -> some View {
@@ -434,16 +460,14 @@ struct CoachMarkOverlay: View {
                     .foregroundStyle(Tokens.Palette.accent)
                     .accessibilityHint("Ends the tour")
             }
-            if step.showsChatIllustration {
-                ChatIllustration()
+            // The whole explanation when it fits; a scrolling one when it
+            // doesn't — never the buttons.
+            ViewThatFits(in: .vertical) {
+                explainer(for: step)
+                ScrollView(.vertical, showsIndicators: true) {
+                    explainer(for: step)
+                }
             }
-            Text(step.title)
-                .font(Tokens.Typography.headline)
-                .foregroundStyle(Tokens.Palette.textPrimary)
-            Text(step.body(demoFriend: mentionsDemoFriend))
-                .font(Tokens.Typography.subheadline)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
             if let secondary = step.secondaryTitle {
                 Button(action: onSecondary) {
                     Text(secondary)

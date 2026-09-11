@@ -16,6 +16,12 @@ enum ReferralInvite {
         "I'm using Tween to find fair places to meet. Get it, then tap my Tween invite so it counts 🎁 \(appStoreURL)"
     }
 
+    /// For the share sheet, when there's no Messages composer (an iPad
+    /// without iMessage): no bubble is sent, so don't mention one.
+    static var shareText: String {
+        "I'm using Tween to find fair places to meet — get it here: \(appStoreURL)"
+    }
+
     static var canSendBubble: Bool { MFMessageComposeViewController.canSendText() }
 
     @MainActor

@@ -890,6 +890,8 @@ struct OnboardingView: View {
         }
         .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
         .onChange(of: provider.status) { _, _ in tourDidObserveChange() }
+        // Going offline mid-tour moves past the search steps.
+        .onChange(of: monitor.isOnline) { _, _ in tourDidObserveChange() }
         .onChange(of: isUserIn) { _, _ in tourDidObserveChange() }
         .onChange(of: searchState) { _, _ in tourDidObserveChange() }
         .onChange(of: isSearchLoading) { _, _ in tourDidObserveChange() }
@@ -1125,7 +1127,7 @@ struct OnboardingView: View {
                                     friendsSubSheet = nil
                                 }
                             case .invite:
-                                ActivityView(items: [ReferralInvite.bodyText]) { friendsSubSheet = nil }
+                                ActivityView(items: [ReferralInvite.shareText]) { friendsSubSheet = nil }
                             case .message(let pending):
                                 MessageComposeSheet(recipients: pending.recipients,
                                                     body: pending.body,

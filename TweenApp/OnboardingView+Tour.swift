@@ -47,7 +47,12 @@ extension OnboardingView {
             imIn()
         case .coffeeChip:
             // selectCategory TOGGLES — a second tap mid-search would cancel it.
-            guard selectedCategory != .coffee else { return }
+            if selectedCategory == .coffee {
+                guard !isSearchLoading, searchState != .results else { return }
+                // A Coffee tap that never became a search (it was offline):
+                // clear it so this tap runs it again instead of toggling off.
+                selectedCategory = nil
+            }
             selectCategory(.coffee)
         case .firstResultCard:
             if let first = displayedItems.first { selectedResult = first }
@@ -64,8 +69,10 @@ extension OnboardingView {
         case .imIn:
             return (awaitingImIn || provider.status == .requesting) ? "Finding you…" : nil
         case .coffeeChip:
-            return (selectedCategory == .coffee && searchState != .results) || isSearchLoading
-                ? "Finding fair spots…" : nil
+            // Only while a search is actually running — a tap that couldn't
+            // start one (offline) left a spinner that never ended (audit
+            // 2026-09-11).
+            return isSearchLoading ? "Finding fair spots…" : nil
         default:
             return nil
         }

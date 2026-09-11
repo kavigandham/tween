@@ -149,6 +149,10 @@ struct SpotDetailCard: View {
     /// "Send to chat" to "Agree" / "Change".
     var incoming: IncomingProposal? = nil
     var isCurrentMeetup = false
+    /// The tour opens the place sheet at full height and holds it there: at
+    /// half height on an iPad the tour's explanation had no room and its
+    /// "Back to the map" fell off the sheet (verified 2026-09-11).
+    var opensLarge = false
     var isFavorite = false
     var onToggleFavorite: () -> Void = {}
     var onSendToChat: () -> Void = {}
@@ -254,7 +258,8 @@ struct SpotDetailCard: View {
                 fallbackDetail
             }
         }
-        .presentationDetents([.medium, .large], selection: $detent)
+        .presentationDetents(opensLarge ? [.large] : [.medium, .large], selection: $detent)
+        .onAppear { if opensLarge { detent = .large } }
         .presentationDragIndicator(.visible)
         // Keyed on the mode: the card stays mounted across a context-menu
         // change, so an unkeyed task left the old number under the new glyph.
