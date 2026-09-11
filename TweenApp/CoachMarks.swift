@@ -65,8 +65,18 @@ enum TourStep: Int, CaseIterable, Equatable {
         }
     }
 
-    var body: String {
+    var body: String { body(demoFriend: true) }
+
+    /// `demoFriend` false swaps Sam for "your friend" on the three cards
+    /// that name the demo — a real peer or a denied location means no Sam.
+    func body(demoFriend: Bool) -> String {
         switch self {
+        case .imIn where !demoFriend:
+            return "Share where you are. Tween only uses your location while the app is open, and your friends only see it once you send them a spot."
+        case .coffeeChip where !demoFriend:
+            return "Tap Coffee. Tween searches between everyone who's in and ranks places by how far each person travels. The other chips work the same way."
+        case .openSpot where !demoFriend:
+            return "Each card shows a place and everyone's travel time. Tap the top card to open it."
         case .welcome:
             return "This is your map — the blue dot is you. The panel below is where you search, see who's in, and pick a place. Tween ranks spots by everyone's travel time, so nobody drives the long way. Here's a quick tour."
         case .imIn:
@@ -235,6 +245,8 @@ struct CoachMarkOverlay: View {
     let onSkip: () -> Void
     /// The card's second action, when the step has one (`secondaryTitle`).
     var onSecondary: () -> Void = {}
+    /// Whether the copy may name the demo friend (see `TourStep.body(demoFriend:)`).
+    var mentionsDemoFriend = true
 
 
     /// Breathing room between the control's edge and the spotlight.
@@ -320,23 +332,46 @@ struct CoachMarkOverlay: View {
             let roomBelow = geo.size.height - hole.maxY - Tokens.Spacing.s4
             let roomAbove = hole.minY - Tokens.Spacing.s4
             let below = roomBelow >= roomAbove
-            ScrollView(.vertical, showsIndicators: false) {
-                card.padding(.vertical, Tokens.Spacing.s4)
-            }
-            .frame(maxWidth: .infinity, maxHeight: max(below ? roomBelow : roomAbove, 0))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: below ? .top : .bottom)
-            .padding(.top, below ? hole.maxY : 0)
-            .padding(.bottom, below ? 0 : geo.size.height - hole.minY)
+            fitsOrScrolls(card, maxHeight: max(below ? roomBelow : roomAbove, 0), parkedAt: below ? .top : .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: below ? .top : .bottom)
+                .padding(.top, below ? hole.maxY : 0)
+                .padding(.bottom, below ? 0 : geo.size.height - hole.minY)
         } else if layer == .map {
             let mapBottom = geo.frame(in: .global).maxY
             let aboveSheet = edge.topGlobalY.map { max(mapBottom - $0, 0) } ?? 0
-            card
+            // Bounded like the spotlit cards: the chat card with its
+            // illustration is the tallest, and must scroll rather than run
+            // off the top on a small phone at large text sizes.
+            let safeTop = geo.safeAreaInsets.top
+            fitsOrScrolls(card, maxHeight: max(geo.size.height - aboveSheet - safeTop - Tokens.Spacing.s4, 0), parkedAt: .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, aboveSheet + Tokens.Spacing.s4)
+                .padding(.bottom, aboveSheet)
         } else {
             card
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+    }
+
+    /// The card parked at the top or bottom of a region `maxHeight` tall,
+    /// scrolling only when it is taller than the region. A bare ScrollView
+    /// fills its bound and top-aligns; a ViewThatFits inherits the
+    /// ScrollView's flexibility and centres — both floated the map-layer
+    /// cards up the screen instead of parking them above the sheet
+    /// (regressions caught on the sim, 2026-09-08). The spacer inside the
+    /// scroll content, with the content pinned to the region's height, is
+    /// what keeps the card where the eye expects it.
+    private func fitsOrScrolls<Card: View>(_ card: Card, maxHeight: CGFloat,
+                                           parkedAt edge: VerticalAlignment) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                if edge == .bottom { Spacer(minLength: 0) }
+                card.padding(.vertical, Tokens.Spacing.s4)
+                if edge == .top { Spacer(minLength: 0) }
+            }
+            .frame(minHeight: maxHeight)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: maxHeight)
     }
 
     private func calloutCard(for step: TourStep) -> some View {
@@ -357,7 +392,7 @@ struct CoachMarkOverlay: View {
             Text(step.title)
                 .font(Tokens.Typography.headline)
                 .foregroundStyle(Tokens.Palette.textPrimary)
-            Text(step.body)
+            Text(step.body(demoFriend: mentionsDemoFriend))
                 .font(Tokens.Typography.subheadline)
                 .foregroundStyle(Tokens.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

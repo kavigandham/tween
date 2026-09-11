@@ -5,13 +5,11 @@ import SwiftUI
 /// moments. It introduces Pro in three lines and hands off to the real
 /// paywall; prices live on the paywall (StoreKit's), not here.
 ///
-/// "Not now" is recorded so the engine backs off; the sheet never blocks
+/// Every dismissal — Not now or a swipe — is recorded once by the host's
+/// sheet `onDismiss` so the engine backs off; the sheet never blocks
 /// anything and never shows during the tour or over another sheet (the
 /// host gates that — see `OnboardingView.noteEngagement`).
 struct ProNudgeSheet: View {
-    /// Called on "Not now" (and on a swipe-down, via the host's onDismiss).
-    var onNotNow: () -> Void
-
     @State private var showPaywall = false
     @Environment(\.dismiss) private var dismiss
 
@@ -22,10 +20,7 @@ struct ProNudgeSheet: View {
                     .font(Tokens.Typography.title2.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.textPrimary)
                 Spacer(minLength: 0)
-                Button("Not now") {
-                    onNotNow()
-                    dismiss()
-                }
+                Button("Not now") { dismiss() }
                 .font(Tokens.Typography.subheadline.weight(.semibold))
                 .foregroundStyle(Tokens.Palette.accent)
             }

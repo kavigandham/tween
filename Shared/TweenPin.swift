@@ -118,11 +118,15 @@ struct TweenPin: View {
     static func initials(for name: String) -> String {
         // Words only: a parenthetical like "Sam (demo)" must read "S", not
         // "S(" (the tour's demo friend).
-        let letters = name.split(separator: " ")
+        let words = name.split(separator: " ")
+        let letters = words
             .filter { $0.first?.isLetter == true }
             .prefix(2)
             .compactMap { $0.first.map(String.init) }
-        return letters.joined().uppercased()
+        if !letters.isEmpty { return letters.joined().uppercased() }
+        // Nothing letter-led ("2Chainz", an emoji name): the first character
+        // beats a blank avatar.
+        return words.first?.first.map { String($0).uppercased() } ?? ""
     }
 
     var body: some View {

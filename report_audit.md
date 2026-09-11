@@ -1,3 +1,43 @@
+# AUDIT REPORT — Tween — 2026-09-08 (demo friend, chat step, Pro step, nudge engine — 555e024)
+
+Read-only audit at `8ebf20e` (code = `555e024`). Carried CRITICAL/MAJOR items re-verified by anchor: all still present. **Post-audit note:** items marked (applied) were fixed in the following commit.
+
+## CRITICAL (carried, unchanged)
+- Unbounded inbound `rev` — `Shared/TweenState.swift:451`. `pj=` bypasses `validCoordinate` — `:402-404`.
+
+## MAJOR
+### Demo friend lifecycle
+- Any `.inactive` blip (Control Center, a permission alert, the StoreKit sheet the Pro step opens) stripped Sam mid-tour and re-ranked, with no re-seed. — `OnboardingView.swift:~1270` **(applied: removal on `.background` only)**
+### Nudge engine
+- A nudge decided during the tour was burned: `record` stamped it shown and re-rolled, then the result was dropped; with `proNextAt == 1` (p = 0.1) a fresh install spent its first Pro pop-up unseen on the tour's own I'm in. — `+Nudges.swift:12-15` **(applied: count-but-don't-decide while the tour runs)**
+### Carried (still present)
+- `ExpandedView` roster / phantom peer; own-proposal by name; `"You"` in `agreed=`; `lastActiveConversationKey`; Return-with-autocorrect; `.spot → .spot` swap; MKDirections fan-out + two speeds; paywall refresh downgrade.
+
+## MINOR
+- Swipe-down on `ProNudgeSheet` was not a dismissal (comments claimed onDismiss recorded it). **(applied: `proNudgeShowing` latch; counted once from the host `onDismiss`; button no longer double-counts)**
+- Review could ask on the event right after a Pro fire. **(applied: `reviewSpacingAfterPro = 3`, tested)**
+- Seeding Sam bypassed the re-rank (menu restart with results on screen). **(applied: re-rank through `searchTask`)**
+- Seed guard ignored existing manual points. **(applied: `manualParticipants.isEmpty`)**
+- Copy promised Sam on paths with no Sam. **(applied: `TourStep.body(demoFriend:)` via `mentionsDemoFriend`)**
+- Three initials rules; `SpotETADisplay.initials` still rendered "S(" on the spotlit cards; `TweenPin.initials` returned "" for digit/emoji-led names. **(applied: one rule in `TweenPin.initials` with a first-character fallback; the other two delegate; tests)**
+- The target-less map-layer card (chat step, ≈ 460 pt) was unbounded — overflowed the top on a 4.7" phone at large text. **(applied: same bounded ScrollView)**
+- Ordinals skip when steps are skipped ("9 of 11" → "11 of 11"). Cosmetic, open.
+- `.openSpot` hole passes taps to the card's Send/Directions (carried, open).
+- `testReviewAskLandsWithinThreeToTenAndYieldsToPro` relies on the roll order for `results.first == .pro`. Open (a pinned-threshold yield test was added alongside).
+
+## ARCHITECTURE NOTES
+- Constraint #6 holds: `tween.engagement` is counts/dates only; Sam is a `manual:` participant read only by local ranking/framing/group bar; no send path, snapshot, roster or friend record sees it. Indirect only: `CalendarExport` attendees from the Plan sheet (Pro user restarting the tour; below bar).
+- `.sheet(item: $activeSheet)` hangs off the bottom-sheet content, so the Pro step's paywall presents correctly; `ProNudgeSheet` → child `PaywallSheet` is supported nesting; `requestReview` is called on the main actor; pbxproj membership correct (`Engagement.swift` in both targets; the extension does not count events yet — a load-modify-save with no cross-process serialisation if it ever does).
+- Parked below bar: the 0.7 s presentation timer could still race an iOS 26 sheet swap; driving it from the composer's `onDismiss` would be structurally safer.
+
+## TEST COVERAGE GAPS
+- `noteEngagement` gating (View-bound); tour transition table (carried); `ChatIllustration`/`ProNudgeSheet` layout at large Dynamic Type.
+
+## FIX-FIRST PRIORITY LIST
+1–2. The two codec CRITICALs (carried). 3–4. ~~Sam on `.background` only; count-but-don't-decide in the tour~~ (applied). 5–8. ~~Swipe dismissal; re-rank/guard; initials; bounded map card~~ (applied). 9. Carried MAJORs as before. 10. Ordinal counter; `.openSpot` action row; lift the tour table into a testable value type.
+
+---
+
 # AUDIT REPORT — Tween — 2026-09-08 (immersive tour, 70e6942)
 
 Read-only audit at `70e6942`. Re-verified every carried CRITICAL/MAJOR from the 6f4b671 report (all still present at their anchors) and traced `c8579e6` + `70e6942`. **Post-audit note (2026-09-08, commit 555e024):** the items marked (applied) below were fixed the same day.

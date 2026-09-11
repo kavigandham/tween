@@ -99,9 +99,8 @@ enum SpotETADisplay {
     }
 
     static func initials(for name: String) -> String {
-        let words = name.split(separator: " ")
-        let letters = words.prefix(2).compactMap { $0.first }
-        let result = String(letters).uppercased()
+        // One rule everywhere (pins, ETA avatars, Friends): see TweenPin.
+        let result = TweenPin.initials(for: name)
         return result.isEmpty ? "?" : result
     }
 

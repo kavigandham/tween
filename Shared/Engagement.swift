@@ -89,6 +89,8 @@ enum NudgePolicy {
     static let proBackoffCooldown: TimeInterval = 30 * 86_400
     static let proBackoffAfterDismissals = 2
     static let reviewCooldown: TimeInterval = 60 * 86_400
+    /// Positive events between a Pro pop-up and an already-due review ask.
+    static let reviewSpacingAfterPro = 3
 
     /// Counts `event`, arms any threshold that hasn't been rolled yet, and
     /// decides. When it returns a nudge it has ALREADY stamped it shown and
@@ -112,6 +114,9 @@ enum NudgePolicy {
         if !proUnlocked, let due = state.proNextAt, n >= due, proCooldownElapsed(state, now: now) {
             state.proLastShownAt = now
             state.proNextAt = n + Int.random(in: proRepeatWindow, using: &rng)
+            // A review that was already due must not follow on the very
+            // next event — give the pop-up a few good moments of space.
+            state.reviewNextAt = max(state.reviewNextAt ?? 0, n + reviewSpacingAfterPro)
             return .pro
         }
         if let due = state.reviewNextAt, n >= due, reviewCooldownElapsed(state, now: now) {

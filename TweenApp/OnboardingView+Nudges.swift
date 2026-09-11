@@ -10,14 +10,23 @@ extension OnboardingView {
     /// composer, the place sheet) has finished dismissing.
     func noteEngagement(_ event: EngagementEvent) {
         var state = EngagementStore.load()
+        // During the tour: count, but don't decide. Deciding stamps the
+        // nudge shown and rolls the next threshold, so a pop-up that came
+        // due on the tour's own I'm in was burned unseen (audit 2026-09-08).
+        guard tourStep == nil else {
+            state.count(event)
+            EngagementStore.save(state)
+            return
+        }
         let nudge = NudgePolicy.record(event, in: &state, proUnlocked: ProEntitlement.isUnlocked)
         EngagementStore.save(state)
-        guard let nudge, tourStep == nil else { return }
+        guard let nudge else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard activeSheet == nil, tourStep == nil else { return }
             switch nudge {
             case .pro:
+                proNudgeShowing = true
                 activeSheet = .proNudge
             case .review:
                 requestReview()
@@ -25,8 +34,8 @@ extension OnboardingView {
         }
     }
 
-    /// "Not now" on the Pro pop-up (or a swipe-down): two of these move the
-    /// pop-up to its long cooldown.
+    /// The Pro pop-up went away — Not now or a swipe-down, counted once from
+    /// the host sheet's onDismiss. Two of these move it to the long cooldown.
     func noteProNudgeDismissed() {
         var state = EngagementStore.load()
         NudgePolicy.noteProDismissed(in: &state)

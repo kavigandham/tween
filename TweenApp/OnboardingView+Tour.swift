@@ -176,6 +176,7 @@ extension OnboardingView {
     func seedTourDemoFriendIfPossible() {
         guard tourStep != nil, tourDemoFriendID == nil,
               peerCoordinate == nil, additionalParticipants.isEmpty,
+              manualParticipants.isEmpty,
               let me = savedCoordinate else { return }
         let friend = Participant.manual(label: Self.demoFriendName,
                                         coordinate: Self.demoFriendCoordinate(from: me))
@@ -184,6 +185,22 @@ extension OnboardingView {
             manualParticipants.append(friend)
         }
         frameUserContext()
+        // Results already on screen (tour restarted from the menu): rank
+        // them against Sam now, the way addManualPoint does, so the cards
+        // show both times before the copy promises them.
+        if !searchResults.isEmpty {
+            searchTask?.cancel()
+            isSearchLoading = false
+            searchTask = Task { @MainActor in await rerankCurrentResults() }
+        }
+    }
+
+    /// Whether the cards may talk about Sam: Sam is on the map, or will be
+    /// (nobody else is in and the user has no points of their own). With a
+    /// real friend or a denied location the copy says "your friend".
+    var tourMentionsDemoFriend: Bool {
+        tourDemoFriendID != nil
+            || (peerCoordinate == nil && additionalParticipants.isEmpty && manualParticipants.isEmpty)
     }
 
     /// On Finish, Skip, or backgrounding mid-tour: the demo friend must not

@@ -686,8 +686,8 @@ extension OnboardingView {
     }
 
     static func initials(for name: String) -> String {
-        let letters = name.split(separator: " ").prefix(2).compactMap(\.first)
-        let result = String(letters).uppercased()
+        // One rule everywhere (pins, ETA avatars, Friends): see TweenPin.
+        let result = TweenPin.initials(for: name)
         return result.isEmpty ? "?" : result
     }
 

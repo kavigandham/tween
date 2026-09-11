@@ -113,6 +113,22 @@ final class NudgePolicyTests: XCTestCase {
         XCTAssertEqual(results.filter { $0 == .review }.count, 1, "one review ask per cooldown window")
     }
 
+    func testReviewIsSpacedAfterAProPopUp() {
+        // Both due on the same event: Pro fires, and the review is pushed at
+        // least reviewSpacingAfterPro events out instead of asking next tap.
+        var rng = FixedRNG(seed: 1)
+        var state = EngagementState()
+        state.proNextAt = 1
+        state.reviewNextAt = 1
+        let t0 = Date()
+        XCTAssertEqual(NudgePolicy.record(.imIn, in: &state, proUnlocked: false, now: t0, using: &rng), .pro)
+        XCTAssertGreaterThanOrEqual(state.reviewNextAt!, 1 + NudgePolicy.reviewSpacingAfterPro)
+        for _ in 1..<NudgePolicy.reviewSpacingAfterPro {
+            XCTAssertNil(NudgePolicy.record(.imIn, in: &state, proUnlocked: false, now: t0, using: &rng))
+        }
+        XCTAssertEqual(NudgePolicy.record(.imIn, in: &state, proUnlocked: false, now: t0, using: &rng), .review)
+    }
+
     func testReviewCooldownIsSixtyDays() {
         var rng = FixedRNG(seed: 1)
         var state = EngagementState()
@@ -151,5 +167,16 @@ final class TourDemoFriendTests: XCTestCase {
         XCTAssertEqual(metres, expected, accuracy: expected * 0.05)
         XCTAssertGreaterThan(friend.latitude, me.latitude, "north")
         XCTAssertGreaterThan(friend.longitude, me.longitude, "east")
+    }
+}
+
+final class InitialsTests: XCTestCase {
+    func testParentheticalAndOddNames() {
+        XCTAssertEqual(TweenPin.initials(for: "Sam (demo)"), "S")
+        XCTAssertEqual(TweenPin.initials(for: "Hassan Ahmed"), "HA")
+        XCTAssertEqual(TweenPin.initials(for: "2Chainz"), "2", "nothing letter-led keeps its first character")
+        XCTAssertEqual(TweenPin.initials(for: ""), "")
+        XCTAssertEqual(SpotETADisplay.initials(for: ""), "?")
+        XCTAssertEqual(OnboardingView.initials(for: "Sam (demo)"), "S")
     }
 }

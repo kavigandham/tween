@@ -138,6 +138,7 @@ extension OnboardingView {
         // -DEMO_PRO_NUDGE: present the Pro pop-up directly. The events that
         // raise it (a join, a send) can't happen on the simulator.
         if CommandLine.arguments.contains("-DEMO_PRO_NUDGE") {
+            proNudgeShowing = true
             activeSheet = .proNudge
             return
         }

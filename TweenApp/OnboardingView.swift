@@ -319,6 +319,9 @@ struct OnboardingView: View {
     /// Set once the user has actually pressed I'm in during the tour, so a
     /// location failure skips the join step only after a real attempt.
     @State var tourJoinTapped = false
+    /// True while the Pro pop-up is presented, so its dismissal — button OR
+    /// swipe — is counted exactly once from the sheet's onDismiss.
+    @State var proNudgeShowing = false
     /// Apple's review prompt; the engine decides when (`noteEngagement`).
     @Environment(\.requestReview) var requestReview
 
@@ -852,7 +855,8 @@ struct OnboardingView: View {
             CoachMarkOverlay(step: tourOverlayStep, layer: .map,
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
                              anchors: anchors, onNext: advanceTour, onSkip: skipTour,
-                             onSecondary: tourSecondaryAction)
+                             onSecondary: tourSecondaryAction,
+                             mentionsDemoFriend: tourMentionsDemoFriend)
         }
         .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
         .onChange(of: provider.status) { _, _ in tourDidObserveChange() }
@@ -967,6 +971,12 @@ struct OnboardingView: View {
                 // time — attaching these to the Map silently no-ops (Add Friend /
                 // Invite / the detail card never appeared).
                 .sheet(item: $activeSheet, onDismiss: {
+                    // The Pro pop-up going away — Not now or a swipe — is one
+                    // dismissal for the engine's back-off.
+                    if proNudgeShowing {
+                        proNudgeShowing = false
+                        noteProNudgeDismissed()
+                    }
                     // Closing the place sheet deselects its pin, so the map
                     // returns to browse state and the search peek restores
                     // (via the selectedResult onChange). Harmless for the
@@ -1132,7 +1142,7 @@ struct OnboardingView: View {
                     case .settings:
                         SettingsSheet()
                     case .proNudge:
-                        ProNudgeSheet(onNotNow: noteProNudgeDismissed)
+                        ProNudgeSheet()
                     case .paywall:
                         PaywallSheet()
                     }
@@ -1267,10 +1277,15 @@ struct OnboardingView: View {
             }
             // Mirror the extension's memory discipline: drop in-flight work when
             // we're no longer foregrounded.
-            if phase != .active {
-                // A demo friend must not sit in the ranking when the user
-                // comes back an hour later.
+            // A demo friend must not sit in the ranking when the user comes
+            // back an hour later — but only a real departure counts. The
+            // `.inactive` blip (Control Center, a permission alert, the
+            // StoreKit sheet the Pro step opens) stripped Sam mid-tour
+            // (audit 2026-09-08).
+            if phase == .background {
                 removeTourDemoFriend()
+            }
+            if phase != .active {
                 searchTask?.cancel()
                 // A backgrounding cancel returns at runSearch's Task.isCancelled
                 // guard, before `isSearchLoading = false` — reset it here or the
