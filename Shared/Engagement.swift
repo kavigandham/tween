@@ -46,6 +46,25 @@ struct EngagementState: Codable, Equatable {
     /// app just worked for this person.
     var positiveEvents: Int { imInCount + sendCount + agreedCount }
 
+    init() {}
+
+    /// Every field optional on the way in, so adding one never resets the
+    /// stored counts, cooldowns and dismissals on update (audit 2026-09-11).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        imInCount = try c.decodeIfPresent(Int.self, forKey: .imInCount) ?? 0
+        sendCount = try c.decodeIfPresent(Int.self, forKey: .sendCount) ?? 0
+        agreedCount = try c.decodeIfPresent(Int.self, forKey: .agreedCount) ?? 0
+        proNextAt = try c.decodeIfPresent(Int.self, forKey: .proNextAt)
+        proLastShownAt = try c.decodeIfPresent(Date.self, forKey: .proLastShownAt)
+        proDismissals = try c.decodeIfPresent(Int.self, forKey: .proDismissals) ?? 0
+        reviewNextAt = try c.decodeIfPresent(Int.self, forKey: .reviewNextAt)
+        reviewLastAskedAt = try c.decodeIfPresent(Date.self, forKey: .reviewLastAskedAt)
+        mapsHandoffs = try c.decodeIfPresent(Int.self, forKey: .mapsHandoffs) ?? 0
+        sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        proAdPending = try c.decodeIfPresent(Bool.self, forKey: .proAdPending) ?? false
+    }
+
     mutating func count(_ event: EngagementEvent) {
         switch event {
         case .imIn:       imInCount += 1

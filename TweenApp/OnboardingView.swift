@@ -884,7 +884,9 @@ struct OnboardingView: View {
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
                              anchors: anchors, onNext: advanceTour, onSkip: skipTour,
                              onSecondary: tourSecondaryAction,
-                             mentionsDemoFriend: tourMentionsDemoFriend)
+                             mentionsDemoFriend: tourMentionsDemoFriend,
+                             onTargetTap: tourTargetTapped,
+                             busyText: tourBusyText)
         }
         .onChange(of: awaitingImIn) { _, _ in tourDidObserveChange() }
         .onChange(of: provider.status) { _, _ in tourDidObserveChange() }
@@ -979,7 +981,12 @@ struct OnboardingView: View {
                     }
                 }
                 .presentationDetents(
-                    [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), Self.fullDetent],
+                    // During the tour the sheet is LOCKED at the step's
+                    // height: dragging it under the dim moved the spotlit
+                    // control away mid-step. The tour sets the height.
+                    tourStep == nil
+                        ? [.height(Tokens.Layout.sheetPeekHeight), .fraction(0.45), Self.fullDetent]
+                        : [selectedSheetDetent],
                     selection: $selectedSheetDetent
                 )
                 // iOS 26 gets the system's Liquid Glass floating panel — the
@@ -1071,6 +1078,9 @@ struct OnboardingView: View {
                                 }
                         }
                         .presentationDetents([.large])
+                        // Mid-tour the way out is the card's "Back to the
+                        // map", never a stray swipe.
+                        .interactiveDismissDisabled(tourStep != nil)
                         // The tour continues INSIDE this sheet (the "Friends
                         // screen" step) — its own overlay, over the whole
                         // stack including the bar.
@@ -1115,7 +1125,7 @@ struct OnboardingView: View {
                                     friendsSubSheet = nil
                                 }
                             case .invite:
-                                ActivityView(items: [Self.inviteText]) { friendsSubSheet = nil }
+                                ActivityView(items: [ReferralInvite.bodyText]) { friendsSubSheet = nil }
                             case .message(let pending):
                                 MessageComposeSheet(recipients: pending.recipients,
                                                     body: pending.body,

@@ -59,7 +59,11 @@ extension OnboardingView {
         // crafted tween:// links were 90 days of Pro).
         let myName = UserProfile.displayName ?? UserName.fallback
         let activeConversationKey = ConversationMeetupStore.lastActiveConversationKey
-        let openedOwnProposal = state.kind == .place && state.senderName == myName
+        // By install id: a friend who shares your display name is not you
+        // (audit MAJOR, carried since 2026-09-06). Names only for legacy
+        // payloads that carry no id.
+        let openedOwnProposal = state.kind == .place
+            && (state.senderID.map { $0 == TweenIdentity.stableID } ?? (state.senderName == myName))
         // "I left this conversation's meetup" — the same tombstone the
         // projection gate reads. Direct peer writes below must respect it
         // too, or a departed user tapping a fresh bubble gets the peer pin

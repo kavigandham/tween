@@ -388,6 +388,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         if let url = message.url, let state = TweenState(url: url) {
             commitStagedSendIfNeeded(state, conversation: conversation)
         }
+        commitStagedReferralReplyIfNeeded(message)
         presentUI(for: presentationStyle)
     }
 

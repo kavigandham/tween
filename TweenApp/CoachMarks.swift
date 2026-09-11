@@ -90,13 +90,13 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .chatDemo:
             return "Send drops the spot into your iMessage. Your friend taps Agree — or suggests somewhere else — and both of your apps update on their own. No accounts, nothing to sign up for."
         case .friends:
-            return "Tap here for your people."
+            return "This circle is your Friends button. Your people, your invites, and your groups all live behind it."
         case .friendsSheet:
-            return "Add Friend saves someone from Contacts so you can ping them to join. Invite shares Tween. Current meetup lists who's in right now. Groups remember your whole crew for one-tap planning (Tween Pro), and Rides tracks who needs a lift."
+            return "Add Friend saves someone from Contacts so you can ping them to join. Invite sends a Tween invite in Messages — when 3 friends join, you get 3 months of Pro free. Current meetup shows who's in right now, Groups remember your crew (Pro), and Rides tracks who needs a lift."
         case .mapControls:
-            return "Recenter on yourself, or switch map styles. Drag the panel down any time to see more map, and up to see the full list."
+            return "The top button (⋯) holds map styles, Settings, and this guide. The one below it brings the map back to you. Drag the panel down any time for more map, and up for the full list."
         case .pro:
-            return "Groups save your crew for one-tap fair spots. Saved places cover friends who aren't on Tween yet. Plan sets a time, a leave-by reminder, and a calendar invite."
+            return "Groups save your crew for one-tap fair spots. Saved places cover friends who aren't on Tween yet. Plan sets a time, a leave-by reminder, and a calendar invite. Or get it free: invite 3 friends from the Friends screen."
         case .done:
             return "Search any place from the bar, or open Tween from the + in an iMessage chat to plan right there. This guide is always in the ⋯ menu."
         }
@@ -138,6 +138,19 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// Steps the user must perform show a small "Tap it" hint instead of a
     /// Next button — the spotlit control IS the next button.
     var waitsForUser: Bool { nextTitle == nil }
+
+    /// Exactly what to press, shown as a pill pointing at it — "tap the
+    /// highlighted control" left people hovering (device feedback
+    /// 2026-09-11: "zero room for questions").
+    var tapHint: String? {
+        switch self {
+        case .imIn:       return "Tap I'm in"
+        case .coffeeChip: return "Tap Coffee"
+        case .openSpot:   return "Tap the top card"
+        case .friends:    return "Tap your Friends button"
+        default:          return nil
+        }
+    }
 
     var ordinal: Int { rawValue + 1 }
     static var count: Int { allCases.count }
@@ -247,6 +260,14 @@ struct CoachMarkOverlay: View {
     var onSecondary: () -> Void = {}
     /// Whether the copy may name the demo friend (see `TourStep.body(demoFriend:)`).
     var mentionsDemoFriend = true
+    /// A tap inside the spotlight. The overlay never lets the touch reach
+    /// the real control: it performs the STEP's action instead, so the only
+    /// thing a tap can do is the thing the card asks for (tapping a spotlit
+    /// result card's Send or Call used to escape the tour).
+    var onTargetTap: (CoachTarget) -> Void = { _ in }
+    /// Set while the step's action is working ("Finding you…"): the pointer
+    /// and the tap hint give way to a spinner, and taps are ignored.
+    var busyText: String? = nil
 
 
     /// Breathing room between the control's edge and the spotlight.
@@ -261,15 +282,11 @@ struct CoachMarkOverlay: View {
                     // Dim + hole. Drawing and hit-testing share the shape, so
                     // the spotlit control receives the tap and nothing else
                     // beneath the dim does.
+                    // The dim draws with a hole but SWALLOWS every touch,
+                    // hole included — nothing under the tour is live.
                     SpotlightShape(hole: hole, radius: radius)
-                        .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
-                        // The hole passes taps ONLY on steps that wait for
-                        // the user's tap. An informational step (the sheet
-                        // explainers) highlights a control without making it
-                        // live — a tap on the spotlit Send would otherwise
-                        // open the composer mid-explanation.
-                        .contentShape(SpotlightShape(hole: step.waitsForUser ? hole : nil, radius: radius),
-                                      eoFill: true)
+                        .fill(Color.black.opacity(0.62), style: FillStyle(eoFill: true))
+                        .contentShape(SpotlightShape(hole: nil, radius: radius))
                         .onTapGesture {}
 
                     if let hole {
@@ -279,6 +296,26 @@ struct CoachMarkOverlay: View {
                         // first ring — audit 2026-09-08).
                         PulseRing(hole: hole, radius: radius)
                             .id(step)
+                        if step.waitsForUser, let target = step.target {
+                            // The spotlight's own tap target: runs the
+                            // step's action, never the control underneath.
+                            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                                .fill(Color.white.opacity(0.001))
+                                .frame(width: hole.width, height: hole.height)
+                                .position(x: hole.midX, y: hole.midY)
+                                .onTapGesture {
+                                    guard busyText == nil else { return }
+                                    onTargetTap(target)
+                                }
+                                .accessibilityElement()
+                                .accessibilityLabel(step.tapHint ?? step.title)
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilitySortPriority(2)
+                            if busyText == nil {
+                                TapPointer(hole: hole, bounds: geo.size)
+                                    .id(step)
+                            }
+                        }
                     }
 
                     if calloutLayer == layer {
@@ -320,7 +357,18 @@ struct CoachMarkOverlay: View {
     /// the spotlit control or the sheet's content is); in the sheet, centred.
     @ViewBuilder
     private func callout(for step: TourStep, hole: CGRect?, in geo: GeometryProxy) -> some View {
-        let card = calloutCard(for: step)
+        // Which way the tap pill's arrow points: at the spotlight in this
+        // layer, or — when the target is in the other layer — down at the
+        // sheet (map-layer card) or up at the map (sheet-layer card).
+        let pointsUp: Bool = {
+            if let hole {
+                let roomBelow = geo.size.height - hole.maxY
+                let roomAbove = hole.minY
+                return roomBelow >= roomAbove
+            }
+            return layer != .map
+        }()
+        let card = calloutCard(for: step, pointsUp: pointsUp)
             .frame(maxWidth: 360)
             .padding(.horizontal, Tokens.Spacing.s4)
         if let hole {
@@ -374,7 +422,7 @@ struct CoachMarkOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: maxHeight)
     }
 
-    private func calloutCard(for step: TourStep) -> some View {
+    private func calloutCard(for step: TourStep, pointsUp: Bool) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
             HStack {
                 Text("\(step.ordinal) of \(TourStep.count)")
@@ -411,10 +459,34 @@ struct CoachMarkOverlay: View {
                         .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
                 }
                 .buttonStyle(step.secondaryTitle == nil ? .tweenPrimary() : .tweenPrimary(.subtle))
+            } else if let busyText {
+                HStack(spacing: Tokens.Spacing.s2) {
+                    ProgressView()
+                    Text(busyText)
+                        .font(Tokens.Typography.subheadline.weight(.semibold))
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
             } else {
-                Label("Tap the highlighted control to continue", systemImage: "hand.tap")
-                    .font(Tokens.Typography.footnote)
-                    .foregroundStyle(Tokens.Palette.accent)
+                // Not a footnote: a filled pill naming the control, with an
+                // arrow toward it. It looks like a button, so it IS one —
+                // tapping it does the same thing as tapping the control.
+                // Nobody should tap the obvious blue thing and get nothing.
+                Button {
+                    if let target = step.target { onTargetTap(target) }
+                } label: {
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        Image(systemName: pointsUp ? "arrow.up" : "arrow.down")
+                            .font(Tokens.Typography.subheadline.weight(.bold))
+                        Text(step.tapHint ?? "Tap the highlighted control")
+                            .font(Tokens.Typography.subheadline.weight(.semibold))
+                        Image(systemName: "hand.tap.fill")
+                            .font(Tokens.Typography.subheadline)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
+                }
+                .buttonStyle(.tweenPrimary())
+                .accessibilityLabel(step.tapHint ?? step.title)
             }
         }
         .padding(Tokens.Spacing.s4)
@@ -424,6 +496,31 @@ struct CoachMarkOverlay: View {
         .accessibilityLabel("Tour step \(step.ordinal) of \(TourStep.count): \(step.title). \(step.body)")
         // Read first, then the spotlit control, then everything else.
         .accessibilitySortPriority(1)
+    }
+}
+
+/// A pointing hand resting on the spotlit control's lower corner, bobbing
+/// toward it — the "press here" nobody has to read.
+private struct TapPointer: View {
+    let hole: CGRect
+    let bounds: CGSize
+    @State private var bob = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image(systemName: "hand.point.up.left.fill")
+            .font(.system(size: 34, weight: .semibold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+            .offset(x: bob && !reduceMotion ? -4 : 0, y: bob && !reduceMotion ? -6 : 0)
+            .position(x: min(hole.maxX - 8, bounds.width - 26), y: hole.maxY + 6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                    bob = true
+                }
+            }
     }
 }
 

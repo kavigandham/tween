@@ -57,6 +57,34 @@ struct ReferralState: Codable, Equatable {
     /// extension are announced exactly once on the next refresh.
     var announcedReferralCount = 0
     var announcedGrantUntil: Date?
+    /// How iMessage identifies each counted friend ON THIS DEVICE
+    /// (`senderParticipantIdentifier`). Unlike the install id it survives the
+    /// friend deleting and reinstalling Tween, so a reinstall can't be counted
+    /// twice (audit 2026-09-11). An opaque per-device UUID — not a handle.
+    var referralSenderKeys: [String] = []
+}
+
+extension ReferralState {
+    /// Every field optional on the way in. Synthesized Decodable ignores
+    /// defaults and THROWS on a missing key, so adding any field silently
+    /// wiped every stored grant on update (audit 2026-09-11).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        firstSeenAt = try c.decodeIfPresent(Date.self, forKey: .firstSeenAt)
+        existingUser = try c.decodeIfPresent(Bool.self, forKey: .existingUser) ?? false
+        referredBy = try c.decodeIfPresent(String.self, forKey: .referredBy)
+        referredAt = try c.decodeIfPresent(Date.self, forKey: .referredAt)
+        referredViaInvite = try c.decodeIfPresent(Bool.self, forKey: .referredViaInvite) ?? false
+        hasSentAny = try c.decodeIfPresent(Bool.self, forKey: .hasSentAny) ?? false
+        repliedTo = try c.decodeIfPresent([String].self, forKey: .repliedTo) ?? []
+        invitesSent = try c.decodeIfPresent(Int.self, forKey: .invitesSent) ?? 0
+        referrals = try c.decodeIfPresent([String].self, forKey: .referrals) ?? []
+        grantedUntil = try c.decodeIfPresent(Date.self, forKey: .grantedUntil)
+        grantsAwarded = try c.decodeIfPresent(Int.self, forKey: .grantsAwarded) ?? 0
+        announcedReferralCount = try c.decodeIfPresent(Int.self, forKey: .announcedReferralCount) ?? 0
+        announcedGrantUntil = try c.decodeIfPresent(Date.self, forKey: .announcedGrantUntil)
+        referralSenderKeys = try c.decodeIfPresent([String].self, forKey: .referralSenderKeys) ?? []
+    }
 }
 
 enum ReferralStore {
@@ -180,7 +208,9 @@ enum ReferralPolicy {
 
     static func canBeIntroduced(_ state: ReferralState, now: Date) -> Bool {
         guard !state.existingUser else { return false }
-        guard let first = state.firstSeenAt else { return true }
+        // No first-seen date = a blob from before the bootstrap existed, i.e.
+        // an install that was already in use. Never introducible.
+        guard let first = state.firstSeenAt else { return false }
         return now.timeIntervalSince(first) <= newUserWindow
     }
 
@@ -188,13 +218,19 @@ enum ReferralPolicy {
     /// invite bubble; `referredBy` is the `ref=` an ordinary bubble or a
     /// `.joined` reply carried.
     static func noteInbound(senderID: String?, referredBy: String?, myID: String,
-                            viaInvite: Bool = false,
+                            viaInvite: Bool = false, isReply: Bool = false,
+                            senderKey: String? = nil,
                             state: inout ReferralState, now: Date = Date()) -> [Event] {
         var events: [Event] = []
         guard let senderID, isInstallID(senderID), senderID != myID else { return events }
 
-        // Who introduced ME.
-        if canBeIntroduced(state, now: now) {
+        // Who introduced ME — never someone who says I introduced THEM. A
+        // "joined" reply, or any bubble carrying my id as its ref, comes from
+        // a person I brought in; letting it attribute me to them sent credit
+        // backwards, and two new users could farm each other (audit
+        // 2026-09-11).
+        let fromMyReferee = referredBy == myID || isReply
+        if !fromMyReferee, canBeIntroduced(state, now: now) {
             let replaceable = state.referredBy == nil
                 || (viaInvite && !state.referredViaInvite && !state.hasSentAny)
             if replaceable, state.referredBy != senderID {
@@ -207,9 +243,13 @@ enum ReferralPolicy {
             }
         }
 
-        // Whom I introduced.
-        if referredBy == myID, !state.referrals.contains(senderID) {
+        // Whom I introduced. Deduped by install id AND by iMessage's
+        // per-device sender key, so a reinstall (fresh install id) of a friend
+        // already counted doesn't count again.
+        let alreadyCountedKey = senderKey.map { state.referralSenderKeys.contains($0) } ?? false
+        if referredBy == myID, !state.referrals.contains(senderID), !alreadyCountedKey {
             state.referrals.append(senderID)
+            if let senderKey { state.referralSenderKeys.append(senderKey) }
             events.append(.referral(count: state.referrals.count))
             if state.referrals.count % required == 0 {
                 // Stack onto an active grant rather than restarting it.
@@ -272,20 +312,23 @@ enum Referrals {
     /// Decode-side hook for an ordinary Tween bubble. EXTENSION ONLY — that
     /// is where iMessage vouches the sender is someone else.
     @discardableResult
-    static func noteInbound(_ state: TweenState, myID: String, now: Date = Date()) -> [ReferralPolicy.Event] {
+    static func noteInbound(_ state: TweenState, myID: String, senderKey: String? = nil,
+                            now: Date = Date()) -> [ReferralPolicy.Event] {
         apply { stored in
             ReferralPolicy.noteInbound(senderID: state.senderID, referredBy: state.referredBy,
-                                       myID: myID, state: &stored, now: now)
+                                       myID: myID, senderKey: senderKey, state: &stored, now: now)
         }
     }
 
     /// Decode-side hook for an invite or joined bubble. EXTENSION ONLY.
     @discardableResult
-    static func noteInbound(_ message: ReferralMessage, myID: String, now: Date = Date()) -> [ReferralPolicy.Event] {
+    static func noteInbound(_ message: ReferralMessage, myID: String, senderKey: String? = nil,
+                            now: Date = Date()) -> [ReferralPolicy.Event] {
         apply { stored in
             ReferralPolicy.noteInbound(senderID: message.senderID, referredBy: message.inviterID,
                                        myID: myID, viaInvite: message.kind == .invite,
-                                       state: &stored, now: now)
+                                       isReply: message.kind == .joined,
+                                       senderKey: senderKey, state: &stored, now: now)
         }
     }
 
@@ -322,9 +365,13 @@ enum Referrals {
 
     private static func apply(_ decide: (inout ReferralState) -> [ReferralPolicy.Event]) -> [ReferralPolicy.Event] {
         var stored = ReferralStore.load()
+        let before = stored
         let events = decide(&stored)
+        // Save whenever the state CHANGED — the invite-over-inference upgrade
+        // changes state without an event, and dropping it hid the "Tell
+        // Hassan" banner (audit 2026-09-11).
+        if stored != before { ReferralStore.save(stored) }
         guard !events.isEmpty else { return events }
-        ReferralStore.save(stored)
         if events.contains(where: { if case .granted = $0 { return true } else { return false } }) {
             ProEntitlement.syncUnlockedFlag()   // posts MeetupSync on a change
         } else {

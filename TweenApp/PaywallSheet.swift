@@ -45,6 +45,9 @@ struct PaywallSheet: View {
     @State private var inviteDraft: ReferralInviteDraft?
     @State private var showInviteShare = false
     @State private var referral = ReferralStore.load()
+    /// Invites carry your name ("Hassan invited you"); ask once if unset.
+    @State private var askInviteName = false
+    @State private var inviteName = ""
 
     var body: some View {
         NavigationStack {
@@ -52,7 +55,14 @@ struct PaywallSheet: View {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s6) {
                     header
                     comparisonTable
-                    if unlocked {
+                    if unlocked, !ProEntitlement.isPurchased,
+                       let until = ProEntitlement.referralGrantUntil {
+                        // Pro from invites runs out — show when, and keep the
+                        // way to buy it for good (audit 2026-09-11: a granted
+                        // user saw "You have Tween Pro" and no end, no plans).
+                        referralGrantBadge(until: until)
+                        purchaseSection
+                    } else if unlocked {
                         unlockedBadge
                     } else {
                         purchaseSection
@@ -277,15 +287,49 @@ struct PaywallSheet: View {
         .sheet(isPresented: $showInviteShare) {
             ActivityView(items: [ReferralInvite.bodyText]) { showInviteShare = false }
         }
+        .alert("Your Name", isPresented: $askInviteName) {
+            TextField("Name", text: $inviteName)
+            Button("Continue") {
+                let trimmed = inviteName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                UserName.save(trimmed)
+                composeInvite()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Friends see it on your invite.")
+        }
     }
 
     private func startInvite() {
-        guard ReferralInvite.canSendBubble,
-              let message = ReferralInvite.makeMessage(senderName: UserProfile.displayName) else {
+        guard ReferralInvite.canSendBubble else {
+            showInviteShare = true
+            return
+        }
+        guard UserProfile.displayName != nil else {
+            inviteName = ""
+            askInviteName = true
+            return
+        }
+        composeInvite()
+    }
+
+    private func composeInvite() {
+        guard let message = ReferralInvite.makeMessage(senderName: UserProfile.displayName) else {
             showInviteShare = true
             return
         }
         inviteDraft = ReferralInviteDraft(message: message)
+    }
+
+    private func referralGrantBadge(until: Date) -> some View {
+        Label("Pro from invites until \(until.formatted(date: .abbreviated, time: .omitted))",
+              systemImage: "gift.fill")
+            .font(Tokens.Typography.headline)
+            .foregroundStyle(Tokens.Palette.success)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Layout.primaryControlHeight)
+            .background(Tokens.Palette.brandLight,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
     }
 
     private var unlockedBadge: some View {

@@ -403,7 +403,8 @@ extension OnboardingView {
         }
         // Referral credit, mirroring the extension's deliverBubble.
         outgoing.referredBy = Referrals.outboundReferrer
-        Referrals.noteOutbound()
+        // (hasSentAny is stamped when the composer reports .sent, not here —
+        // a cancelled compose isn't a send.)
         let image = await BubbleImageRenderer.makeImage(
             state: state,
             participants: state.participants,

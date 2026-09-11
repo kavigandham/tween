@@ -75,6 +75,7 @@ extension OnboardingView {
         // The tour continues INSIDE this sheet (the "place sheet" step):
         // its own overlay, since the home layers can't draw over a
         // presentation.
+        .interactiveDismissDisabled(tourStep != nil)
         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
             CoachMarkOverlay(step: tourStep(inside: .spot), layer: .spot,
                              calloutLayer: .spot, edge: sheetEdge,

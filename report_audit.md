@@ -1,3 +1,26 @@
+# AUDIT REPORT — Tween — 2026-09-11 (referral v2, Friends rebuild, Pro ad — 5eaf7a7)
+
+Read-only audit at `5eaf7a7`. All ten 101b6b1 referral findings verified fixed except the slimming order (partial). **Post-audit note (2026-09-11, next commit):** every item below marked (applied) was fixed before the 1.0.3 submission.
+
+## CRITICAL (carried)
+- Unbounded inbound `rev` → overflow trap on the next mint — `Shared/TweenState.swift` **(applied: revisions outside 0…1,000,000,000 read as absent)**
+- `pj=` participants skip `validCoordinate` — `Shared/TweenState.swift` **(applied: one invalid entry rejects the JSON roster, falling back to the validated `p=`; ids/names bounded)**
+
+## MAJOR
+- New fields made older `EngagementState`/`ReferralState` blobs undecodable → update silently wiped counts, cooldowns, referrals and grants. **(applied: `decodeIfPresent` decoders for both; `canBeIntroduced` false when `firstSeenAt` is nil)**
+- Credit flowed backwards: an invitee's reply (or any bubble naming me as `ref`) made them my introducer. **(applied: no attribution from my referees or from `.joined` replies)**
+- The invite-over-inference upgrade changed state without an event and was never saved → no "Tell Hassan" banner. **(applied: `Referrals.apply` saves on any change; store-level test)**
+- Reinstalling defeated the install check. **(applied: dedupe also by iMessage's per-device `senderParticipantIdentifier`)**
+- Carried: `ExpandedView` roster, phantom peer on switch, `"You"` in `agreed=`, `lastActiveConversationKey`, autocorrect Return, `.spot → .spot`, MKDirections fan-out, paywall refresh lag window — still present. Own-proposal detection by name **(applied: by install id)**.
+
+## MINOR
+- Staged reply marked answered before it was sent **(applied: marked from `didStartSending`)**; pre-send `noteOutbound` in `composeTweenMessage` **(applied: removed)**; paywall invite without a name → "Your invited you" **(applied: name prompt on the paywall, nameless banner copy)**; referral-granted users saw no end date and no purchase options **(applied)**; `ref` never dropped alone **(applied, with a deterministic test)**; participant ids/names unbounded **(applied)**; ProNudgeSheet CTA clipped on small phones **(applied: scrolls)**; ".joined" status said "that's 3" on every grant and Friends' share fallback used the old text **(applied)**.
+
+## ARCHITECTURE NOTES
+- Constraints 1, 2, 3, 6 hold; target membership correct; Pro-ad gating sound; no host credit path remains. The one release risk is guideline 3.1.1/3.2.2 for the referral reward — see `submission/SUBMIT-1.0.3.md`.
+
+---
+
 # AUDIT REPORT — Tween — 2026-09-08 (demo friend, chat step, Pro step, nudge engine — 555e024)
 
 Read-only audit at `8ebf20e` (code = `555e024`). Carried CRITICAL/MAJOR items re-verified by anchor: all still present. **Post-audit note:** items marked (applied) were fixed in the following commit.

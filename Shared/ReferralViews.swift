@@ -67,8 +67,12 @@ struct ReferralReplyBanner: View {
     let prompt: ReferralReplyPrompt
     var isSending = false
 
-    private var firstName: String {
-        prompt.inviterName.split(separator: " ").first.map(String.init) ?? prompt.inviterName
+    /// Nil when the inviter never set a name — the copy then says "A friend"
+    /// and "Tell them" rather than splitting a placeholder ("Your invited you").
+    private var firstName: String? {
+        let trimmed = prompt.inviterName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.split(separator: " ").first.map(String.init) ?? trimmed
     }
 
     var body: some View {
@@ -82,7 +86,7 @@ struct ReferralReplyBanner: View {
             // A headline-weight title truncated to "Hassan invited…" beside
             // the button on a 6.1" phone.
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(firstName) invited you")
+                Text(firstName.map { "\($0) invited you" } ?? "A friend invited you")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.textPrimary)
                     .lineLimit(1)
@@ -96,7 +100,7 @@ struct ReferralReplyBanner: View {
             .layoutPriority(1)
             Spacer(minLength: 0)
             Button(action: prompt.onReply) {
-                Text(isSending ? "Sending…" : "Tell \(firstName)")
+                Text(isSending ? "Sending…" : "Tell \(firstName ?? "them")")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
                     .padding(.horizontal, Tokens.Spacing.s3)
@@ -107,7 +111,7 @@ struct ReferralReplyBanner: View {
             .buttonStyle(.plain)
             .fixedSize()
             .disabled(isSending)
-            .accessibilityHint("Sends \(firstName) a Tween message saying you've installed it")
+            .accessibilityHint("Sends \(firstName ?? "your friend") a Tween message saying you've installed it")
         }
         .padding(Tokens.Spacing.s3)
         .background(Tokens.Palette.brandLight,

@@ -32,7 +32,8 @@ extension MessagesViewController {
         // Referrals ride on every inbound bubble and are independent of the
         // revision ordering below — a friend's stale bubble still proves
         // they installed. Deduped per sender inside.
-        Referrals.noteInbound(state, myID: localParticipantID())
+        Referrals.noteInbound(state, myID: localParticipantID(),
+                              senderKey: message.senderParticipantIdentifier.uuidString)
         // Revision guard (T1 old-bubble resurrection): every bubble is a
         // canonical roster snapshot, so without ordering, tapping an OLDER
         // bubble re-adopted its stale roster verbatim — a leaver popped back

@@ -25,6 +25,9 @@ struct ProNudgeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        // Scrolls rather than clipping "See Tween Pro" off a 4.7" phone or at
+        // large text sizes (audit 2026-09-11).
+        ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s4) {
             HStack(alignment: .firstTextBaseline) {
                 Label("Tween Pro", systemImage: "sparkles")
@@ -63,8 +66,9 @@ struct ProNudgeSheet: View {
             .accessibilityHint("Opens the Tween Pro options")
         }
         .padding(Tokens.Spacing.s5)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium])
+        .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showPaywall) {
             PaywallSheet()

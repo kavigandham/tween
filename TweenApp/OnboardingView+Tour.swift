@@ -37,6 +37,40 @@ extension OnboardingView {
         }
     }
 
+    /// A tap inside the spotlight: performs exactly the step's action. The
+    /// real control never sees the touch, so a result card's Send, Call or
+    /// Directions can't pull the user out mid-tour.
+    func tourTargetTapped(_ target: CoachTarget) {
+        switch target {
+        case .imInButton:
+            guard !isUserIn, !awaitingImIn, provider.status != .requesting else { return }
+            imIn()
+        case .coffeeChip:
+            // selectCategory TOGGLES — a second tap mid-search would cancel it.
+            guard selectedCategory != .coffee else { return }
+            selectCategory(.coffee)
+        case .firstResultCard:
+            if let first = displayedItems.first { selectedResult = first }
+        case .friendsButton:
+            activeSheet = .friends
+        case .mapToolbar, .sendToChat, .addFriend:
+            break   // informational steps — the card's button moves on
+        }
+    }
+
+    /// What the card says while the step's action runs.
+    var tourBusyText: String? {
+        switch tourStep {
+        case .imIn:
+            return (awaitingImIn || provider.status == .requesting) ? "Finding you…" : nil
+        case .coffeeChip:
+            return (selectedCategory == .coffee && searchState != .results) || isSearchLoading
+                ? "Finding fair spots…" : nil
+        default:
+            return nil
+        }
+    }
+
     /// From the menu's "Tween guide", or a fresh install's first launch.
     func startTour() {
         searchFocused = false

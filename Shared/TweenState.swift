@@ -218,8 +218,11 @@ struct TweenState: Equatable {
         guard let url = components.url else { return nil }
         if url.absoluteString.count <= 5000 { return url }
         // Oversize: the referral credit goes first — it's a nicety, and the
-        // same friend's next bubble carries it again.
+        // same friend's next bubble carries it again. Alone first, so a
+        // payload just over the line keeps its roster.
         let noRef = items.filter { $0.name != "ref" }
+        components.queryItems = noRef
+        if let lean = components.url, lean.absoluteString.count <= 5000 { return lean }
         // Oversize (large groups / long names): drop the base64 JSON roster —
         // `p=` + `pids=` carry the same data far more compactly — instead of
         // hard-failing the whole send.
@@ -272,7 +275,7 @@ struct TweenState: Equatable {
                   Self.validCoordinate(lat, lon)
             else { return nil }
             let raw = String(parts[0])
-            let name = raw.removingPercentEncoding ?? raw
+            let name = Self.boundedName(raw.removingPercentEncoding ?? raw)
             let needsRide = parts.count == 4 && parts[3] == "ride"
             return Participant(id: name, name: name, latitude: lat, longitude: lon, needsRide: needsRide)
         }
@@ -289,9 +292,33 @@ struct TweenState: Equatable {
         return data.base64EncodedString()
     }
 
+    /// The JSON roster, validated like every other coordinate the codec
+    /// accepts: one out-of-range entry rejects the whole `pj=` so the caller
+    /// falls back to `p=`, which validates per entry. `Participant`'s own
+    /// decoder never checked — `lat: 200` reached MapKit (audit CRITICAL,
+    /// carried since 2026-09-06). Ids and names are bounded too: an
+    /// oversize id echoes back out in every reply and can push sends past
+    /// 5000 characters.
     static func decodeParticipantJSON(_ raw: String) -> [Participant]? {
-        guard let data = Data(base64Encoded: raw) else { return nil }
-        return try? JSONDecoder().decode([Participant].self, from: data)
+        guard let data = Data(base64Encoded: raw),
+              let decoded = try? JSONDecoder().decode([Participant].self, from: data),
+              decoded.allSatisfy({ validCoordinate($0.latitude, $0.longitude) }),
+              decoded.allSatisfy({ $0.id.count <= maxIDLength })
+        else { return nil }
+        return decoded.map {
+            Participant(id: $0.id, name: boundedName($0.name),
+                        latitude: $0.latitude, longitude: $0.longitude, needsRide: $0.needsRide)
+        }
+    }
+
+    /// Install ids are 36-char UUIDs; legacy ids are names. Anything longer
+    /// is junk.
+    static let maxIDLength = 64
+    static let maxRevision = 1_000_000_000
+    static let maxNameLength = 60
+
+    static func boundedName(_ name: String) -> String {
+        name.count <= maxNameLength ? name : String(name.prefix(maxNameLength))
     }
 
     static func encodeNames(_ names: [String]) -> String {
@@ -423,7 +450,7 @@ struct TweenState: Equatable {
             // from the aligned `pids=` list when the sender provided one.
             if let rawIDs = items.first(where: { $0.name == "pids" })?.value {
                 let ids = Self.decodeNames(rawIDs)
-                if ids.count == decoded.count {
+                if ids.count == decoded.count, ids.allSatisfy({ $0.count <= Self.maxIDLength }) {
                     decoded = zip(decoded, ids).map { participant, id in
                         Participant(id: id,
                                     name: participant.name,
@@ -463,7 +490,13 @@ struct TweenState: Equatable {
         } else {
             self.agreedIDs = []
         }
-        self.revision = items.first(where: { $0.name == "rev" })?.value.flatMap(Int.init)
+        // Bounded: a revision is a per-conversation counter. An absurd value
+        // (Int.max) became the conversation's floor and the next `+ 1` mint
+        // trapped — in both processes, forever (audit CRITICAL, carried since
+        // 2026-09-06). Out of range reads as absent: legacy trust-the-tap.
+        self.revision = items.first(where: { $0.name == "rev" })?.value
+            .flatMap(Int.init)
+            .flatMap { (0...Self.maxRevision).contains($0) ? $0 : nil }
         self.departed = items.first(where: { $0.name == "gone" })?.value.map(Self.decodeNames) ?? []
         self.referredBy = items.first(where: { $0.name == "ref" })?.value
             .flatMap { ReferralPolicy.isInstallID($0) ? $0 : nil }

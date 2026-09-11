@@ -23,25 +23,29 @@ extension MessagesViewController {
             return true
         }
         let myID = localParticipantID()
-        let events = Referrals.noteInbound(referral, myID: myID)
-        let name = referral.senderName.map(UserName.peerDisplayName) ?? "Your friend"
+        let events = Referrals.noteInbound(referral, myID: myID,
+                                           senderKey: message.senderParticipantIdentifier.uuidString)
+        // nil = the inviter never set a name; the banner then says "A friend".
+        let name = referral.senderName.map(UserName.peerDisplayName)
         switch referral.kind {
         case .invite:
             if ReferralPolicy.owesReply(ReferralStore.load()) == referral.senderID {
-                pendingReferralReply = (referral.senderID, name)
+                pendingReferralReply = (referral.senderID, name ?? "")
                 sendStatusMessage = nil
             }
         case .joined:
             // The inviter's confirmation, in the chat where it happened.
-            if events.contains(where: { if case .granted = $0 { return true } else { return false } }) {
-                sendStatusMessage = "\(name) is on Tween — that's \(ReferralPolicy.required). Tween Pro is yours for 3 months 🎉"
-            } else if let count = events.compactMap({ event -> Int? in
+            let who = name ?? "Your friend"
+            let count = events.compactMap { event -> Int? in
                 if case .referral(let count) = event { return count } else { return nil }
-            }).first {
+            }.first
+            if events.contains(where: { if case .granted = $0 { return true } else { return false } }) {
+                sendStatusMessage = "\(who) is on Tween — \(count ?? ReferralPolicy.required) friends joined. Tween Pro is yours for 3 more months 🎉"
+            } else if let count {
                 let progress = count % ReferralPolicy.required
-                sendStatusMessage = "\(name) is on Tween ✓ — \(progress) of \(ReferralPolicy.required) toward free Pro"
+                sendStatusMessage = "\(who) is on Tween ✓ — \(progress) of \(ReferralPolicy.required) toward free Pro"
             } else if referral.inviterID == myID {
-                sendStatusMessage = "\(name) is on Tween ✓ — already counted"
+                sendStatusMessage = "\(who) is on Tween ✓ — already counted"
             }
         }
         return true
@@ -77,17 +81,33 @@ extension MessagesViewController {
             do {
                 do {
                     try await conversation.send(message)
-                    self.sendStatusMessage = "Sent — \(reply.name) will see you're on Tween."
+                    self.sendStatusMessage = reply.name.isEmpty
+                        ? "Sent — they'll see you're on Tween."
+                        : "Sent — \(reply.name) will see you're on Tween."
+                    // Only a bubble that actually went out answers the invite.
+                    Referrals.noteReplied(to: reply.inviterID)
                 } catch {
-                    // Same Direct Send gate as deliverBubble: stage it instead.
+                    // Same Direct Send gate as deliverBubble: stage it
+                    // instead. It is marked answered in didStartSending,
+                    // when the user really sends it — delete it, and the
+                    // next tap of the invite offers the reply again.
                     try await conversation.insert(message)
                     self.sendStatusMessage = Self.stagedDeliveryStatus
                 }
-                Referrals.noteReplied(to: reply.inviterID)
                 self.pendingReferralReply = nil
             } catch {
                 self.sendStatusMessage = "Couldn't send. Try again."
             }
         }
+    }
+}
+
+extension MessagesViewController {
+    /// A staged "I'm on Tween" reply that the user just sent for real.
+    func commitStagedReferralReplyIfNeeded(_ message: MSMessage) {
+        guard let url = message.url, let referral = ReferralMessage(url: url),
+              referral.kind == .joined, referral.senderID == localParticipantID(),
+              let inviter = referral.inviterID else { return }
+        Referrals.noteReplied(to: inviter)
     }
 }

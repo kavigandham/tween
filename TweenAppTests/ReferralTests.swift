@@ -135,7 +135,7 @@ final class ReferralPolicyTests: XCTestCase {
         XCTAssertNil(TweenState(url: invite.encodedURL()!))
     }
 
-    func testPayloadCarriesTheReferrer_BoundedAndDroppedFirstWhenOversize() throws {
+    func testPayloadCarriesTheReferrer_Bounded() throws {
         let state = TweenState(text: "I'm in", latitude: 37.3, longitude: -121.9,
                                senderName: "Sam", senderID: b, referredBy: a)
         let url = try XCTUnwrap(state.encodedURL())
@@ -145,18 +145,86 @@ final class ReferralPolicyTests: XCTestCase {
         let decoded = try XCTUnwrap(TweenState(url: junk))
         XCTAssertNil(decoded.referredBy, "a non-install ref is dropped")
         XCTAssertNil(decoded.senderID, "an unbounded fromId is dropped")
+    }
 
-        // Long enough to need slimming: ref goes before anything else.
-        let crowd = (0..<40).map { i in
-            Participant(id: String(format: "00000000-0000-4000-8000-%012d", i),
-                        name: "Person number \(i) with a long name", latitude: 37, longitude: -122)
+    func testRefIsTheFirstThingDroppedWhenAPayloadIsJustOverTheLimit() throws {
+        let roster = [Participant(id: a, name: "Ann", latitude: 37, longitude: -122),
+                      Participant(id: b, name: "Bo", latitude: 37.1, longitude: -122.1)]
+        // Grow the spot name until the ref-less payload sits just under 5000.
+        var text = String(repeating: "x", count: 3000)
+        func url(_ ref: String?) -> String? {
+            TweenState(text: text, latitude: 37, longitude: -122, senderID: b,
+                       participants: roster, referredBy: ref).encodedURL()?.absoluteString
         }
-        let big = TweenState(text: "Somewhere", latitude: 37, longitude: -122, senderID: b,
-                             participants: crowd, referredBy: a)
-        if let slim = big.encodedURL(), slim.absoluteString.count > 0,
-           !slim.absoluteString.contains("pj=") {
-            XCTAssertFalse(slim.absoluteString.contains("ref="), "ref is dropped before the roster")
-        }
+        while let plain = url(nil), plain.count < 4975, plain.contains("pj=") { text += "x" }
+        let plain = try XCTUnwrap(url(nil))
+        XCTAssertTrue(plain.contains("pj="), "precondition: the roster still fits without ref")
+        let withRef = try XCTUnwrap(url(a), "never fails the send over a referral")
+        XCTAssertFalse(withRef.contains("ref="), "ref goes first…")
+        XCTAssertTrue(withRef.contains("pj="), "…and alone: the roster stays")
+    }
+
+    func testRevisionAndRosterGuards() throws {
+        // An absurd revision reads as absent instead of poisoning the floor.
+        let hostile = URL(string: "https://tween.app/m?t=x&lat=1&lon=1&rev=9223372036854775807")!
+        XCTAssertNil(try XCTUnwrap(TweenState(url: hostile)).revision)
+        XCTAssertEqual(TweenState(url: URL(string: "https://tween.app/m?t=x&lat=1&lon=1&rev=42")!)?.revision, 42)
+
+        // A JSON roster with an impossible coordinate is refused whole.
+        let bad = [Participant(id: a, name: "Ann", latitude: 200, longitude: -122)]
+        let json = try JSONEncoder().encode(bad).base64EncodedString()
+        XCTAssertNil(TweenState.decodeParticipantJSON(json))
+        let good = [Participant(id: a, name: String(repeating: "N", count: 500), latitude: 37, longitude: -122)]
+        let decoded = try XCTUnwrap(TweenState.decodeParticipantJSON(
+            try JSONEncoder().encode(good).base64EncodedString()))
+        XCTAssertEqual(decoded.first?.name.count, TweenState.maxNameLength, "names are bounded")
+    }
+
+    // MARK: Audit 5eaf7a7
+
+    func testOldSavedBlobsSurviveNewFields() throws {
+        // A 101b6b1-era blob: no firstSeenAt, no new fields.
+        let legacy = #"{"hasSentAny":true,"referrals":["\#(a)","\#(b)"],"grantsAwarded":0}"#
+        let referral = try JSONDecoder().decode(ReferralState.self, from: Data(legacy.utf8))
+        XCTAssertEqual(referral.referrals, [a, b], "earned referrals survive the update")
+        XCTAssertFalse(ReferralPolicy.canBeIntroduced(referral, now: Date()),
+                       "a blob from before first-seen dates is an existing user")
+
+        let engagement = #"{"imInCount":4,"sendCount":2,"agreedCount":1,"proDismissals":2}"#
+        let decoded = try JSONDecoder().decode(EngagementState.self, from: Data(engagement.utf8))
+        XCTAssertEqual(decoded.positiveEvents, 7, "counts survive the update")
+        XCTAssertEqual(decoded.proDismissals, 2, "and so does the back-off")
+    }
+
+    func testCreditNeverFlowsBackwardsFromMyReferee() {
+        var inviter = newUser   // a new install who invites someone
+        let joined = ReferralPolicy.noteInbound(senderID: b, referredBy: me, myID: me, isReply: true,
+                                                state: &inviter)
+        XCTAssertEqual(joined, [.referral(count: 1)])
+        XCTAssertNil(inviter.referredBy, "B's reply must not make B my introducer")
+        _ = ReferralPolicy.noteInbound(senderID: b, referredBy: me, myID: me, state: &inviter)
+        XCTAssertNil(inviter.referredBy, "nor any bubble of B's that names me as ref")
+    }
+
+    func testInviteUpgradeIsSavedSoTheBannerShows() {
+        ReferralStore.save(newUser)
+        // An ordinary bubble from A first (inferred), then A's invite.
+        _ = Referrals.noteInbound(TweenState(text: "I'm in", latitude: 1, longitude: 1, senderID: a), myID: me)
+        _ = Referrals.noteInbound(ReferralMessage(kind: .invite, senderID: a, senderName: "Ann"), myID: me)
+        XCTAssertEqual(ReferralPolicy.owesReply(ReferralStore.load()), a,
+                       "the upgrade reached the store, so the extension shows Tell Ann")
+    }
+
+    func testAReinstallIsNotCountedTwice() {
+        var state = ReferralState(existingUser: true)
+        let key = "IMESSAGE-KEY-FOR-B"
+        _ = ReferralPolicy.noteInbound(senderID: b, referredBy: me, myID: me, isReply: true,
+                                       senderKey: key, state: &state)
+        // B deletes and reinstalls: a new install id, the same iMessage sender.
+        let again = ReferralPolicy.noteInbound(senderID: c, referredBy: me, myID: me, isReply: true,
+                                               senderKey: key, state: &state)
+        XCTAssertEqual(again, [])
+        XCTAssertEqual(state.referrals.count, 1)
     }
 
     // MARK: Store hooks

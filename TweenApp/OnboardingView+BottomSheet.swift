@@ -84,7 +84,9 @@ extension OnboardingView {
                              calloutLayer: tourCalloutLayer, edge: sheetEdge,
                              anchors: anchors, onNext: advanceTour, onSkip: skipTour,
                              onSecondary: tourSecondaryAction,
-                             mentionsDemoFriend: tourMentionsDemoFriend)
+                             mentionsDemoFriend: tourMentionsDemoFriend,
+                             onTargetTap: tourTargetTapped,
+                             busyText: tourBusyText)
         }
         // Toasts sit ABOVE the tour's dim, or "Couldn't get your location"
         // renders under 55 % black exactly when it matters.
