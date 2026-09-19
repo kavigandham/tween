@@ -261,11 +261,17 @@ struct MeetupPoll: Equatable, Codable {
     ///     sender's snapshot, which is at least as new as ours);
     ///   * decided — sticky once either side has it, because a lock-in is
     ///     terminal. A later `pick` clears it explicitly (see `pick`).
-    /// `preservingVoteOf` is the LOCAL participant. An incoming board is a
-    /// peer's snapshot and may predate this device's own vote — overwriting it
-    /// let a stale bubble move your vote to a place you didn't choose, and (in
-    /// a three-person chat) settle the meetup on it. Your own vote is the one
-    /// entry this device always knows better than anyone sending to it.
+    /// `preservingVoteOf` is the LOCAL participant, and it is ONLY correct
+    /// when `incoming` arrived from a PEER. A peer's snapshot may predate this
+    /// device's own vote, and overwriting it let a stale bubble move your vote
+    /// to a place you didn't choose — and, in a three-person chat, settle the
+    /// meetup on it.
+    ///
+    /// Pass nil when `incoming` is a board THIS device just composed: there the
+    /// incoming copy is the fresh one, and preserving `local` reverts the very
+    /// vote the user just cast (and re-broadcasts the old one on the next
+    /// send). `MessagesViewController.mergePoll(_:from:)` names the two cases
+    /// so a call site can't get the direction wrong by omission.
     static func merged(local: MeetupPoll, incoming: MeetupPoll,
                        preservingVoteOf localID: String? = nil) -> MeetupPoll {
         var result = local
@@ -285,13 +291,18 @@ struct MeetupPoll: Equatable, Codable {
         for (voter, optionID) in incoming.votes where voter != localID {
             result.votes[voter] = optionID
         }
-        // Re-assert my own vote, unless the place I voted for is gone.
-        if let localID, let myVote {
-            if result.options.contains(where: { $0.id == myVote }) {
+        // Re-assert my own vote — or fall back to theirs when the place I
+        // voted for is gone (a re-pick removes it). The fallback used to hang
+        // off the same `if let myVote`, which made it unreachable in exactly
+        // that case: the board kept my new pick with NOBODY voting for it,
+        // breaking `pick`'s own invariant (audit 2026-09-19).
+        if let localID {
+            if let myVote, result.options.contains(where: { $0.id == myVote }) {
                 result.votes[localID] = myVote
+            } else if let theirs = incoming.votes[localID],
+                      result.options.contains(where: { $0.id == theirs }) {
+                result.votes[localID] = theirs
             }
-        } else if let localID, let theirs = incoming.votes[localID] {
-            result.votes[localID] = theirs
         }
         result.votes = result.votes.filter { entry in
             result.options.contains { $0.id == entry.value }
@@ -366,9 +377,18 @@ struct MeetupPoll: Equatable, Codable {
         }.joined(separator: ",")
     }
 
-    static func decodeOptions(_ raw: String, participants: [Participant]) -> [PollOption] {
+    /// Decoded options as SLOTS — one entry per record on the wire, nil where
+    /// a record was rejected.
+    ///
+    /// Positional fidelity is the whole point: `votes` and `dec` are indexes
+    /// into the list the SENDER encoded, so silently compacting rejected
+    /// records here shifts every later vote by one — a vote or a decision
+    /// landing on a place nobody chose. That's the same defect the encode side
+    /// had, on the other side of the wire, and the dedupe below made it easier
+    /// to trigger (audit 2026-09-19). Callers index the slots, then compact.
+    static func decodeOptionSlots(_ raw: String, participants: [Participant]) -> [PollOption?] {
         var seen = Set<String>()
-        return raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry -> PollOption? in
+        return raw.split(separator: ",", omittingEmptySubsequences: false).map { entry -> PollOption? in
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 4,
                   let lat = Double(parts[1]),
@@ -382,10 +402,15 @@ struct MeetupPoll: Equatable, Codable {
             let option = PollOption(name: name, latitude: lat, longitude: lon,
                                     proposerID: participants[proposerIndex].id)
             // Dedupe on the way IN, so a payload carrying the same place twice
-            // can't produce a board that traps when it is re-encoded.
+            // can't produce a board that traps when it is re-encoded. The slot
+            // stays (as nil) so the indexes don't move.
             guard seen.insert(option.id).inserted else { return nil }
             return option
         }
+    }
+
+    static func decodeOptions(_ raw: String, participants: [Participant]) -> [PollOption] {
+        decodeOptionSlots(raw, participants: participants).compactMap { $0 }
     }
 
     /// Positional over the roster: entry `i` is the option index participant
@@ -405,20 +430,49 @@ struct MeetupPoll: Equatable, Codable {
         }.joined(separator: ",")
     }
 
+    /// `slots` must be `decodeOptionSlots`' output — the sender's indexes only
+    /// mean anything against the positions they encoded.
     static func decodeVotes(_ raw: String,
-                            options: [PollOption],
+                            slots: [PollOption?],
                             participants: [Participant]) -> [String: String] {
         var result: [String: String] = [:]
         for (offset, token) in raw.split(separator: ",", omittingEmptySubsequences: false).enumerated() {
             guard participants.indices.contains(offset),
                   let index = Int(token),
-                  options.indices.contains(index) else { continue }
-            result[participants[offset].id] = options[index].id
+                  slots.indices.contains(index),
+                  let option = slots[index] else { continue }
+            result[participants[offset].id] = option.id
         }
         return result
     }
 
     private static func coordinate(_ value: Double) -> String {
         String(format: "%.6f", value)
+    }
+}
+
+// MARK: - Codable
+
+/// Hand-written decode, in an EXTENSION so the memberwise init survives.
+///
+/// Swift's synthesized `init(from:)` emits `decode(_:forKey:)` for a
+/// non-optional property and **ignores its default value** — so adding
+/// `decisionSeq` to a struct that already has stored blobs made every one of
+/// them throw `keyNotFound`. `MeetupSnapshot.poll` decodes through here, and
+/// `ConversationMeetupStore.load` is a `try?`, so one missing key would have
+/// discarded the WHOLE conversation snapshot: roster, proposal, agreement,
+/// board and pending draft, for every chat written by the previous build
+/// (audit 2026-09-19). Every field is tolerant of absence for the same reason.
+extension MeetupPoll {
+    private enum CodingKeys: String, CodingKey {
+        case options, votes, decidedOptionID, decisionSeq
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        options = try c.decodeIfPresent([PollOption].self, forKey: .options) ?? []
+        votes = try c.decodeIfPresent([String: String].self, forKey: .votes) ?? [:]
+        decidedOptionID = try c.decodeIfPresent(String.self, forKey: .decidedOptionID)
+        decisionSeq = try c.decodeIfPresent(Int.self, forKey: .decisionSeq) ?? 0
     }
 }

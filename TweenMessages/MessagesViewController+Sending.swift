@@ -302,7 +302,7 @@ extension MessagesViewController {
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
             self.currentParticipants = participants
-            self.mergePoll(board)
+            self.mergePoll(board, from: .localDevice)
             LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
             // A new place on the board reopens the question, so a terminal
             // state cached from a previous round must go. Cleared only on
@@ -459,7 +459,7 @@ extension MessagesViewController {
             ConversationMeetupStore.setPendingStagedSend(nil, key: conversationKey)
         }
         LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
-        mergePoll(state.poll)
+        mergePoll(state.poll, from: .localDevice)
         if state.isDecided {
             LocationCache.saveAgreedMeetup(state)
             if let conversationKey {
@@ -620,8 +620,15 @@ extension MessagesViewController {
                     draft = nil
                     rankedSpots = []
                 }
+            }
+            if didSend {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
-                // only claim "sent" when the status is still our in-progress copy.
+                // only claim "sent" when the status is still our in-progress
+                // copy. Gating this whole arm on `!staged` (as the first cut of
+                // the staged-pick fix did) dropped a STAGED send into the
+                // failure arm below, so the user got a red "Couldn't send"
+                // banner over a bubble sitting in the input field ready to go
+                // (audit 2026-09-19).
                 if sendStatusMessage == sendingMessage(for: state) {
                     sendStatusMessage = sentMessage(for: state)
                 }

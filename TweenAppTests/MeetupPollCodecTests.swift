@@ -198,3 +198,157 @@ final class MeetupPollCodecTests: XCTestCase {
                       "1.0.3 must still read this as a set meetup")
     }
 }
+
+/// Regressions the FIX commit (7634cde) introduced, found by the verification
+/// audit. The original suite couldn't see most of these because it only ever
+/// merged in the peer direction.
+final class MeetupPollMergeDirectionTests: XCTestCase {
+
+    private let hassan = Participant(id: "id-hassan", name: "Hassan", latitude: 37.78, longitude: -122.41)
+    private let belal = Participant(id: "id-belal", name: "Belal", latitude: 37.76, longitude: -122.43)
+
+    private func heyTea(by id: String) -> PollOption {
+        PollOption(name: "Hey Tea", latitude: 37.770, longitude: -122.420, proposerID: id)
+    }
+    private func kungFuTea(by id: String) -> PollOption {
+        PollOption(name: "Kung Fu Tea", latitude: 37.765, longitude: -122.425, proposerID: id)
+    }
+
+    /// AUDIT [CRITICAL] — committing a board this device just composed must
+    /// NOT preserve the pre-send vote. `preservingVoteOf` is only correct when
+    /// `incoming` came from a peer; pointed the other way it reverted the very
+    /// vote the user just cast, and re-broadcast the old one on the next send.
+    func testCommittingYourOwnSendKeepsYourNewVote() {
+        var before = MeetupPoll.empty
+        before.pick(heyTea(by: hassan.id))
+        before.pick(kungFuTea(by: belal.id))          // I am Belal, voting Kung Fu
+
+        var sent = before
+        sent.vote(belal.id, for: heyTea(by: hassan.id).id)   // I change to Hey Tea
+
+        // The commit path: local = pre-send board, incoming = what I just sent.
+        let committed = MeetupPoll.merged(local: before, incoming: sent)
+        XCTAssertEqual(committed.vote(by: belal.id), heyTea(by: hassan.id).id,
+                       "my own send is the fresh copy; it must not be reverted")
+        XCTAssertEqual(committed.settledOption(participants: [hassan, belal])?.name, "Hey Tea")
+    }
+
+    /// The peer direction still has to hold — this is the fix it was added for.
+    func testAPeersStaleBoardStillCannotMoveYourVote() {
+        var mine = MeetupPoll.empty
+        mine.pick(heyTea(by: hassan.id))
+        mine.pick(kungFuTea(by: belal.id))
+        var stale = mine
+        stale.vote(belal.id, for: heyTea(by: hassan.id).id)
+
+        let merged = MeetupPoll.merged(local: mine, incoming: stale, preservingVoteOf: belal.id)
+        XCTAssertEqual(merged.vote(by: belal.id), kungFuTea(by: belal.id).id)
+    }
+
+    /// AUDIT [CRITICAL] — the re-assert fallback hung off `if let myVote`, so
+    /// when a re-pick removed the place I'd voted for, the board kept my NEW
+    /// pick with nobody voting for it, breaking `pick`'s own invariant.
+    func testRepickingLeavesYourVoteOnYourNewPick() {
+        var before = MeetupPoll.empty
+        before.pick(heyTea(by: belal.id))             // my first pick
+
+        var sent = before
+        sent.pick(kungFuTea(by: belal.id))            // I'd rather go here
+
+        let merged = MeetupPoll.merged(local: before, incoming: sent, preservingVoteOf: belal.id)
+        XCTAssertEqual(merged.options.map(\.name), ["Kung Fu Tea"])
+        XCTAssertEqual(merged.vote(by: belal.id), kungFuTea(by: belal.id).id,
+                       "a pick always carries its proposer's vote")
+        XCTAssertEqual(merged.voteCount(for: kungFuTea(by: belal.id).id), 1)
+    }
+
+    // MARK: - Storage compatibility
+
+    /// AUDIT [CRITICAL] — Swift's synthesized Codable IGNORES default values,
+    /// so adding a non-optional `decisionSeq` made every blob written by the
+    /// previous build throw `keyNotFound`. `ConversationMeetupStore.load` is a
+    /// `try?`, so that discarded the ENTIRE conversation snapshot.
+    func testABoardStoredByThePreviousBuildStillDecodes() throws {
+        let legacy = Data("""
+        {"options":[{"name":"Hey Tea","latitude":37.77,"longitude":-122.42,"proposerID":"id-hassan"}],
+         "votes":{"id-hassan":"hey tea@377700,-1224200"}}
+        """.utf8)
+        let poll = try JSONDecoder().decode(MeetupPoll.self, from: legacy)
+        XCTAssertEqual(poll.options.count, 1)
+        XCTAssertEqual(poll.decisionSeq, 0)
+        XCTAssertFalse(poll.isDecided)
+    }
+
+    func testASnapshotSurvivesABoardWrittenWithoutTheNewField() throws {
+        // The real blast radius: the snapshot, not just the board.
+        var snapshot = MeetupSnapshot(conversationKey: "k", participants: [hassan, belal])
+        var poll = MeetupPoll.empty
+        poll.pick(heyTea(by: hassan.id))
+        snapshot.poll = poll
+        let data = try JSONEncoder().encode(snapshot)
+        let restored = try JSONDecoder().decode(MeetupSnapshot.self, from: data)
+        XCTAssertEqual(restored.participants.count, 2)
+        XCTAssertEqual(restored.poll?.options.count, 1)
+    }
+
+    // MARK: - Size ladder
+
+    /// AUDIT [MAJOR] — the last rung dropped `dec` but kept `decs`, and a
+    /// higher generation with no decision reads as "somebody reopened it". A
+    /// size-degraded lock-in therefore UN-DECIDED the meetup on exactly the
+    /// devices that hadn't seen it yet.
+    func testADegradedDecisionDoesNotUnsettleTheMeetup() {
+        var settled = MeetupPoll.empty
+        settled.pick(heyTea(by: hassan.id))
+        settled.vote(belal.id, for: heyTea(by: hassan.id).id)
+        settled.lockIn(heyTea(by: hassan.id).id)
+
+        // A payload with no roster can't carry a board — the degraded case.
+        let degraded = TweenState(text: "Hey Tea", latitude: 37.770, longitude: -122.420,
+                                  senderName: "Hassan", senderID: hassan.id,
+                                  kind: .place, messageType: .decided,
+                                  participants: [], poll: settled)
+        let decoded = try! XCTUnwrap(TweenState(url: try! XCTUnwrap(degraded.encodedURL())))
+        XCTAssertTrue(decoded.poll.options.isEmpty, "precondition: the board didn't travel")
+        XCTAssertEqual(decoded.poll.decisionSeq, 0,
+                       "a generation without its board must not travel either")
+
+        let merged = MeetupPoll.merged(local: settled, incoming: decoded.poll)
+        XCTAssertTrue(merged.isDecided, "a degraded bubble must not un-decide a settled meetup")
+    }
+
+    // MARK: - Decode index alignment
+
+    /// AUDIT [MAJOR] — `decodeOptions` compacted away rejected records while
+    /// `votes`/`dec` still indexed the sender's positions, so every rejection
+    /// shifted later votes onto the wrong place. Same defect as the encode
+    /// bug, on the other side of the wire.
+    func testARejectedOptionRecordDoesNotShiftLaterVotes() {
+        // Record 0 is unparseable (too few fields); records 1 and 2 are fine.
+        // Votes say participant 0 → option 1, participant 1 → option 2.
+        let url = URL(string: "https://tween.app/m?t=Hey%20Tea&lat=37.77&lon=-122.42"
+                      + "&kind=place&type=vote"
+                      + "&p=A%3A37.780000%3A-122.410000,B%3A37.760000%3A-122.430000"
+                      + "&opts=broken%3A1,Hey%20Tea%3A37.770000%3A-122.420000%3A0"
+                      + ",Kung%20Fu%20Tea%3A37.765000%3A-122.425000%3A1"
+                      + "&votes=1,2")!
+        let decoded = try! XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.poll.options.count, 2, "the broken record is dropped")
+
+        let byName = { (n: String) in decoded.poll.options.first { $0.name == n }?.id }
+        XCTAssertEqual(decoded.poll.vote(by: "A"), byName("Hey Tea"))
+        XCTAssertEqual(decoded.poll.vote(by: "B"), byName("Kung Fu Tea"))
+    }
+
+    /// AUDIT [MAJOR] — a board-less `.vote` used to invent an option owned by
+    /// the VOTER. `PollOption.id` carries no proposer, so the misattribution
+    /// was permanent: the real proposer's bubble is skipped by the union, and
+    /// the place would then vanish when the voter left.
+    func testABoardlessVoteDoesNotInventAnOptionOwnedByTheVoter() {
+        let url = URL(string: "https://tween.app/m?t=Hey%20Tea&lat=37.770000&lon=-122.420000"
+                      + "&kind=place&type=vote&fromId=id-belal")!
+        let decoded = try! XCTUnwrap(TweenState(url: url))
+        XCTAssertTrue(decoded.absorbedPoll.options.isEmpty,
+                      "better to lose the option than to attribute it to the wrong person")
+    }
+}

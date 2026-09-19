@@ -231,8 +231,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         // state, so it must be there whether or not a bubble decoded on this
         // activation (drawer open, own bubble tapped, live arrival).
         if !ConversationMeetupStore.localUserLeft(key: key) {
-            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
-                                     preservingVoteOf: localParticipantID())
+            // The stored blob is `local`, our in-memory copy `incoming` — the
+            // in-memory one is at least as fresh, so it must not have its vote
+            // overridden by the store.
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll)
         }
         enRouteMarks = EnRouteLog.marks(key: key)
         if !decodedIncoming, received == nil, let snapshot {
@@ -268,7 +270,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         // the legacy fields, which `absorbedPoll` is what turns into options.
         if let received, received.kind == .place,
            !ConversationMeetupStore.localUserLeft(key: key) {
-            mergePoll(received.absorbedPoll, key: key)
+            mergePoll(received.absorbedPoll, from: .peer, key: key)
         }
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
@@ -470,7 +472,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             // The local half of a staged pick: adopt the board we sent, and
             // consume the host-app draft now that it verifiably went out.
             currentParticipants = state.participants
-            mergePoll(state.absorbedPoll, key: key)
+            mergePoll(state.absorbedPoll, from: .localDevice, key: key)
             LocationCache.saveParticipantSnapshot(state.participants,
                                                   localContext: localParticipantContext())
             LocationCache.clearAgreedMeetup()

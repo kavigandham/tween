@@ -178,7 +178,7 @@ struct TweenState: Equatable {
                 // one so the thread lands on the same terminal screen.
                 if isFullyAgreed { result.lockIn(option.id) }
             }
-        case .pick, .vote:
+        case .pick:
             // Normally the board travels and this is a no-op. But the 5000-char
             // ladder drops `opts`/`votes`/`dec` on its last rung, and its own
             // comment promised the place still survives for peers to absorb —
@@ -191,7 +191,17 @@ struct TweenState: Equatable {
             guard !voter.isEmpty else { return result }
             result.pick(PollOption(name: text, latitude: latitude,
                                    longitude: longitude, proposerID: voter))
-        case .decided, .enroute, .invite, .leave:
+        case .vote, .decided, .enroute, .invite, .leave:
+            // Deliberately NOT reconstructing an option for a board-less
+            // `.vote`: its `text` is the place the sender voted FOR, normally
+            // proposed by somebody else, and `PollOption.id` carries no
+            // proposer — so a wrong attribution is permanent. The real
+            // proposer's own bubble is skipped by the union (same id), and
+            // `normalized`/`merged` key off `proposerID`, so the place would
+            // vanish when the VOTER left and would delete the real proposer's
+            // entry when they next picked (audit 2026-09-19). Losing the
+            // option is the lesser evil, and only happens on the last rung of
+            // the size ladder.
             break
         }
         return result
@@ -323,12 +333,15 @@ struct TweenState: Equatable {
                 }
             }
         }
-        // The decision GENERATION, always — including when there is no
-        // decision. Without it a `.pick` that reopened a settled meetup
-        // travelled as "no dec", which the merge reads as "says nothing",
-        // so every other device stayed on the old plan with no vote UI
-        // (audit 2026-09-19).
-        if poll.decisionSeq > 0 {
+        // The decision GENERATION — but ONLY alongside a board. Without it a
+        // `.pick` that reopened a settled meetup travelled as "no dec", which
+        // the merge reads as "says nothing", so every other device stayed on
+        // the old plan with no vote UI. Emitting it WITHOUT the board is the
+        // mirror-image bug: a higher generation and no `dec` reads as "somebody
+        // reopened it", so a payload that lost its board to the size ladder
+        // would actively UN-DECIDE a settled meetup on every device that
+        // hadn't seen the lock-in yet (audit 2026-09-19).
+        if poll.decisionSeq > 0, !wireOptions.isEmpty, !participants.isEmpty {
             items.append(URLQueryItem(name: "decs", value: String(poll.decisionSeq)))
         }
         if let etaSeconds {
@@ -358,9 +371,12 @@ struct TweenState: Equatable {
         // the whole message, and this one still carries `t`/`lat`/`lon`, so
         // the place itself (and the legacy propose/agree reading of it)
         // survives for peers to absorb.
+        // `decs` goes with them — see the note at the `decs` append above for
+        // what a generation without its board does to a settled meetup.
         let leanest = noRef.filter {
             $0.name != "pj" && $0.name != "gone"
-                && $0.name != "opts" && $0.name != "votes" && $0.name != "dec"
+                && $0.name != "opts" && $0.name != "votes"
+                && $0.name != "dec" && $0.name != "decs"
         }
         components.queryItems = leanest
         guard let last = components.url, last.absoluteString.count <= 5000 else { return nil }
@@ -647,15 +663,20 @@ struct TweenState: Equatable {
         // simply arrives with an empty poll rather than a mis-indexed one.
         var decodedPoll = MeetupPoll.empty
         if let rawOptions = items.first(where: { $0.name == "opts" })?.value, !rawOptions.isEmpty {
-            decodedPoll.options = MeetupPoll.decodeOptions(rawOptions, participants: self.participants)
+            // SLOTS, not the compacted list: `votes` and `dec` index the
+            // positions the sender encoded, so a rejected record has to leave
+            // a hole rather than shifting everything after it.
+            let slots = MeetupPoll.decodeOptionSlots(rawOptions, participants: self.participants)
+            decodedPoll.options = slots.compactMap { $0 }
             if let rawVotes = items.first(where: { $0.name == "votes" })?.value, !rawVotes.isEmpty {
                 decodedPoll.votes = MeetupPoll.decodeVotes(rawVotes,
-                                                           options: decodedPoll.options,
+                                                           slots: slots,
                                                            participants: self.participants)
             }
             if let rawDecided = items.first(where: { $0.name == "dec" })?.value,
-               let index = Int(rawDecided), decodedPoll.options.indices.contains(index) {
-                decodedPoll.decidedOptionID = decodedPoll.options[index].id
+               let index = Int(rawDecided), slots.indices.contains(index),
+               let decided = slots[index] {
+                decodedPoll.decidedOptionID = decided.id
             }
         }
         // Bounded like every other counter the codec accepts.

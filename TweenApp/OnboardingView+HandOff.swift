@@ -164,8 +164,7 @@ extension OnboardingView {
                                 ConversationMeetupStore.saveProposed(state, key: key)
                                 ConversationMeetupStore.savePoll(
                                     MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
-                                                      incoming: board,
-                                                      preservingVoteOf: TweenIdentity.stableID),
+                                                      incoming: board),
                                     key: key)
                             }
                             pendingProposal = state

@@ -403,7 +403,7 @@ extension OnboardingView {
                         // whole-blob write would discard it.
                         ConversationMeetupStore.savePoll(
                             MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
-                                              incoming: board, preservingVoteOf: myID),
+                                              incoming: board),
                             key: key)
                         if state.isDecided {
                             ConversationMeetupStore.saveAgreed(state, key: key)

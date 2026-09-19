@@ -130,7 +130,7 @@ extension MessagesViewController {
         // Merge the board AFTER the roster, so `normalized` scopes it to who
         // is actually still in: a person who left takes their pick and their
         // vote with them, rather than leaving an unattended place able to win.
-        mergePoll(state.absorbedPoll, key: revisionKey)
+        mergePoll(state.absorbedPoll, from: .peer, key: revisionKey)
 
         // Departures. A new place on the board starts a new round, so the
         // "on the way" strip from the previous one must not survive it.
@@ -175,13 +175,27 @@ extension MessagesViewController {
 
     // MARK: - Vote board
 
-    /// Folds an incoming board into this device's, scopes it to the live
-    /// roster, and persists it. One funnel for every writer (decode, send,
-    /// leave) so the in-memory copy and the stored one can never disagree.
+    /// Where a board being merged came from. The two cases need OPPOSITE
+    /// treatment of the local user's own vote, and getting it wrong is silent:
+    /// a peer's stale snapshot must not move my vote, and a board I just
+    /// composed must not have my vote reverted to the pre-send value.
+    enum BoardSource {
+        /// Decoded from someone else's bubble.
+        case peer
+        /// Composed on this device (a send we're committing, or restoring our
+        /// own in-memory copy).
+        case localDevice
+    }
+
+    /// Folds a board into this device's, scopes it to the live roster, and
+    /// persists it. One funnel for every writer (decode, send, leave) so the
+    /// in-memory copy and the stored one can never disagree.
     @discardableResult
-    func mergePoll(_ incoming: MeetupPoll, key: String? = nil) -> MeetupPoll {
-        let merged = MeetupPoll.merged(local: poll, incoming: incoming,
-                                       preservingVoteOf: localParticipantID())
+    func mergePoll(_ incoming: MeetupPoll, from source: BoardSource,
+                   key: String? = nil) -> MeetupPoll {
+        let merged = MeetupPoll.merged(
+            local: poll, incoming: incoming,
+            preservingVoteOf: source == .peer ? localParticipantID() : nil)
             .normalized(participants: pollParticipants())
         poll = merged
         if let key = key ?? conversationKey {
