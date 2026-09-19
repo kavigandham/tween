@@ -390,16 +390,26 @@ extension MessagesViewController {
             let subject = settled ?? focus
             // Back-compat: a `.decided` must read as a FULL agreement to a
             // build that predates the poll, or a 1.0.3 user sees "0 of 2
-            // agreed" under a meetup that's set.
-            let agreedIDs = settled == nil ? [] : participants.map(\.id).filter { $0 != subject.proposerID }
-            let agreedNames = settled == nil ? [] : participants.filter { $0.id != subject.proposerID }.map(\.name)
+            // agreed" under a meetup that's set. `isFullyAgreed` excludes the
+            // SENDER and requires everyone else in `agreedIDs` — so listing
+            // everyone but me satisfies it without lying about who sent this.
+            //
+            // The bubble used to claim the winning option's PROPOSER as its
+            // sender to get the same effect. Three receive-side mechanisms key
+            // off `senderID`: the revision floor's tie-break owner,
+            // `RosterMerge.clearDeparted` (so a vote for a departed person's
+            // pick resurrected them), and referral attribution — plus the
+            // caption read "Hassan voted for Hey Tea" when Belal voted
+            // (audit 2026-09-19).
+            let agreedIDs = settled == nil ? [] : participants.map(\.id).filter { $0 != myID }
+            let agreedNames = settled == nil ? [] : participants.filter { $0.id != myID }.map(\.name)
 
             let state = TweenState(
                 text: subject.name,
                 latitude: subject.latitude,
                 longitude: subject.longitude,
                 senderName: UserProfile.displayName,
-                senderID: settled == nil ? self.localParticipantID() : subject.proposerID,
+                senderID: myID,
                 kind: .place,
                 senderCoordinate: senderCoordinate,
                 messageType: settled == nil ? .vote : .decided,
@@ -501,9 +511,11 @@ extension MessagesViewController {
                 self.nextParticipantList(myCoord: $0, conversation: self.activeConversation)
             } ?? self.currentParticipants
             // Legacy builds read `.enroute` as a full agreement, which it is —
-            // you only leave for a place the group settled on.
-            let agreedIDs = participants.map(\.id).filter { $0 != destination.proposerID }
-            let agreedNames = participants.filter { $0.id != destination.proposerID }.map(\.name)
+            // you only leave for a place the group settled on. Excludes ME
+            // because `isFullyAgreed` excludes the sender (see sendBoardUpdate).
+            let myID = self.localParticipantID()
+            let agreedIDs = participants.map(\.id).filter { $0 != myID }
+            let agreedNames = participants.filter { $0.id != myID }.map(\.name)
 
             let state = TweenState(
                 text: destination.name,
@@ -589,7 +601,14 @@ extension MessagesViewController {
 
             let didSend = await sendBubbleNow(for: state)
             isSending = false
-            if didSend {
+            // A STAGED bubble sits in the input field and the user can still
+            // delete it instead of sending. Committing here anyway consumed
+            // the host-app draft and cleared this device's settled meetup for
+            // a pick no peer ever received — contradicting sendDraft's own
+            // promise that a failed send keeps the draft. The commit waits for
+            // didStartSending / the decode backstop, like every other sender.
+            let staged = sendStatusMessage == Self.stagedDeliveryStatus
+            if didSend, !staged {
                 onDelivered?()
                 if state.kind == .place {
                     recentlySentSpotName = state.text

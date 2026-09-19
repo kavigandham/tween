@@ -75,6 +75,16 @@ struct MeetupPoll: Equatable, Codable {
     var votes: [String: String] = [:]
     /// Set once the group locked one in — the terminal state.
     var decidedOptionID: String?
+    /// Generation counter for the DECISION SLOT ONLY, bumped every time the
+    /// decision is set or cleared.
+    ///
+    /// Needed because "no decision" has two meanings on the wire — "never had
+    /// one" and "somebody reopened it" — and the merge can't tell them apart
+    /// from a nil. Without it, a `.pick` that reopened a settled meetup left
+    /// every OTHER device rendering the old plan with no vote board at all,
+    /// and their only exits were "I'm out" or locking in the stale place
+    /// (audit 2026-09-19). Higher generation wins.
+    var decisionSeq: Int = 0
 
     static let empty = MeetupPoll()
 
@@ -190,8 +200,12 @@ struct MeetupPoll: Equatable, Codable {
             options.append(option)
         }
         votes[option.proposerID] = option.id
-        // A new place on the board reopens the question.
-        decidedOptionID = nil
+        // A new place on the board reopens the question — and says so, loudly
+        // enough to survive the trip to another device.
+        if decidedOptionID != nil {
+            decidedOptionID = nil
+            decisionSeq += 1
+        }
     }
 
     /// Puts `option` on the board WITHOUT touching votes or the decision.
@@ -215,7 +229,9 @@ struct MeetupPoll: Equatable, Codable {
 
     mutating func lockIn(_ optionID: String) {
         guard options.contains(where: { $0.id == optionID }) else { return }
+        guard decidedOptionID != optionID else { return }
         decidedOptionID = optionID
+        decisionSeq += 1
     }
 
     /// Scopes the poll to who is actually still in: a person who left takes
@@ -230,6 +246,7 @@ struct MeetupPoll: Equatable, Codable {
         copy.votes = votes.filter { live.contains($0.key) && liveOptionIDs.contains($0.value) }
         if let decided = copy.decidedOptionID, !liveOptionIDs.contains(decided) {
             copy.decidedOptionID = nil
+            copy.decisionSeq += 1
         }
         return copy
     }
@@ -244,8 +261,15 @@ struct MeetupPoll: Equatable, Codable {
     ///     sender's snapshot, which is at least as new as ours);
     ///   * decided — sticky once either side has it, because a lock-in is
     ///     terminal. A later `pick` clears it explicitly (see `pick`).
-    static func merged(local: MeetupPoll, incoming: MeetupPoll) -> MeetupPoll {
+    /// `preservingVoteOf` is the LOCAL participant. An incoming board is a
+    /// peer's snapshot and may predate this device's own vote — overwriting it
+    /// let a stale bubble move your vote to a place you didn't choose, and (in
+    /// a three-person chat) settle the meetup on it. Your own vote is the one
+    /// entry this device always knows better than anyone sending to it.
+    static func merged(local: MeetupPoll, incoming: MeetupPoll,
+                       preservingVoteOf localID: String? = nil) -> MeetupPoll {
         var result = local
+        let myVote = localID.flatMap { local.votes[$0] }
         // Re-picks first: a proposer whose incoming option differs from the
         // one we hold has changed their mind, and their old option must go
         // before the union below would keep both.
@@ -258,13 +282,37 @@ struct MeetupPoll: Equatable, Codable {
         for option in incoming.options where !result.options.contains(where: { $0.id == option.id }) {
             result.options.append(option)
         }
-        for (voter, optionID) in incoming.votes {
+        for (voter, optionID) in incoming.votes where voter != localID {
             result.votes[voter] = optionID
+        }
+        // Re-assert my own vote, unless the place I voted for is gone.
+        if let localID, let myVote {
+            if result.options.contains(where: { $0.id == myVote }) {
+                result.votes[localID] = myVote
+            }
+        } else if let localID, let theirs = incoming.votes[localID] {
+            result.votes[localID] = theirs
         }
         result.votes = result.votes.filter { entry in
             result.options.contains { $0.id == entry.value }
         }
-        result.decidedOptionID = incoming.decidedOptionID ?? result.decidedOptionID
+        // The decision slot goes to the newer GENERATION, so a reopen (which
+        // carries no `dec` but a higher `decisionSeq`) beats a stale lock-in
+        // instead of being read as silence. Equal generations from divergent
+        // histories settle deterministically — a decision beats none, and two
+        // different decisions break toward the lower id so every device lands
+        // on the same answer without agreeing on merge order.
+        if incoming.decisionSeq > result.decisionSeq {
+            result.decidedOptionID = incoming.decidedOptionID
+            result.decisionSeq = incoming.decisionSeq
+        } else if incoming.decisionSeq == result.decisionSeq,
+                  let theirs = incoming.decidedOptionID {
+            if let ours = result.decidedOptionID {
+                result.decidedOptionID = min(ours, theirs)
+            } else {
+                result.decidedOptionID = theirs
+            }
+        }
         if let decided = result.decidedOptionID,
            !result.options.contains(where: { $0.id == decided }) {
             result.decidedOptionID = nil
@@ -281,10 +329,36 @@ struct MeetupPoll: Equatable, Codable {
     // meaningful alongside its roster — which is exactly how every Tween
     // payload already travels.
 
-    /// `name:lat:lon:proposerIndex` records, comma separated.
+    /// The options that can actually travel alongside `participants`, in wire
+    /// order — proposer resolvable, no duplicate ids.
+    ///
+    /// EVERY encoded field must index THIS list: `opts`, `votes` and `dec`
+    /// alike. They used to disagree — `encodeOptions` dropped options whose
+    /// proposer wasn't on the roster while votes and the decision were indexed
+    /// against the unfiltered array — so one dropped option shifted every later
+    /// index by one and the receiver either lost a vote or, worse, assigned it
+    /// to a different place and moved the decision onto somewhere nobody chose
+    /// (audit 2026-09-19).
+    func encodableOptions(participants: [Participant]) -> [PollOption] {
+        let live = Set(participants.map(\.id))
+        var seen = Set<String>()
+        return options.filter { option in
+            guard live.contains(option.proposerID) else { return false }
+            return seen.insert(option.id).inserted
+        }
+    }
+
+    /// `name:lat:lon:proposerIndex` records, comma separated. Pass the list
+    /// from `encodableOptions(participants:)`.
     static func encodeOptions(_ options: [PollOption], participants: [Participant]) -> String {
-        let index = Dictionary(uniqueKeysWithValues:
-            participants.enumerated().map { ($0.element.id, $0.offset) })
+        // NOT `uniqueKeysWithValues`: that is a runtime TRAP on a duplicate
+        // key, and participant ids genuinely collide — `decodeParticipants`
+        // uses the name as the id, and `outgoingName` blanks the "You"
+        // fallback, so two unnamed people decode to two entries with id "".
+        // A crafted link could therefore crash both processes the moment the
+        // decoded state was re-encoded to be stored (audit 2026-09-19).
+        let index = Dictionary(participants.enumerated().map { ($0.element.id, $0.offset) },
+                               uniquingKeysWith: { first, _ in first })
         return options.compactMap { option -> String? in
             guard let proposerIndex = index[option.proposerID] else { return nil }
             let name = TweenState.encodeNames([option.name])
@@ -293,7 +367,8 @@ struct MeetupPoll: Equatable, Codable {
     }
 
     static func decodeOptions(_ raw: String, participants: [Participant]) -> [PollOption] {
-        raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry in
+        var seen = Set<String>()
+        return raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry -> PollOption? in
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 4,
                   let lat = Double(parts[1]),
@@ -304,8 +379,12 @@ struct MeetupPoll: Equatable, Codable {
             else { return nil }
             let raw = String(parts[0])
             let name = TweenState.boundedName(raw.removingPercentEncoding ?? raw)
-            return PollOption(name: name, latitude: lat, longitude: lon,
-                              proposerID: participants[proposerIndex].id)
+            let option = PollOption(name: name, latitude: lat, longitude: lon,
+                                    proposerID: participants[proposerIndex].id)
+            // Dedupe on the way IN, so a payload carrying the same place twice
+            // can't produce a board that traps when it is re-encoded.
+            guard seen.insert(option.id).inserted else { return nil }
+            return option
         }
     }
 
@@ -314,8 +393,11 @@ struct MeetupPoll: Equatable, Codable {
     static func encodeVotes(_ votes: [String: String],
                             options: [PollOption],
                             participants: [Participant]) -> String {
-        let optionIndex = Dictionary(uniqueKeysWithValues:
-            options.enumerated().map { ($0.element.id, $0.offset) })
+        // Duplicate-tolerant for the same reason as encodeOptions: two
+        // decoded options can share a content id, and trapping here would
+        // crash on re-encode.
+        let optionIndex = Dictionary(options.enumerated().map { ($0.element.id, $0.offset) },
+                                     uniquingKeysWith: { first, _ in first })
         return participants.map { participant -> String in
             guard let optionID = votes[participant.id],
                   let index = optionIndex[optionID] else { return "-" }

@@ -180,7 +180,8 @@ extension MessagesViewController {
     /// leave) so the in-memory copy and the stored one can never disagree.
     @discardableResult
     func mergePoll(_ incoming: MeetupPoll, key: String? = nil) -> MeetupPoll {
-        let merged = MeetupPoll.merged(local: poll, incoming: incoming)
+        let merged = MeetupPoll.merged(local: poll, incoming: incoming,
+                                       preservingVoteOf: localParticipantID())
             .normalized(participants: pollParticipants())
         poll = merged
         if let key = key ?? conversationKey {

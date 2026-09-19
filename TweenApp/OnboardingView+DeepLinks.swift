@@ -366,15 +366,17 @@ extension OnboardingView {
             text: (settled ?? option).name,
             latitude: (settled ?? option).latitude,
             longitude: (settled ?? option).longitude,
-            senderName: incoming.senderName ?? UserProfile.displayName,
-            senderID: incoming.senderID,
+            // ME, not the person whose place this is — see sendBoardUpdate
+            // for the three receive-side mechanisms that key off senderID.
+            senderName: UserProfile.displayName,
+            senderID: myID,
             kind: .place,
             senderCoordinate: mySelf,
             action: .agree,
             messageType: settled == nil ? .vote : .decided,
             participants: participants,
-            agreedNames: settled == nil ? [] : agreed,
-            agreedIDs: settled == nil ? [] : agreedIDs,
+            agreedNames: settled == nil ? [] : participants.filter { $0.id != myID }.map(\.name),
+            agreedIDs: settled == nil ? [] : participants.map(\.id).filter { $0 != myID },
             revision: revision,
             poll: board
         )
@@ -396,7 +398,13 @@ extension OnboardingView {
                     noteEngagement(.agreed)
                     noteOutgoingRevision(revision)
                     if let key = ConversationMeetupStore.lastActiveConversationKey {
-                        ConversationMeetupStore.savePoll(board, key: key)
+                        // MERGE, don't replace: the extension may have folded
+                        // in a bubble while this composer was open, and a
+                        // whole-blob write would discard it.
+                        ConversationMeetupStore.savePoll(
+                            MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
+                                              incoming: board, preservingVoteOf: myID),
+                            key: key)
                         if state.isDecided {
                             ConversationMeetupStore.saveAgreed(state, key: key)
                         } else {

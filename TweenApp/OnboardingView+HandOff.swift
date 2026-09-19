@@ -162,7 +162,11 @@ extension OnboardingView {
                             noteOutgoingRevision(revision)
                             if let key = ConversationMeetupStore.lastActiveConversationKey {
                                 ConversationMeetupStore.saveProposed(state, key: key)
-                                ConversationMeetupStore.savePoll(board, key: key)
+                                ConversationMeetupStore.savePoll(
+                                    MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
+                                                      incoming: board,
+                                                      preservingVoteOf: TweenIdentity.stableID),
+                                    key: key)
                             }
                             pendingProposal = state
                             // A new place on the board reopens the question —

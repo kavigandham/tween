@@ -85,7 +85,8 @@ extension MessagesViewController {
             if stagedInsert, state.messageType == .leave
                 || state.messageType == .agree
                 || state.messageType == .vote
-                || state.messageType == .decided {
+                || state.messageType == .decided
+                || state.messageType == .pick {
                 ConversationMeetupStore.setPendingStagedSend(
                     state.messageType, key: deliveryKey)
                 return true

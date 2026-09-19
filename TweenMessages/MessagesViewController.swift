@@ -231,7 +231,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         // state, so it must be there whether or not a bubble decoded on this
         // activation (drawer open, own bubble tapped, live arrival).
         if !ConversationMeetupStore.localUserLeft(key: key) {
-            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll)
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
+                                     preservingVoteOf: localParticipantID())
         }
         enRouteMarks = EnRouteLog.marks(key: key)
         if !decodedIncoming, received == nil, let snapshot {
@@ -465,6 +466,16 @@ final class MessagesViewController: MSMessagesAppViewController {
             commitDeliveredLeave(remaining: state.participants)
         case .agree, .vote, .decided:
             commitDeliveredBoard(state)
+        case .pick:
+            // The local half of a staged pick: adopt the board we sent, and
+            // consume the host-app draft now that it verifiably went out.
+            currentParticipants = state.participants
+            mergePoll(state.absorbedPoll, key: key)
+            LocationCache.saveParticipantSnapshot(state.participants,
+                                                  localContext: localParticipantContext())
+            LocationCache.clearAgreedMeetup()
+            OutgoingDraftStore.clear()
+            draft = nil
         default:
             break
         }

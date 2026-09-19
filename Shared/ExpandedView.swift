@@ -229,7 +229,9 @@ struct ExpandedView: View {
     /// previews honest.
     var board: MeetupPoll {
         guard let received, received.kind == .place else { return poll }
-        return MeetupPoll.merged(local: poll, incoming: received.absorbedPoll)
+        return MeetupPoll.merged(local: poll, incoming: received.absorbedPoll,
+                                 preservingVoteOf: localParticipantID)
+            .normalized(participants: pollParticipants)
     }
 
     /// The place the group settled on, if it has: an explicit lock-in, a

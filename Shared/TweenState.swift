@@ -178,7 +178,20 @@ struct TweenState: Equatable {
                 // one so the thread lands on the same terminal screen.
                 if isFullyAgreed { result.lockIn(option.id) }
             }
-        case .pick, .vote, .decided, .enroute, .invite, .leave:
+        case .pick, .vote:
+            // Normally the board travels and this is a no-op. But the 5000-char
+            // ladder drops `opts`/`votes`/`dec` on its last rung, and its own
+            // comment promised the place still survives for peers to absorb —
+            // which was true for a 1.0.3 client (it infers `.propose`) and
+            // false for a poll-aware one, where the pick simply vanished
+            // (audit 2026-09-19). Rebuild the one option the payload still
+            // carries in `t`/`lat`/`lon`.
+            guard result.options.isEmpty else { return result }
+            let voter = senderID ?? senderName ?? ""
+            guard !voter.isEmpty else { return result }
+            result.pick(PollOption(name: text, latitude: latitude,
+                                   longitude: longitude, proposerID: voter))
+        case .decided, .enroute, .invite, .leave:
             break
         }
         return result
@@ -292,20 +305,31 @@ struct TweenState: Equatable {
         }
         // The board. Indexed against `participants` above, so it only travels
         // when a roster does — see MeetupPoll's wire-format note.
-        if !poll.options.isEmpty, !participants.isEmpty {
-            let encodedOptions = MeetupPoll.encodeOptions(poll.options, participants: participants)
+        // ONE list for all three fields — see MeetupPoll.encodableOptions for
+        // what indexing `opts` and `votes`/`dec` against different arrays did.
+        let wireOptions = poll.encodableOptions(participants: participants)
+        if !wireOptions.isEmpty, !participants.isEmpty {
+            let encodedOptions = MeetupPoll.encodeOptions(wireOptions, participants: participants)
             if !encodedOptions.isEmpty {
                 items.append(URLQueryItem(name: "opts", value: encodedOptions))
-                let encodedVotes = MeetupPoll.encodeVotes(poll.votes, options: poll.options,
+                let encodedVotes = MeetupPoll.encodeVotes(poll.votes, options: wireOptions,
                                                           participants: participants)
                 if encodedVotes.contains(where: { $0 != "-" && $0 != "," }) {
                     items.append(URLQueryItem(name: "votes", value: encodedVotes))
                 }
                 if let decided = poll.decidedOptionID,
-                   let index = poll.options.firstIndex(where: { $0.id == decided }) {
+                   let index = wireOptions.firstIndex(where: { $0.id == decided }) {
                     items.append(URLQueryItem(name: "dec", value: String(index)))
                 }
             }
+        }
+        // The decision GENERATION, always — including when there is no
+        // decision. Without it a `.pick` that reopened a settled meetup
+        // travelled as "no dec", which the merge reads as "says nothing",
+        // so every other device stayed on the old plan with no vote UI
+        // (audit 2026-09-19).
+        if poll.decisionSeq > 0 {
+            items.append(URLQueryItem(name: "decs", value: String(poll.decisionSeq)))
         }
         if let etaSeconds {
             items.append(URLQueryItem(name: "eta", value: String(etaSeconds)))
@@ -634,6 +658,10 @@ struct TweenState: Equatable {
                 decodedPoll.decidedOptionID = decodedPoll.options[index].id
             }
         }
+        // Bounded like every other counter the codec accepts.
+        decodedPoll.decisionSeq = items.first(where: { $0.name == "decs" })?.value
+            .flatMap(Int.init)
+            .flatMap { (0...Self.maxRevision).contains($0) ? $0 : nil } ?? 0
         self.poll = decodedPoll
         // Bounded: an ETA is a travel time, so anything past a day is junk and
         // would render as "1440 min away". Negative reads as absent.
