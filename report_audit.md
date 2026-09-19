@@ -1,191 +1,119 @@
-# AUDIT REPORT — Tween — 2026-09-11 (referral v2, Friends rebuild, Pro ad — 5eaf7a7)
+# Repo audit — 2026-09-19 (post-push, vote board)
 
-Read-only audit at `5eaf7a7`. All ten 101b6b1 referral findings verified fixed except the slimming order (partial). **Post-audit note (2026-09-11, next commit):** every item below marked (applied) was fixed before the 1.0.3 submission.
+Scope: the post-vote-board codebase — `MeetupPoll`, the new
+`.pick`/`.vote`/`.decided`/`.enroute` codec, the poll-aware host app, and the
+extension state machine. Read-only audit; no builds run.
 
-## CRITICAL (carried)
-- Unbounded inbound `rev` → overflow trap on the next mint — `Shared/TweenState.swift` **(applied: revisions outside 0…1,000,000,000 read as absent)**
-- `pj=` participants skip `validCoordinate` — `Shared/TweenState.swift` **(applied: one invalid entry rejects the JSON roster, falling back to the validated `p=`; ids/names bounded)**
-
-## MAJOR
-- New fields made older `EngagementState`/`ReferralState` blobs undecodable → update silently wiped counts, cooldowns, referrals and grants. **(applied: `decodeIfPresent` decoders for both; `canBeIntroduced` false when `firstSeenAt` is nil)**
-- Credit flowed backwards: an invitee's reply (or any bubble naming me as `ref`) made them my introducer. **(applied: no attribution from my referees or from `.joined` replies)**
-- The invite-over-inference upgrade changed state without an event and was never saved → no "Tell Hassan" banner. **(applied: `Referrals.apply` saves on any change; store-level test)**
-- Reinstalling defeated the install check. **(applied: dedupe also by iMessage's per-device `senderParticipantIdentifier`)**
-- Carried: `ExpandedView` roster, phantom peer on switch, `"You"` in `agreed=`, `lastActiveConversationKey`, autocorrect Return, `.spot → .spot`, MKDirections fan-out, paywall refresh lag window — still present. Own-proposal detection by name **(applied: by install id)**.
-
-## MINOR
-- Staged reply marked answered before it was sent **(applied: marked from `didStartSending`)**; pre-send `noteOutbound` in `composeTweenMessage` **(applied: removed)**; paywall invite without a name → "Your invited you" **(applied: name prompt on the paywall, nameless banner copy)**; referral-granted users saw no end date and no purchase options **(applied)**; `ref` never dropped alone **(applied, with a deterministic test)**; participant ids/names unbounded **(applied)**; ProNudgeSheet CTA clipped on small phones **(applied: scrolls)**; ".joined" status said "that's 3" on every grant and Friends' share fallback used the old text **(applied)**.
-
-## ARCHITECTURE NOTES
-- Constraints 1, 2, 3, 6 hold; target membership correct; Pro-ad gating sound; no host credit path remains. The one release risk is guideline 3.1.1/3.2.2 for the referral reward — see `submission/SUBMIT-1.0.3.md`.
+> **Status: the CRITICAL and MAJOR findings below were fixed in `7634cde`,**
+> with 8 regression tests (`TweenAppTests/MeetupPollCodecTests.swift`), each of
+> which failed before its fix. Build **458 (1.0.4) predates the fixes** and
+> must not be submitted. Remaining MINOR items are listed as open.
 
 ---
 
-# AUDIT REPORT — Tween — 2026-09-08 (demo friend, chat step, Pro step, nudge engine — 555e024)
+## CRITICAL — fixed in 7634cde
 
-Read-only audit at `8ebf20e` (code = `555e024`). Carried CRITICAL/MAJOR items re-verified by anchor: all still present. **Post-audit note:** items marked (applied) were fixed in the following commit.
+### 1. Votes and the decision indexed a different array than shipped
+`encodeOptions` drops any option whose `proposerID` isn't on the roster
+(`compactMap` + `guard let proposerIndex`), but `votes` was encoded against the
+unfiltered `poll.options` and `dec` was `poll.options.firstIndex(...)`. One
+dropped option shifted every later index by one: the receiver either lost a
+vote or **assigned it to the wrong place**, and `dec` could move the decision
+onto somewhere nobody locked in.
 
-## CRITICAL (carried, unchanged)
-- Unbounded inbound `rev` — `Shared/TweenState.swift:451`. `pj=` bypasses `validCoordinate` — `:402-404`.
+Reachable from three paths that mutate after `normalized(participants:)`:
+`sendBoardUpdate` (`board.ensure(focus)`), the host's `sendAgreeReply`
+(`proposerID` taken from the opened bubble), and `sendPick` when no fresh
+coordinate exists.
 
-## MAJOR
-### Demo friend lifecycle
-- Any `.inactive` blip (Control Center, a permission alert, the StoreKit sheet the Pro step opens) stripped Sam mid-tour and re-ranked, with no re-seed. — `OnboardingView.swift:~1270` **(applied: removal on `.background` only)**
-### Nudge engine
-- A nudge decided during the tour was burned: `record` stamped it shown and re-rolled, then the result was dropped; with `proNextAt == 1` (p = 0.1) a fresh install spent its first Pro pop-up unseen on the tour's own I'm in. — `+Nudges.swift:12-15` **(applied: count-but-don't-decide while the tour runs)**
-### Carried (still present)
-- `ExpandedView` roster / phantom peer; own-proposal by name; `"You"` in `agreed=`; `lastActiveConversationKey`; Return-with-autocorrect; `.spot → .spot` swap; MKDirections fan-out + two speeds; paywall refresh downgrade.
+**Fix:** one list — `MeetupPoll.encodableOptions(participants:)` — feeds
+`opts`, `votes` and `dec` alike.
 
-## MINOR
-- Swipe-down on `ProNudgeSheet` was not a dismissal (comments claimed onDismiss recorded it). **(applied: `proNudgeShowing` latch; counted once from the host `onDismiss`; button no longer double-counts)**
-- Review could ask on the event right after a Pro fire. **(applied: `reviewSpacingAfterPro = 3`, tested)**
-- Seeding Sam bypassed the re-rank (menu restart with results on screen). **(applied: re-rank through `searchTask`)**
-- Seed guard ignored existing manual points. **(applied: `manualParticipants.isEmpty`)**
-- Copy promised Sam on paths with no Sam. **(applied: `TourStep.body(demoFriend:)` via `mentionsDemoFriend`)**
-- Three initials rules; `SpotETADisplay.initials` still rendered "S(" on the spotlit cards; `TweenPin.initials` returned "" for digit/emoji-led names. **(applied: one rule in `TweenPin.initials` with a first-character fallback; the other two delegate; tests)**
-- The target-less map-layer card (chat step, ≈ 460 pt) was unbounded — overflowed the top on a 4.7" phone at large text. **(applied: same bounded ScrollView)**
-- Ordinals skip when steps are skipped ("9 of 11" → "11 of 11"). Cosmetic, open.
-- `.openSpot` hole passes taps to the card's Send/Directions (carried, open).
-- `testReviewAskLandsWithinThreeToTenAndYieldsToPro` relies on the roll order for `results.first == .pro`. Open (a pinned-threshold yield test was added alongside).
+### 2. `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key (×2)
+A runtime **precondition failure**, not a throw.
+- `encodeOptions` keys by participant id. `decodeParticipants` sets `id: name`
+  and `outgoingName` blanks the "You" fallback, so two unnamed people decode to
+  two entries with id `""`.
+- `encodeVotes` keys by `PollOption.id`, and `decodeOptions` didn't dedupe a
+  rounded content key.
 
-## ARCHITECTURE NOTES
-- Constraint #6 holds: `tween.engagement` is counts/dates only; Sam is a `manual:` participant read only by local ranking/framing/group bar; no send path, snapshot, roster or friend record sees it. Indirect only: `CalendarExport` attendees from the Plan sheet (Pro user restarting the tour; below bar).
-- `.sheet(item: $activeSheet)` hangs off the bottom-sheet content, so the Pro step's paywall presents correctly; `ProNudgeSheet` → child `PaywallSheet` is supported nesting; `requestReview` is called on the main actor; pbxproj membership correct (`Engagement.swift` in both targets; the extension does not count events yet — a load-modify-save with no cross-process serialisation if it ever does).
-- Parked below bar: the 0.7 s presentation timer could still race an iOS 26 sheet swap; driving it from the composer's `onDismiss` would be structurally safer.
+The decoded state is re-encoded on the very next line of the receive path
+(`saveProposed` → `MeetupSnapshot.proposedState` setter → `encodedURL()`, and
+`LocationCache.saveAgreedMeetup`), so a crafted link crashed **both** processes
+— the threat model already hardened for `lat=nan` and `rev=Int.max`.
 
-## TEST COVERAGE GAPS
-- `noteEngagement` gating (View-bound); tour transition table (carried); `ChatIllustration`/`ProNudgeSheet` layout at large Dynamic Type.
+**Fix:** `uniquingKeysWith:` on both maps; `decodeOptions` dedupes by id.
 
-## FIX-FIRST PRIORITY LIST
-1–2. The two codec CRITICALs (carried). 3–4. ~~Sam on `.background` only; count-but-don't-decide in the tour~~ (applied). 5–8. ~~Swipe dismissal; re-rank/guard; initials; bounded map card~~ (applied). 9. Carried MAJORs as before. 10. Ordinal counter; `.openSpot` action row; lift the tour table into a testable value type.
+### 3. A pick couldn't reopen a decision on any other device
+`pick` cleared `decidedOptionID` locally, but the wire had no way to say
+*cleared* and `merged` was sticky (`incoming ?? result`). Receivers kept their
+decision, so `isMeetupSet` stayed true, `hasOpenVote` stayed false, and the new
+pick was **invisible** — the only exits were "I'm out" or locking in the stale
+place.
 
----
+**Fix:** a `decisionSeq` generation counter on the decision slot, encoded as
+`decs`. Higher generation wins; equal generations break deterministically.
 
-# AUDIT REPORT — Tween — 2026-09-08 (immersive tour, 70e6942)
+## MAJOR — fixed in 7634cde
 
-Read-only audit at `70e6942`. Re-verified every carried CRITICAL/MAJOR from the 6f4b671 report (all still present at their anchors) and traced `c8579e6` + `70e6942`. **Post-audit note (2026-09-08, commit 555e024):** the items marked (applied) below were fixed the same day.
+- **A stale board could overwrite your own vote** and settle the meetup on it
+  (3-person sequence in the original report). `merged` now takes
+  `preservingVoteOf:` and re-asserts the local vote.
+- **`.decided`/host `.vote` claimed someone else as sender.** `senderID` drives
+  the revision floor's tie-break owner, `RosterMerge.clearDeparted` (a vote on a
+  departed person's pick resurrected them) and referral attribution — and the
+  caption read "Hassan voted for Hey Tea" when Belal voted. Sender is the
+  composer now; `agreedIDs` lists everyone but them, satisfying 1.0.3.
+- **A staged `.pick` committed as if sent** — consumed the host-app draft and
+  cleared the decided meetup for a bubble the user could still delete. `.pick`
+  joined the staged-delivery deferral.
+- **The last 5000-char ladder rung lost the place** for poll-aware clients
+  (`absorbedPoll` no-opped for `.pick`). It now reconstructs the option.
+- **The host replaced the board rather than merging it**, discarding anything
+  the extension folded in while the composer was open.
 
-## CRITICAL (carried, unchanged)
-- Unbounded inbound `rev` → permanent trap — `Shared/TweenState.swift:~451`, `Shared/ConversationMeetupStore.swift:~438-444`.
-- `pj=` participants skip `validCoordinate` — `Shared/TweenState.swift:~402-404`, `Shared/Participant.swift:~78-84`.
+## MAJOR — still open
 
-## MAJOR
-### Tour inside the place sheet
-- "Back to the map" sat below the fold at the place sheet's `.medium` detent on 6.1"/SE phones (card ≈ 290 pt placed below a header-row spotlight), and Apple's own close control is under the dim; soft strand (swipe still works). — `TweenApp/CoachMarks.swift:~296-308` **(applied: in-sheet callouts are bounded and scrollable on whichever side of the spotlight has more room)**
-### Carried (still present)
-- `ExpandedView` roster / missing Send CTA; cross-conversation phantom peer; own-proposal by name; `"You"` in `agreed=`; `lastActiveConversationKey` never cleared; Return-with-autocorrect; `.spot → .spot` swap (now also strands `.spotSheet`); MKDirections fan-out + two speeds; paywall refresh downgrade.
+- **A floor-tied `.decided` drops the whole bubble.** `isAdditive` is false for
+  `.decided`, so a same-revision cross-sender lock-in is rejected *before* the
+  roster merge, `mergePoll`, en-route note and peer-coordinate write. The
+  terminal decision losing the tie-break is intended; taking the roster and
+  board with it is collateral. Fix would be to apply the tie-break to
+  `decidedOptionID` only.
 
-## MINOR
-- `.friends` lift from peek undone by the spot sheet's deselect restore — `+Tour.swift:~155`. (Superseded: the chat step now sits between them, so the lift runs long after the dismiss; verified at 0.45 on the sim.)
-- `.imIn` skipped on a failure the user never triggered — `+Tour.swift:~96-100` **(applied: `tourJoinTapped` latch)**
-- `.openSpot` hole passes taps to the card's Send/Directions buttons — `+FriendsPanel.swift:~1103-1122` (open; recoverable).
-- Fallback place layout had no `.sendToChat` anchor — `SpotDetailCard.swift:~592-600` **(applied)**
-- Keyed pulse ring still froze (`pulse` lived on the overlay) — `CoachMarks.swift:~245-258` **(applied: `PulseRing` owns its state)**
-- Dynamic Type: bottom-aligned callout grew past the top edge — `CoachMarks.swift:~296-319` **(applied for spotlit steps via the bounded ScrollView; target-less map-layer cards still unbounded)**
-- Every home step announced twice (both home overlays posted) — `CoachMarks.swift:~276-280` **(applied: only the callout layer announces)**
-- Informational steps are VoiceOver-live (contentShape gates touch only) — `CoachMarks.swift:~233-240` (open; documented).
-- `-DEMO_*` runs now prompt for location at launch (tour opted out) — `+Actions.swift:224-236` (open; grant location in capture recipes).
-- `-DEMO_PRO_*` flags opt out of the tour; use `-FORCE_TUTORIAL` (documented).
+## MINOR — still open
 
-## ARCHITECTURE NOTES
-- Transitions traced end to end; layer ownership sound (no state draws two callouts); overlay z-order: sub-sheets and alerts present above the dim; informational hit-testing swallows everything but the card's buttons; `startsTourOnLaunch` is read once at `@State` init.
-- Cosmetic: `advanceTour(.spotSheet)` flips the home overlay while the spot sheet is still animating out.
+- `effectiveReceived`'s sticky rule gates on `isFullyAgreed`, which is
+  hard-false for `.decided`/`.enroute`, so the rule is inert for poll-era
+  decisions (harmless — the board's `decidedOptionID` carries the state).
+- `ensure()` can re-admit an option whose proposer isn't on the roster being
+  encoded against (now harmless, since `encodableOptions` filters it out).
+- The host composes a board for `lastActiveConversationKey` but lets the user
+  pick any thread in `MFMessageComposeViewController`.
+- `voteProgress` uses `max(participants.count, votes.count)`, which can report
+  "2 of 3 voted" in a two-person chat.
+- `handleIncomingURL` (~250 lines) duplicates `decodeAndCache`'s
+  revision/tombstone/roster logic and has already drifted once.
 
-## TEST COVERAGE GAPS
-- No tour tests (the transition table reads `@State`); `-FORCE_TUTORIAL` not driven by any UI test; prior gaps stand. (555e024 adds `NudgePolicyTests` and `TourDemoFriendTests`.)
+## Architecture notes
 
-## FIX-FIRST PRIORITY LIST
-1–2. The two codec CRITICALs (carried). 3. ~~Bounded in-sheet callout~~ (applied). 4–7. Carried MAJORs as before. 8. ~~Join-tap latch, announcements, pulse ring~~ (applied); gate the `.openSpot` card's action row (open). 9. Lift the tour transition table into a testable value type.
+- **Constraint 1 (extension memory) holds.** `MKMapView` appears only in
+  comments; every extension surface renders through `TweenMapSnapshotView` /
+  `BubbleImageRenderer` with `MKMapSnapshotter`. `rankCap = 5` is applied at
+  both `mostCentral` and `rank`, the 8s `DeadlinedSearch` budget is enforced,
+  and `willResignActive` cancels all three tasks. Every `presentUI` closure
+  captures `[weak self]`.
+- **Constraint 2 (5000-char ceiling)** is enforced on encode and re-checked on
+  decode.
+- **App Group keys**: every key has a matching reader and writer with identical
+  spelling, including the new `tween.enroute.<key>`. `MeetupSync.post()` is
+  called by every canonical writer except `setPendingStagedSend` (documented as
+  intentional), and `MeetupSyncToken.deinit` removes its Darwin observer.
 
----
+## Test coverage gaps still open
 
-# AUDIT REPORT — Tween — 2026-09-06 (tour)
-
-Read-only audit at HEAD `6f4b671` (main). The previous full report (audit at `3759dac` plus the two hardening fixes in `3ee2b2e`) is in git history at `3ee2b2e:report_audit.md`; this pass re-verifies its CRITICAL/MAJOR items and spends its effort on the new first-run tour: `TweenApp/CoachMarks.swift`, `TweenApp/OnboardingView+Tour.swift`, and the wiring in `OnboardingView.swift`, `+BottomSheet`, `+FriendsPanel`, `+HandOff`, `+Actions`, and `project.pbxproj`. No files modified, no builds or tests run. Findings below the 70 % bar were dropped.
-
-**Re-verification of the prior report.** `git diff --stat 3759dac..HEAD` touches only the eight tour files, `ResultRows.swift` (the `soloMode` fix) and the report. No file hosting a prior CRITICAL or MAJOR changed, and the anchors re-grep in place: bare `Int` rev parse and no `pj=` `validCoordinate`; `state.senderName == myName` (`+DeepLinks.swift:58`); unconditional `unlocked = await ProEntitlement.refresh()` (`PaywallSheet.swift:83, 99`); no `setPeerActive(false)` in the switch block; `fallbackSpeed = 13.4` (`FairnessRanker.swift:137`); synchronous `parent.onSubmit()` (`SearchCompleter.swift:105`); `lastActiveConversationKey = nil` only in the `#if DEBUG` init path; `presentSpot` swap (`+FriendsPanel.swift:~1204`). **All 2 CRITICAL and 9 MAJOR: still present.**
-
-**Post-audit note (2026-09-07):** the tour-specific MAJOR/MINOR items below (denied/offline strand, `.isModal`, `.openSpot`/`.friends` detents, toast z-order, non-branching `coachTarget`, `-DEMO_*` opt-out, Reduce Motion environment) were applied immediately after this report.
-
-## CRITICAL (will crash, corrupt state, or break core flow)
-
-### Codec / revision ordering (carried forward, unchanged)
-- Unbounded inbound `rev` → permanent trap on the receiver's next mint — `Shared/TweenState.swift:~451`, `Shared/ConversationMeetupStore.swift:~438-444`
-  Suggested fix: bound on decode; mint with `addingReportingOverflow`.
-- `pj=` participants skip `validCoordinate` → MapKit NSException class — `Shared/TweenState.swift:~402-404`, `Shared/Participant.swift:~78-84`
-  Suggested fix: filter decoded `pj` through `validCoordinate`, fall back to `p=`.
-
-No new CRITICAL in the tour code.
-
-## MAJOR (wrong behavior, UX broken, data loss risk)
-
-### Tour state machine (`tourDidObserveChange`)
-- **Location denied / offline strands step 3.** `.imIn` advances on the tap so a denied fix "must not strand the tour" — it strands the NEXT step instead: tap I'm in → `.coffeeChip` → `.denied` arrives → user is NOT in → tap Coffee → `canSearch` has no anchor → `searchState = .idle`, toast under the dim, and `selectedCategory` stays `.coffee` so the next tap on the chip is a deselect. `searchState == .results` is never reached; Skip is the only exit. Offline is the same shape. — `TweenApp/OnboardingView+Tour.swift:~66-75, ~87-89`, `TweenApp/OnboardingView+Search.swift:~838-847, ~281-321` **(applied)**
-  Suggested fix: enter `.coffeeChip` only with an anchor and online, else jump to `.friends`; a `.denied`/`.failed` while on `.coffeeChip` skips forward.
-
-### Accessibility
-- **`.isModal` on both overlays hides the very control the step asks for.** The trait scopes VoiceOver to the modal's descendants; the spotlit button is a sibling beneath the overlay, so on every performed step VoiceOver can reach only Skip. `UIAccessibility.isReduceMotionEnabled` is also read statically in `body`. — `TweenApp/CoachMarks.swift:~227, ~206` **(applied)**
-  Suggested fix: drop `.isModal`; `accessibilitySortPriority` on the callout; announce step changes; `@Environment(\.accessibilityReduceMotion)`.
-
-### Carried forward, unchanged (still present)
-- `ExpandedView` roster from bubble/legacy peer, missing Send CTA on restore — `Shared/ExpandedView.swift:~134-167, ~613`.
-- Cross-conversation phantom peer on switch — `TweenMessages/MessagesViewController.swift:~161-180`.
-- Own-proposal detection by name only — `TweenApp/OnboardingView+DeepLinks.swift:58`.
-- `"You"` fallback in `agreed=` from both processes — `Shared/TweenState.swift:~196-198`, `+Sending.swift:~358-359`.
-- `lastActiveConversationKey` never cleared in production — `Shared/ConversationMeetupStore.swift:~172-180`.
-- Return-with-autocorrect cancels its own search — `TweenApp/SearchCompleter.swift:105`.
-- `.spot → .spot` sheet swap dropped on iOS 26 — `TweenApp/OnboardingView+FriendsPanel.swift:~1204-1215`.
-- Unbounded MKDirections fan-out; two straight-line speeds — `Shared/FairnessRanker.swift:~212-232, ~137/~417`.
-- Paywall refresh downgrades a just-verified purchase — `TweenApp/PaywallSheet.swift:83, 99`.
-
-## MINOR (suboptimal, cleanup, hardening)
-
-### Tour steps / detents
-- `.openSpot` leaves the detent at 0.45; the first card starts ≈210 pt into a ≈230–310 pt viewport with scrolling disabled, so on SE-class phones the spotlit card is below the fold. — `TweenApp/OnboardingView+Tour.swift:~94-108` **(applied: `.openSpot` → `fullDetent`)**
-- `.friends` never touches the detent; the spot sheet's dismiss restores PEEK, and with a pending/agreed meetup the peek header swaps to `meetupPeek`, unmounting the Friends button's anchor. — `TweenApp/OnboardingView+FriendsPanel.swift:~743-758` **(applied: lift to 0.45)**
-- Restart into `.coffeeChip` with a stale empty Coffee search: the spotlit tap is a deselect, so the step needs two taps. — `TweenApp/OnboardingView+Search.swift:838-841` **(applied: clear `selectedCategory` on entry)**
-
-### Overlay rendering
-- `coachTarget(_:)` is a `@ViewBuilder` if/else (`_ConditionalContent`); when the first ranked item changes, the outgoing and incoming first rows flip branches → identity change → both rows torn down and rebuilt, defeating `.equatable()`. The anchor itself is emitted correctly (modifier sits outside the equatable boundary). — `TweenApp/CoachMarks.swift:~138-145` **(applied: single non-branching `anchorPreference`)**
-- Dynamic Type: the map-layer callout is bottom-aligned with `fixedSize` texts; at accessibility sizes it grows past the top edge and Skip leaves the screen. — `TweenApp/CoachMarks.swift:~247-261, ~286`
-  Suggested fix: bound the card in a `ScrollView` or cap `dynamicTypeSize` on the card.
-- The toast overlay is attached BEFORE the coach overlay, so every toast during the tour renders under the dim. — `TweenApp/OnboardingView+BottomSheet.swift:~80-86` **(applied: reordered)**
-- The pulse ring's `repeatForever` animation on persistent `@State pulse` can sit static at 1.05 if the ring is removed and re-added within one overlay lifetime; cosmetic. — `TweenApp/CoachMarks.swift:~181, ~209-213` **(applied: ring keyed on step)**
-
-### Tooling
-- Only `testFloatingMapControlsRespondToTaps` passes `-SKIP_TUTORIAL`; `testLaunchScreenshot` and the `-DEMO_SPOT_CARD` / `-DEMO_SETTINGS` / `-DEMO_PAYWALL` capture recipes are neither harness nor opted out, so on a fresh simulator they run under the welcome dim. — `TweenApp/OnboardingView.swift:297-299` **(applied: any `-DEMO_*` argument opts out)**
-
-### Carried forward (unchanged; see the prior report for detail)
-- Extension staging (`+Delivery.swift:~78-101`, `MessagesViewController.swift:~405-408`, scoped draft survives leave), 24 s search ladder, `errorStatuses` miss, `isActive` vs `isOptedIn`, aged `.leave` coordinate, TTL refresh on open, one-shot offline banner; `TweenMapSnapshotView` renderer scale, `BubbleImageRenderer` cancel, never-firing success haptic, dead `markers(for:)`/`@ScaledMetric`/A-B branches; `shouldReframe` ignores `positionedByUser`; host sheets/actions list; codec/store list. The "Plan sheet / tutorial cover / activeSheet" item shrinks by one — the `fullScreenCover` is gone; the plan-sheet/deep-link half stands. The inert tutorial "I'm out" button stands (`TweenApp/OnboardingTutorial.swift:~430`, still reached from `SettingsSheet.swift:171`).
-
-## ARCHITECTURE NOTES
-- **Tour transitions traced** (`+Tour.swift`): welcome → Start → `.imIn` advances on `awaitingImIn || isUserIn` (name-prompt Cancel leaves the step armed, not stranded) → `.coffeeChip` on `.results && !isSearchLoading` (empty results skip to `.friends`) → `.openSpot` on `activeSheet == .spot` → `.friends` on `.friends` → `.mapControls` (peek) → `.done` → `finishTour`. The only strands were the denied/offline MAJOR and the two detent MINORs; Skip is on every card.
-- **Even-odd spotlight**: `Path(rect)` + rounded hole with `FillStyle(eoFill: true)` and `contentShape(_, eoFill: true)` — the hole is excluded from drawing and hit testing; `onTapGesture {}` makes the dim consume taps. The callout is a later ZStack child, so its buttons sit above the shape. The two-layer split is correct. The 8 pt halo passes taps to what lies within 8 pt of the target (the Open Now chip is 8 pt from Coffee — cosmetic, below bar).
-- **`ignoresSafeArea` / anchors**: `geo[anchor]` resolves into the GeometryReader's own space, which is the overlay's frame, so the safe-area expansion cannot misalign. iPhone is portrait-locked; iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) is a shipping surface where the bottom-attached-sheet assumption is unverified.
-- **Perf**: the home body does NOT read `topGlobalY`; reads occur solely in `SearchHerePillOverlay` and `CoachMarkOverlay.body`, and the latter only while `step != nil`.
-- **Flags**: `hasSeenOnboarding` is written only in `finishTour` (Skip and Finish); a kill mid-tour restarts at welcome with `advanceTour` skipping completed steps. `-SKIP_TUTORIAL` and the harness opt-out are honoured; `showTutorial` is now `tourStep == .welcome`, equivalent to the old `dismissTutorial` contract.
-- **Equatable boundary**: `.coachTarget` wraps `EquatableView`, so the anchor is published regardless of the skipped body — correct.
-- **pbxproj**: `CoachMarks.swift` and `OnboardingView+Tour.swift` each have exactly one `PBXBuildFile` in the `TweenApp` target only.
-- **`fullScreenCover` removal**: `OnboardingTutorialView(onDone:)` still compiles from `SettingsSheet.swift:171`; the deck no longer writes `hasSeenOnboarding`, which the tour owns.
-
-## LEGACY DEBT INVENTORY
-- Unchanged from the prior report (no legacy accessor, `Slice` comment, projection key or shim was touched): `RankedSpot.etaFromA/etaFromB/worseETA/fairnessGap` (+ `ABDistanceLabel`, `SpotETADisplay` A/B fallback), `FairnessRanker.rank(candidates:from:and:cap:)`, Slice 3/5/6 comments, `saveParticipantSnapshot(_:localName:)` + `tween.cache.*.active` mirrors, `legacyLocalParticipantID()` filters, `MeetupSnapshot` legacy fields, `participantCoordinate` fallback, `tween.pro.redeemedCode`.
-- New: `OnboardingTutorialView` is now Settings-only ("Tween guide" in the map menu launches the tour); `dismissTutorial` is gone cleanly.
-
-## TEST COVERAGE GAPS
-- Tour: `TourStep` is pure and testable; the transition logic reads `@State` and is untestable without lifting the transition table into a value type (same shape as the extension-state-machine gap). `CoachTargetKey.reduce` and `SpotlightShape.path` are testable in isolation.
-- Prior gaps stand: extension state machine unreachable from the unit bundle; `effectiveReceived`, staged delivery, Darwin sync, TTL ageing, gossip decode cap, legacy `isFullyAgreed`, `rev`/`pj` bounds, `ResultCard ==`/`GroupStatusBar ==`, `DeadlinedSearch`, `FairnessRanker.rank` routed path; the three tests pinning wrong behaviour; `MapGeometryTests`/`ProEntitlementTests` hygiene.
-
-## FIX-FIRST PRIORITY LIST
-1. Bound `rev` on decode and mint with overflow checking (CRITICAL, carried).
-2. Validate `pj=` participant coordinates (CRITICAL, carried).
-3. ~~Tour: route denied/failed/offline away from `.coffeeChip`~~ (applied 2026-09-07).
-4. ~~Tour: remove `.isModal`, sort priority + announcement~~ (applied 2026-09-07).
-5. `ExpandedView` roster from the controller + `setPeerActive(false)` on switch (MAJOR ×2, carried).
-6. Sanitise `agreed=` / `ensureNamed` on the host Agree path; own-proposal detection by `senderID` (MAJOR ×2, carried).
-7. Defer `onSubmit` in `NativeSearchBar`; guard the `.spot → .spot` swap; rescope `lastActiveConversationKey` (MAJOR ×3, carried).
-8. Guard the paywall refresh; bound MKDirections concurrency and unify the straight-line speed (MAJOR ×2, carried).
-9. ~~Tour detents and toast z-order~~ (applied 2026-09-07).
-10. Dynamic-Type-safe callout (MINOR, open); ~~non-branching `coachTarget`~~ (applied).
-11. Extension staging batch + snapshot/renderer items (MINOR, carried).
-12. Add `TourStep` unit tests and lift the transition table into a testable value type alongside the extension state machine (coverage).
+- `decodeAndCache` / `commitDeliveredBoard` / `mergePoll` /
+  `commitStagedSendIfNeeded` are untested end to end — the extension state
+  machine has no test-target coverage at all.
+- Degradation ladder below `pj` (the `gone` rung).
+- `MeetupSync` Darwin post/observe; snapshot TTL expiry in `willBecomeActive`.
