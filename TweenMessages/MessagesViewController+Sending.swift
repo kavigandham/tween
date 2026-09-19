@@ -593,7 +593,11 @@ extension MessagesViewController {
                 onDelivered?()
                 if state.kind == .place {
                     recentlySentSpotName = state.text
-                    received = nil
+                    // Keep the state we just sent when it carries a board:
+                    // clearing it dropped the roster the vote is scored
+                    // against (and the map's pins) the instant you picked.
+                    // A board-less place send keeps the old reset.
+                    received = state.poll.options.isEmpty ? nil : state
                     draft = nil
                     rankedSpots = []
                 }

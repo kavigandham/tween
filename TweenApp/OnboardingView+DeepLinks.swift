@@ -141,6 +141,17 @@ extension OnboardingView {
                 peerCoordinate = nil
             }
         }
+        // Referral credit. This ran ONLY in the Messages extension, so a
+        // bubble opened through the app — which is where the tween:// links in
+        // every plain-text body land — proved an install that was never
+        // counted. Independent of the revision guard for the same reason it is
+        // in the extension: a stale bubble still proves the sender installed.
+        // Deduped by install id inside (`ReferralPolicy.noteInbound`).
+        if !openedOwnProposal {
+            Referrals.noteInbound(state, myID: TweenIdentity.stableID)
+            refreshReferrals()
+        }
+
         // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
         // proposals, and agrees from a peer. Plain `tween://search` deep links
         // (handled above), self-opened URLs, and STALE payloads the revision
@@ -336,20 +347,36 @@ extension OnboardingView {
         }
 
         let revision = nextOutgoingRevisionForActiveConversation()
+        // Vote on the BOARD, don't agree to a proposal. The board is
+        // conversation state (`ConversationMeetupStore.poll`), so this device
+        // votes against every place currently on the table — including one a
+        // friend added that this card never showed. The old path emitted a
+        // legacy `.agree`, which peers absorb as a lock-in whenever the roster
+        // makes it "fully agreed"; that ended votes nobody had seen.
+        let option = PollOption(name: selection.name,
+                                coordinate: selection.coordinate,
+                                proposerID: incoming.senderID ?? incoming.senderName ?? "")
+        var board = activeConversationBoard().normalized(participants: participants)
+        board.ensure(option)
+        board.vote(myID, for: option.id)
+        // Terminal ONLY when the board actually says so — a unanimous vote, or
+        // a lock-in already on it. A plurality still needs someone to say so.
+        let settled = board.settledOption(participants: participants)
         let state = TweenState(
-            text: selection.name,
-            latitude: selection.coordinate.latitude,
-            longitude: selection.coordinate.longitude,
+            text: (settled ?? option).name,
+            latitude: (settled ?? option).latitude,
+            longitude: (settled ?? option).longitude,
             senderName: incoming.senderName ?? UserProfile.displayName,
             senderID: incoming.senderID,
             kind: .place,
             senderCoordinate: mySelf,
             action: .agree,
-            messageType: .agree,
+            messageType: settled == nil ? .vote : .decided,
             participants: participants,
-            agreedNames: agreed,
-            agreedIDs: agreedIDs,
-            revision: revision
+            agreedNames: settled == nil ? [] : agreed,
+            agreedIDs: settled == nil ? [] : agreedIDs,
+            revision: revision,
+            poll: board
         )
 
         // Async render the bubble image, then present the composer. The
@@ -369,7 +396,8 @@ extension OnboardingView {
                     noteEngagement(.agreed)
                     noteOutgoingRevision(revision)
                     if let key = ConversationMeetupStore.lastActiveConversationKey {
-                        if state.isFullyAgreed {
+                        ConversationMeetupStore.savePoll(board, key: key)
+                        if state.isDecided {
                             ConversationMeetupStore.saveAgreed(state, key: key)
                         } else {
                             ConversationMeetupStore.saveProposed(state, key: key)

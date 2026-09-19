@@ -307,3 +307,141 @@ final class MeetupPollTests: XCTestCase {
         XCTAssertFalse(TweenState.MessageType.leave.isAdditive)
     }
 }
+
+/// Regressions from the 2026-09-19 texting/sync audit.
+final class MeetupPollAuditTests: XCTestCase {
+
+    private let hassan = Participant(id: "id-hassan", name: "Hassan", latitude: 37.78, longitude: -122.41)
+    private let belal = Participant(id: "id-belal", name: "Belal", latitude: 37.76, longitude: -122.43)
+    private let key = "audit-conversation"
+
+    private func heyTea(by id: String) -> PollOption {
+        PollOption(name: "Hey Tea", latitude: 37.770, longitude: -122.420, proposerID: id)
+    }
+
+    private func kungFuTea(by id: String) -> PollOption {
+        PollOption(name: "Kung Fu Tea", latitude: 37.765, longitude: -122.425, proposerID: id)
+    }
+
+    override func setUp() {
+        super.setUp()
+        ConversationMeetupStore.clearIncludingSync(key: key)
+    }
+
+    override func tearDown() {
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        super.tearDown()
+    }
+
+    /// AUDIT [HIGH] — the host app's "Agree" could end a vote it never showed.
+    /// A legacy `.agree` in a 2-person roster is `isFullyAgreed`, which every
+    /// peer absorbs as a LOCK-IN. Voting on the board instead must leave a
+    /// contested board contested.
+    func testVotingOnAContestedBoardDoesNotSettleIt() {
+        var board = MeetupPoll.empty
+        board.pick(heyTea(by: hassan.id))
+        board.pick(kungFuTea(by: belal.id))
+
+        // Belal votes for Hassan's pick from the app: now 2–0, unanimous.
+        var settling = board
+        settling.vote(belal.id, for: heyTea(by: hassan.id).id)
+        XCTAssertNotNil(settling.settledOption(participants: [hassan, belal]))
+
+        // But a THIRD place still on the table keeps it open.
+        var contested = board
+        contested.pick(PollOption(name: "Boba Guys", latitude: 37.762,
+                                  longitude: -122.428, proposerID: "id-kavi"))
+        let kavi = Participant(id: "id-kavi", name: "Kavi", latitude: 37.75, longitude: -122.40)
+        contested.vote(belal.id, for: heyTea(by: hassan.id).id)
+        XCTAssertNil(contested.settledOption(participants: [hassan, belal, kavi]),
+                     "a vote must not settle a board that still has an unmatched pick on it")
+    }
+
+    /// The legacy `.agree` this replaced WOULD have decided it — the proof the
+    /// old shape was the bug, not the messaging.
+    func testLegacyAgreeWouldHaveDecidedBlind() {
+        let blindAgree = TweenState(
+            text: "Hey Tea", latitude: 37.770, longitude: -122.420,
+            senderName: "Hassan", senderID: hassan.id,
+            kind: .place, action: .agree, messageType: .agree,
+            participants: [hassan, belal],
+            agreedNames: ["Belal"], agreedIDs: [belal.id])
+        XCTAssertTrue(blindAgree.absorbedPoll.isDecided)
+
+        // Absorbed onto a board that already holds a rival, the lock-in lands
+        // on the only option that bubble knew about — which is exactly why the
+        // app now sends a `.vote` carrying the whole board instead.
+        var existing = MeetupPoll.empty
+        existing.pick(kungFuTea(by: belal.id))
+        let merged = MeetupPoll.merged(local: existing, incoming: blindAgree.absorbedPoll)
+        XCTAssertEqual(merged.options.count, 2, "the rival survives the merge")
+    }
+
+    /// AUDIT [MED] — the terminal state is "decided", not "fully agreed".
+    /// `isFullyAgreed` is false when the roster minus the proposer is empty,
+    /// so a locked-in meetup in a shrunken group stopped persisting.
+    func testLockedInMeetupPersistsEvenWhenNobodyElseIsLeft() {
+        var board = MeetupPoll.empty
+        board.pick(heyTea(by: hassan.id))
+        board.lockIn(heyTea(by: hassan.id).id)
+
+        let state = TweenState(
+            text: "Hey Tea", latitude: 37.770, longitude: -122.420,
+            senderName: "Hassan", senderID: hassan.id,
+            kind: .place, messageType: .decided,
+            participants: [hassan],          // everyone else left
+            poll: board)
+
+        XCTAssertFalse(state.isFullyAgreed, "precondition: the old gate says no")
+        XCTAssertTrue(state.isDecided)
+
+        ConversationMeetupStore.saveAgreed(state, key: key)
+        XCTAssertNotNil(ConversationMeetupStore.load(key: key)?.agreedState,
+                        "the terminal screen has to survive a relaunch")
+    }
+
+    /// AUDIT [HIGH] — the board is scored by participant ID, so a synthetic
+    /// roster silently breaks both the progress line and unanimity.
+    func testVoteMathNeedsRealParticipantIDs() {
+        var board = MeetupPoll.empty
+        board.pick(heyTea(by: hassan.id))
+        board.vote(belal.id, for: heyTea(by: hassan.id).id)
+
+        let real = [hassan, belal]
+        XCTAssertEqual(board.voteProgress(participants: real).voted, 2)
+        XCTAssertNotNil(board.unanimousOption(participants: real))
+
+        // The fallback ExpandedView used when `received` was nil.
+        let synthetic = [Participant(id: "peer", name: "Friend", latitude: 37.76, longitude: -122.43),
+                         hassan]
+        XCTAssertEqual(board.voteProgress(participants: synthetic).voted, 1,
+                       "a made-up id matches no vote — this is what the roster fix prevents")
+        XCTAssertNil(board.unanimousOption(participants: synthetic))
+    }
+
+    /// The board is conversation state and has to survive the extension being
+    /// torn down between taps.
+    func testBoardRoundTripsThroughTheConversationStore() {
+        var board = MeetupPoll.empty
+        board.pick(heyTea(by: hassan.id))
+        board.pick(kungFuTea(by: belal.id))
+        board.vote(belal.id, for: heyTea(by: hassan.id).id)
+
+        ConversationMeetupStore.savePoll(board, key: key)
+        XCTAssertEqual(ConversationMeetupStore.poll(key: key), board)
+    }
+
+    /// Concurrent picks must survive the revision tie-break — rejecting one by
+    /// tap order is how a disagreement used to vanish.
+    func testConcurrentPicksBothPassTheRevisionGuard() {
+        ConversationMeetupStore.noteRevision(4, sender: hassan.id, key: key)
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 4, senderID: belal.id, messageType: .pick, key: key))
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 4, senderID: belal.id, messageType: .vote, key: key))
+        // A terminal decision keeps the strict rule: two concurrent lock-ins
+        // must not both stick.
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 4, senderID: belal.id, messageType: .decided, key: key))
+    }
+}

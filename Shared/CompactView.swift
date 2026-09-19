@@ -350,11 +350,14 @@ struct CompactView: View {
         if received?.messageType == .leave {
             return isUserIn ? "They stepped out — you're still in" : "They stepped out"
         }
-        if received?.kind == .place, received?.isFullyAgreed == true {
+        if received?.kind == .place, received?.isDecided == true {
             return isUserIn ? "It's a plan — tap for directions" : "It's a plan — tap “I'm in” to rejoin"
         }
         if received?.kind == .place {
-            return isUserIn ? "Review maps and agreement" : "Tap “I'm in” to share"
+            // The compact strip is the FIRST thing most people see, so it has
+            // to name the actual next action. "Review maps and agreement"
+            // described the old agree/counter screen that no longer exists.
+            return isUserIn ? "Tap to vote on where to meet" : "Tap “I'm in” to share"
         }
         if received?.senderName != nil {
             return "Tap to find a fair spot"

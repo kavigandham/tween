@@ -37,6 +37,22 @@ extension OnboardingView {
         }
     }
 
+    /// Every OTHER place currently on the board, most-voted first — what the
+    /// incoming card has to show before it asks you to settle anything.
+    func boardRivals(excluding coordinate: CLLocationCoordinate2D) -> [(name: String, votes: Int)] {
+        activeConversationBoard().standings
+            .filter { abs($0.option.latitude - coordinate.latitude) >= 1e-4
+                   || abs($0.option.longitude - coordinate.longitude) >= 1e-4 }
+            .map { (name: $0.option.name, votes: $0.votes) }
+    }
+
+    func boardVotes(for coordinate: CLLocationCoordinate2D) -> Int {
+        activeConversationBoard().standings
+            .first { abs($0.option.latitude - coordinate.latitude) < 1e-4
+                  && abs($0.option.longitude - coordinate.longitude) < 1e-4 }?
+            .votes ?? 0
+    }
+
     @ViewBuilder
     func spotDetailSheet(_ selection: SpotSelection) -> some View {
         SpotDetailCard(
@@ -49,7 +65,9 @@ extension OnboardingView {
             incoming: selection.incoming.map {
                 SpotDetailCard.IncomingProposal(
                     senderName: $0.senderName,
-                    isCounter: $0.isCounter)
+                    isCounter: $0.isCounter,
+                    rivals: boardRivals(excluding: selection.coordinate),
+                    votes: boardVotes(for: selection.coordinate))
             },
             isCurrentMeetup: isCurrentMeetup(selection),
             opensLarge: tourStep != nil,

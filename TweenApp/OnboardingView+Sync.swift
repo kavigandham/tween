@@ -59,6 +59,15 @@ extension OnboardingView {
 
     @MainActor
     @discardableResult
+    /// The vote board for the chat this app is acting on — the same
+    /// conversation-scoped store the Messages extension writes, so a pick made
+    /// in the app and a vote cast in the drawer are on one board rather than
+    /// two views of a stale proposal. Empty when no chat is known yet.
+    func activeConversationBoard() -> MeetupPoll {
+        guard let key = ConversationMeetupStore.lastActiveConversationKey else { return .empty }
+        return ConversationMeetupStore.poll(key: key)
+    }
+
     func refreshFromAppGroup() -> Bool {
         // Group-aware path: the extension writes the full participants roster
         // whenever it receives or sends a bubble. If present, keep the first

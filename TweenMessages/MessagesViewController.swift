@@ -509,6 +509,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     draft: draft,
                     localParticipantID: localParticipantID(),
                     localNeedsRide: localNeedsRide,
+                    rosterParticipants: pollParticipants(),
                     recentlySentSpotName: recentlySentSpotName,
                     poll: poll,
                     enRouteMarks: enRouteMarks,

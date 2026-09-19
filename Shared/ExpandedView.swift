@@ -81,6 +81,14 @@ struct ExpandedView: View {
     /// in `staticMarkers`, which is re-evaluated on every render — decoding the
     /// full roster there did a JSON parse per frame (lag audit 2026-08-08).
     var localNeedsRide: Bool = false
+    /// The live roster, straight from the controller. The board is scored by
+    /// participant ID, and `otherParticipants` falls back to a SYNTHETIC
+    /// `Participant(id: "peer")` whenever `received` is nil — which is the
+    /// state right after you add your pick (`sendBubble` clears it). Scoring a
+    /// vote against a made-up id silently produced "1 of 2 voted" forever and
+    /// meant unanimity could never fire. Empty falls back to the old
+    /// derivation, so previews and the harness are unaffected.
+    var rosterParticipants: [Participant] = []
     /// Spot name the extension just sent with `MSConversation.send`, used to
     /// keep the CTA from looking tappable while Messages has already queued it.
     var recentlySentSpotName: String? = nil
@@ -198,7 +206,10 @@ struct ExpandedView: View {
     }
 
     /// Everyone the board counts — the roster the vote is scored against.
+    /// Real IDs only: see `rosterParticipants` for why the `received`-derived
+    /// fallback can't be trusted here.
     var pollParticipants: [Participant] {
+        if !rosterParticipants.isEmpty { return rosterParticipants }
         var people = otherParticipants
         if isUserIn || selfCoord != nil {
             people.append(Participant(id: localParticipantID ?? myName, name: myName,

@@ -177,6 +177,11 @@ struct SpotDetailCard: View {
         /// True when the link is a counter-proposal (overrides a previous
         /// agreement); shifts the headline copy.
         let isCounter: Bool
+        /// The other places already on the board, most-voted first, with their
+        /// vote counts. Empty when this is the only pick.
+        var rivals: [(name: String, votes: Int)] = []
+        /// How many votes THIS place already has.
+        var votes: Int = 0
     }
 
     @Environment(\.openURL) private var openURL
@@ -542,14 +547,25 @@ struct SpotDetailCard: View {
     /// to respond — not browsing a search result they picked themselves.
     private func incomingHeadline(_ proposal: IncomingProposal) -> some View {
         let who = proposal.senderName ?? "Your friend"
-        let verb = proposal.isCounter ? "suggests instead" : "suggests"
         return VStack(alignment: .leading, spacing: Tokens.Spacing.s1) {
-            Text("\(who) \(verb)")
+            Text("\(who) picked")
                 .font(Tokens.Typography.callout)
                 .foregroundStyle(Tokens.Palette.textSecondary)
-            Text("Do you want to agree or change it?")
-                .font(Tokens.Typography.subheadline)
-                .foregroundStyle(Tokens.Palette.textSecondary)
+            // The rivals line is the point: a card that asked "agree or
+            // change?" while a friend's competing pick sat invisible on the
+            // board is how a vote got ended by someone who never saw it.
+            if proposal.rivals.isEmpty {
+                Text("Vote for it, or pick somewhere else.")
+                    .font(Tokens.Typography.subheadline)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+            } else {
+                Text("Also on the table: " + proposal.rivals
+                        .map { "\($0.name) (\($0.votes))" }
+                        .joined(separator: ", "))
+                    .font(Tokens.Typography.subheadline)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -565,11 +581,13 @@ struct SpotDetailCard: View {
                     onAgree()
                     dismiss()
                 } label: {
-                    Label("Agree", systemImage: "checkmark.circle.fill")
+                    Label(incoming?.rivals.isEmpty == false ? "Vote for this" : "Agree",
+                          systemImage: "checkmark.circle.fill")
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 .buttonStyle(.tweenPrimary())
-                .accessibilityHint("Sends back a reply that you agree to meet at \(name)")
+                .accessibilityHint("Casts your vote for \(name)")
 
                 Button {
                     sendTick += 1

@@ -315,8 +315,13 @@ enum ConversationMeetupStore {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.participants = state.participants
         snapshot.proposedState = state
-        if state.isFullyAgreed {
+        // `isDecided`, not `isFullyAgreed`: a lock-in is terminal on its own,
+        // and `isFullyAgreed` answers false whenever the roster minus the
+        // proposer is empty — so a decided meetup in a shrunken group failed
+        // to persist and the terminal screen vanished on relaunch.
+        if state.isDecided {
             snapshot.agreedState = state
+            snapshot.poll = state.absorbedPoll
         }
         save(snapshot, key: key)
     }

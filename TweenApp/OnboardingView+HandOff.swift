@@ -111,7 +111,16 @@ extension OnboardingView {
                 return
             }
             let revision = nextOutgoingRevisionForActiveConversation()
-            let messageType: TweenState.MessageType = agreedMeetup == nil ? .propose : .counter
+            // A place sent from the app is a PICK on the shared board, exactly
+            // like one sent from the drawer. It used to go out as `.propose`
+            // (or `.counter` only when an agreement existed), which RESET the
+            // negotiation instead of joining it — the most common way the
+            // reported "my friend's different place agreed to mine" happened.
+            let option = PollOption(name: selection.name, coordinate: coord,
+                                    proposerID: TweenIdentity.stableID)
+            var board = activeConversationBoard().normalized(participants: participants)
+            board.pick(option)
+            let messageType: TweenState.MessageType = .pick
             let state = TweenState(
                 text: selection.name,
                 latitude: coord.latitude,
@@ -122,7 +131,8 @@ extension OnboardingView {
                 senderCoordinate: savedCoordinate,        // set by ensureNamed
                 messageType: messageType,
                 participants: participants,
-                revision: revision)
+                revision: revision,
+                poll: board)
             guard let appURL = state.encodedURL(scheme: "tween", host: "m") else { return }
 
             // Still stage the draft so the sender's own extension can pre-fill if
@@ -152,12 +162,14 @@ extension OnboardingView {
                             noteOutgoingRevision(revision)
                             if let key = ConversationMeetupStore.lastActiveConversationKey {
                                 ConversationMeetupStore.saveProposed(state, key: key)
+                                ConversationMeetupStore.savePoll(board, key: key)
                             }
                             pendingProposal = state
-                            if messageType == .counter {
-                                LocationCache.clearAgreedMeetup()
-                                agreedMeetup = nil
-                            }
+                            // A new place on the board reopens the question —
+                            // every pick does, not just the ones that used to
+                            // be typed as a counter.
+                            LocationCache.clearAgreedMeetup()
+                            agreedMeetup = nil
                             PingLog.logGenericInvite()
                             lastGenericInviteAt = PingLog.lastGenericInviteAt
                             showOwnProposalOnMap(state)
