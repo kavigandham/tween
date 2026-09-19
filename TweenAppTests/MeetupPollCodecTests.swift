@@ -248,6 +248,13 @@ final class MeetupPollMergeDirectionTests: XCTestCase {
     /// AUDIT [CRITICAL] — the re-assert fallback hung off `if let myVote`, so
     /// when a re-pick removed the place I'd voted for, the board kept my NEW
     /// pick with nobody voting for it, breaking `pick`'s own invariant.
+    ///
+    /// Note the direction: this is the COMMIT path (`incoming` is the board
+    /// this device just composed), so it takes no `preservingVoteOf` — that
+    /// flag says "incoming came from a peer and may be stale", which is the
+    /// opposite of what's true here. Passing it would filter out my own new
+    /// pick, which is precisely why `mergePoll(_:from:)` names the direction
+    /// instead of leaving it to an optional argument.
     func testRepickingLeavesYourVoteOnYourNewPick() {
         var before = MeetupPoll.empty
         before.pick(heyTea(by: belal.id))             // my first pick
@@ -255,7 +262,7 @@ final class MeetupPollMergeDirectionTests: XCTestCase {
         var sent = before
         sent.pick(kungFuTea(by: belal.id))            // I'd rather go here
 
-        let merged = MeetupPoll.merged(local: before, incoming: sent, preservingVoteOf: belal.id)
+        let merged = MeetupPoll.merged(local: before, incoming: sent)
         XCTAssertEqual(merged.options.map(\.name), ["Kung Fu Tea"])
         XCTAssertEqual(merged.vote(by: belal.id), kungFuTea(by: belal.id).id,
                        "a pick always carries its proposer's vote")
@@ -350,5 +357,114 @@ final class MeetupPollMergeDirectionTests: XCTestCase {
         let decoded = try! XCTUnwrap(TweenState(url: url))
         XCTAssertTrue(decoded.absorbedPoll.options.isEmpty,
                       "better to lose the option than to attribute it to the wrong person")
+    }
+}
+
+/// Third-pass regressions. The merge rule "same proposer, different place =
+/// they changed their mind" is only valid when `incoming` is the NEWER
+/// statement — which it never is for the local user.
+final class MeetupPollStaleBoardTests: XCTestCase {
+
+    private let alice = Participant(id: "id-alice", name: "Alice", latitude: 37.78, longitude: -122.41)
+    private let me = Participant(id: "id-me", name: "Me", latitude: 37.76, longitude: -122.43)
+
+    private func heyTea(by id: String) -> PollOption {
+        PollOption(name: "Hey Tea", latitude: 37.770, longitude: -122.420, proposerID: id)
+    }
+    private func kungFuTea(by id: String) -> PollOption {
+        PollOption(name: "Kung Fu Tea", latitude: 37.765, longitude: -122.425, proposerID: id)
+    }
+    private func boba(by id: String) -> PollOption {
+        PollOption(name: "Boba Guys", latitude: 37.762, longitude: -122.428, proposerID: id)
+    }
+
+    /// AUDIT [HIGH] — tapping a friend's bubble that predates my re-pick used
+    /// to delete the place I moved to, resurrect the one I walked away from,
+    /// AND re-cast my old vote for it — which in a two-person chat auto-settled
+    /// the meetup on a place I had explicitly rejected.
+    func testAStalePeerBoardCannotUndoYourRepick() {
+        var mine = MeetupPoll.empty
+        mine.pick(heyTea(by: me.id))
+        mine.pick(boba(by: alice.id))
+        mine.pick(kungFuTea(by: me.id))        // I change my mind
+
+        var stale = MeetupPoll.empty           // a peer snapshot from before that
+        stale.pick(heyTea(by: me.id))
+        stale.pick(boba(by: alice.id))
+        stale.vote(alice.id, for: heyTea(by: me.id).id)
+        stale.vote(me.id, for: heyTea(by: me.id).id)
+
+        let merged = MeetupPoll.merged(local: mine, incoming: stale, preservingVoteOf: me.id)
+            .normalized(participants: [alice, me])
+
+        XCTAssertNotNil(merged.option(proposedBy: me.id))
+        XCTAssertEqual(merged.option(proposedBy: me.id)?.name, "Kung Fu Tea",
+                       "my current pick stands")
+        XCTAssertFalse(merged.options.contains { $0.name == "Hey Tea" },
+                       "the place I walked away from must not come back")
+        XCTAssertEqual(merged.vote(by: me.id), kungFuTea(by: me.id).id)
+        XCTAssertNil(merged.settledOption(participants: [alice, me]),
+                     "a stale bubble must not settle the meetup on a rejected place")
+    }
+
+    /// ...but a peer is still how this device RELEARNS my pick after a cold
+    /// launch, so the exemption only applies when I actually hold one.
+    func testAPeerBoardStillRestoresYourPickWhenThisDeviceHasNone() {
+        var peer = MeetupPoll.empty
+        peer.pick(heyTea(by: me.id))
+        peer.pick(boba(by: alice.id))
+
+        let merged = MeetupPoll.merged(local: .empty, incoming: peer, preservingVoteOf: me.id)
+        XCTAssertEqual(merged.option(proposedBy: me.id)?.name, "Hey Tea")
+        XCTAssertEqual(merged.vote(by: me.id), heyTea(by: me.id).id)
+    }
+
+    /// Someone ELSE changing their mind must still work — the exemption is for
+    /// the local user only, not a licence to ignore everyone's re-picks.
+    func testAPeersOwnRepickIsStillAdopted() {
+        var mine = MeetupPoll.empty
+        mine.pick(boba(by: alice.id))
+        mine.pick(kungFuTea(by: me.id))
+
+        var peer = mine
+        peer.pick(heyTea(by: alice.id))        // Alice changes her mind
+
+        let merged = MeetupPoll.merged(local: mine, incoming: peer, preservingVoteOf: me.id)
+        XCTAssertEqual(merged.option(proposedBy: alice.id)?.name, "Hey Tea")
+        XCTAssertFalse(merged.options.contains { $0.name == "Boba Guys" })
+        XCTAssertEqual(merged.options.count, 2, "still one option per person")
+    }
+
+    /// AUDIT [LOW] — a generation with no board is not a generation. A crafted
+    /// link could otherwise un-decide a settled meetup and propagate it.
+    func testAGenerationWithoutABoardIsIgnored() {
+        let url = URL(string: "https://tween.app/m?t=Hey%20Tea&lat=37.770000&lon=-122.420000"
+                      + "&kind=place&type=vote&fromId=id-alice&decs=999999")!
+        let decoded = try! XCTUnwrap(TweenState(url: url))
+        XCTAssertEqual(decoded.poll.decisionSeq, 0)
+
+        var settled = MeetupPoll.empty
+        settled.pick(heyTea(by: alice.id))
+        settled.lockIn(heyTea(by: alice.id).id)
+        XCTAssertTrue(MeetupPoll.merged(local: settled, incoming: decoded.poll).isDecided,
+                      "a crafted generation must not un-decide the meetup")
+    }
+
+    /// AUDIT [MEDIUM-LOW] — `decs` travels with the board, so a `.pick` whose
+    /// board was dropped by the size ladder arrives at generation 0 and loses.
+    /// The message type is the only surviving evidence of the reopen.
+    func testReopenIsIdempotentAndOnlyFiresWhenDecided() {
+        var settled = MeetupPoll.empty
+        settled.pick(heyTea(by: alice.id))
+        settled.lockIn(heyTea(by: alice.id).id)
+        let generation = settled.decisionSeq
+
+        settled.reopen()
+        XCTAssertFalse(settled.isDecided)
+        XCTAssertEqual(settled.decisionSeq, generation + 1)
+
+        settled.reopen()
+        XCTAssertEqual(settled.decisionSeq, generation + 1,
+                       "reopening an already-open board must not escalate the generation")
     }
 }

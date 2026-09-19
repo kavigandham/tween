@@ -679,10 +679,17 @@ struct TweenState: Equatable {
                 decodedPoll.decidedOptionID = decided.id
             }
         }
-        // Bounded like every other counter the codec accepts.
-        decodedPoll.decisionSeq = items.first(where: { $0.name == "decs" })?.value
-            .flatMap(Int.init)
-            .flatMap { (0...Self.maxRevision).contains($0) ? $0 : nil } ?? 0
+        // Bounded like every other counter the codec accepts — and ignored
+        // without a board, mirroring the encoder. A crafted `?decs=999999`
+        // with no `opts` would otherwise decode to an empty board with a huge
+        // generation, which the merge reads as "somebody reopened it": it
+        // un-decides a settled meetup and propagates that on the next send.
+        // Same hardening as `lat=nan` and `rev=Int.max`.
+        if !decodedPoll.options.isEmpty {
+            decodedPoll.decisionSeq = items.first(where: { $0.name == "decs" })?.value
+                .flatMap(Int.init)
+                .flatMap { (0...Self.maxRevision).contains($0) ? $0 : nil } ?? 0
+        }
         self.poll = decodedPoll
         // Bounded: an ETA is a travel time, so anything past a day is junk and
         // would render as "1440 min away". Negative reads as absent.

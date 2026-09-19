@@ -231,10 +231,14 @@ final class MessagesViewController: MSMessagesAppViewController {
         // state, so it must be there whether or not a bubble decoded on this
         // activation (drawer open, own bubble tapped, live arrival).
         if !ConversationMeetupStore.localUserLeft(key: key) {
-            // The stored blob is `local`, our in-memory copy `incoming` — the
-            // in-memory one is at least as fresh, so it must not have its vote
-            // overridden by the store.
-            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll)
+            // The STORE is `local` and it can be the fresher of the two: the
+            // host app writes it from another process, and this extension has
+            // no MeetupSync observer. Preserving the stored vote is what keeps
+            // a surviving extension process from reverting a vote the user
+            // just cast in the app (audit 2026-09-19, third pass). `mergePoll`
+            // writes both copies together, so in-memory is never ahead.
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
+                                     preservingVoteOf: localParticipantID())
         }
         enRouteMarks = EnRouteLog.marks(key: key)
         if !decodedIncoming, received == nil, let snapshot {

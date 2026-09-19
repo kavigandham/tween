@@ -227,6 +227,17 @@ struct MeetupPoll: Equatable, Codable {
         votes[participantID] = optionID
     }
 
+    /// Reopens the question without putting anything new on the board — the
+    /// local half of a `.pick` whose board was dropped by the size ladder.
+    /// The generation counter travels WITH the board (it has to; see
+    /// TweenState.encodedURL), so a degraded pick can't say "I reopened this"
+    /// on the wire and the receiver has to infer it from the message type.
+    mutating func reopen() {
+        guard decidedOptionID != nil else { return }
+        decidedOptionID = nil
+        decisionSeq += 1
+    }
+
     mutating func lockIn(_ optionID: String) {
         guard options.contains(where: { $0.id == optionID }) else { return }
         guard decidedOptionID != optionID else { return }
@@ -276,19 +287,34 @@ struct MeetupPoll: Equatable, Codable {
                        preservingVoteOf localID: String? = nil) -> MeetupPoll {
         var result = local
         let myVote = localID.flatMap { local.votes[$0] }
+        // MY OWN pick is mine to know. The re-pick rule below ("same proposer,
+        // different place = they changed their mind, drop the old one") is only
+        // valid when `incoming` is the newer statement — and for the local
+        // user it never is: a peer's board can predate my re-pick, in which
+        // case applying the rule deletes the place I just moved to and
+        // resurrects the one I walked away from. Combined with the vote
+        // fallback below that re-cast my old vote and could auto-settle the
+        // meetup there (audit 2026-09-19, third pass).
+        //
+        // Still adopted when this device holds no pick of mine — after a cold
+        // launch a peer's board is the only way to relearn it.
+        let iHoldMyOwnPick = localID.flatMap { local.option(proposedBy: $0) } != nil
+        let incomingOptions = incoming.options.filter { option in
+            !(iHoldMyOwnPick && option.proposerID == localID)
+        }
         // Re-picks first: a proposer whose incoming option differs from the
         // one we hold has changed their mind, and their old option must go
         // before the union below would keep both.
-        for option in incoming.options {
+        for option in incomingOptions {
             if let existing = result.option(proposedBy: option.proposerID), existing.id != option.id {
                 result.options.removeAll { $0.id == existing.id }
                 result.votes = result.votes.filter { $0.value != existing.id }
             }
         }
-        for option in incoming.options where !result.options.contains(where: { $0.id == option.id }) {
+        for option in incomingOptions where !result.options.contains(where: { $0.id == option.id }) {
             result.options.append(option)
         }
-        for (voter, optionID) in incoming.votes where voter != localID {
+        for (voter, optionID) in incoming.votes where voter != localID {  // see preservingVoteOf
             result.votes[voter] = optionID
         }
         // Re-assert my own vote — or fall back to theirs when the place I
@@ -407,10 +433,6 @@ struct MeetupPoll: Equatable, Codable {
             guard seen.insert(option.id).inserted else { return nil }
             return option
         }
-    }
-
-    static func decodeOptions(_ raw: String, participants: [Participant]) -> [PollOption] {
-        decodeOptionSlots(raw, participants: participants).compactMap { $0 }
     }
 
     /// Positional over the roster: entry `i` is the option index participant

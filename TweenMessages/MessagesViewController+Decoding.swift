@@ -131,6 +131,15 @@ extension MessagesViewController {
         // is actually still in: a person who left takes their pick and their
         // vote with them, rather than leaving an unattended place able to win.
         mergePoll(state.absorbedPoll, from: .peer, key: revisionKey)
+        // A `.pick` whose board was dropped by the 5000-char ladder still
+        // means "I've reopened this" — but `decs` travels with the board, so
+        // it arrives as generation 0 and loses to whatever this device holds.
+        // The message type is the only surviving evidence; gating on an empty
+        // incoming board keeps this from double-bumping the normal case.
+        if state.messageType == .pick, state.poll.options.isEmpty, poll.isDecided {
+            poll.reopen()
+            ConversationMeetupStore.savePoll(poll, key: revisionKey)
+        }
 
         // Departures. A new place on the board starts a new round, so the
         // "on the way" strip from the previous one must not survive it.
