@@ -48,6 +48,7 @@
 		38EDFB64652AC8F35FD022A2 /* TweenPin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C050212D1A3E782EE270E56 /* TweenPin.swift */; };
 		3B263FF91036EB62ED8D2F37 /* FairnessRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075D9066250C6952934E34C1 /* FairnessRanker.swift */; };
 		3C77BB1ABA4BE9406932EB23 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31774B86CC587B67A1B6CB6A /* ContentView.swift */; };
+		3C9D9B76E149041228ECA196 /* ShotHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534EEEF76ECF53B238A5A460 /* ShotHarness.swift */; };
 		3EFCBDBCB3B45CA0DC5FDD44 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999A32C93B516396B9807953 /* LocationProvider.swift */; };
 		4075605850B47B7EF5B3678C /* BubbleImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19578965A1765C5D3DE2158 /* BubbleImageRendererTests.swift */; };
 		40A1AD454FAFF52473DF9F83 /* OutgoingDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51D741A60625DD97D522832 /* OutgoingDraft.swift */; };
@@ -282,6 +283,7 @@
 		4F2559986024A1F16C793B57 /* PlanMeetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanMeetupSheet.swift; sourceTree = "<group>"; };
 		4F419938405B50BDDEE4FDAE /* PendingGroupFriendsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingGroupFriendsTests.swift; sourceTree = "<group>"; };
 		4FD1436B490AA1B23EA02D4A /* StoreKitTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKitTest.framework; path = System/Library/Frameworks/StoreKitTest.framework; sourceTree = SDKROOT; };
+		534EEEF76ECF53B238A5A460 /* ShotHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotHarness.swift; sourceTree = "<group>"; };
 		53A451BC1486986EC8CB5CC2 /* OnboardingView+DeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+DeepLinks.swift"; sourceTree = "<group>"; };
 		541004B963242467756D33B7 /* MessagesViewController+Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessagesViewController+Decoding.swift"; sourceTree = "<group>"; };
 		54BC91D82C97B1CE006E9450 /* TravelModeHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelModeHandoffTests.swift; sourceTree = "<group>"; };
@@ -585,6 +587,7 @@
 				A7C8E348823D83D7B78DF8E9 /* ResultRows.swift */,
 				AECF02EB2138B0F7429E735F /* SearchCompleter.swift */,
 				464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */,
+				534EEEF76ECF53B238A5A460 /* ShotHarness.swift */,
 				1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */,
 				4B1965EF7E72353246EC9921 /* TutorialVisuals.swift */,
 				CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */,
@@ -917,6 +920,7 @@
 				DD9E6B6D07C2B7BB44C2D6AF /* SearchQueryRewriter.swift in Sources */,
 				89112A445FB115BCC05D216D /* SearchResultMerger.swift in Sources */,
 				3607C423A0ED457F9747A0DE /* SettingsSheet.swift in Sources */,
+				3C9D9B76E149041228ECA196 /* ShotHarness.swift in Sources */,
 				61FB5691F8B78DEF5B78B40B /* SpotCategoryMark.swift in Sources */,
 				FA4628EC95916562726F0844 /* SpotDetailCard.swift in Sources */,
 				976882A8C236113EC99EDAA7 /* SpotETADisplay.swift in Sources */,

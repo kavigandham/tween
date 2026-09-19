@@ -1,25 +1,30 @@
 # App Store screenshot pipeline
 
-`compose.swift` turns a raw simulator capture into a finished App Store
-screenshot: gradient background, headline, subtitle, rounded device shot.
-
-AppKit only — no Pillow, no ImageMagick, nothing to install.
-
-## Usage
+Two commands, from a booted simulator to uploadable slides.
 
 ```bash
-# 1. Capture raw screens from the simulator into this directory
-xcrun simctl io <UDID> screenshot HARNESS_PROPOSAL_DRAFT.png
+# 1. Capture. -SHOT renders ONE surface edge to edge (TweenApp/ShotHarness.swift).
+SIM=$(xcrun simctl list devices booted | grep "iPhone 17 Pro Max" | grep -o "[0-9A-F-]\{36\}")
+xcrun simctl status_bar "$SIM" override --time "9:41" \
+  --batteryState charged --batteryLevel 100 \
+  --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3
+for scene in fair vote plan; do
+  xcrun simctl terminate "$SIM" com.kavigandham.TweenApp
+  xcrun simctl launch "$SIM" com.kavigandham.TweenApp -SHOT "$scene"
+  sleep 7   # the scene runs a real MKLocalSearch
+  xcrun simctl io "$SIM" screenshot "raw/$scene.png"
+done
 
-# 2. Compose
+# 2. Compose.
 xcrun swiftc -O compose.swift -o composebin && ./composebin
-
-# 3. Downscale to the exact App Store size (AppKit renders at 2x on Retina)
-sips -z 2868 1320 01-chat.png --out 01-chat.png
 ```
 
-Edit the `slides` array in `compose.swift` to change headlines, colours, or
-which capture each slide uses.
+Output lands in `promo/` at **exactly 1320 × 2868** (6.9"). Upload it as-is.
+
+> **Do not run `sips` afterwards.** The old README told you to downscale to
+> 1284 × 2778; `compose.swift` renders at the final size, so that step was
+> resampling a finished composition and softening every glyph in the set. It
+> is the single biggest reason the previous screenshots looked low-quality.
 
 ## Sizes
 
@@ -28,33 +33,44 @@ App Store Connect needs **one** iPhone set; it scales the rest.
 | Display | Pixels | Use |
 |---|---|---|
 | 6.9" | 1320 × 2868 | **Upload this one** |
-| 6.5" | 1284 × 2778 | Accepted alternative |
+| 6.5" | 1284 × 2778 | Accepted alternative — but don't downscale into it, re-capture |
 
-## ⚠️ The current captures are NOT shippable
+## The scenes
 
-The slides generated so far use the **harness** (`-HARNESS_*`), which renders:
+| # | Scene | Headline | What's on screen |
+|---|---|---|---|
+| 1 | `fair` | Fair means fair | Both people pinned, real cafes ranked "You 10 · Kavi 8" |
+| 2 | `vote` | Can't agree? Vote. | Two picks on the board, tied, with each one's drive times |
+| 3 | `plan` | Then tell them you left | "It's a plan" + a friend's live ETA + Leaving now |
+| 4 | — | Search like Maps | Host app search (`screenshots/04-search-like-maps.png`) |
 
-- a debug title bar (`Proposal With Draft View`)
-- placeholder place names (`Spot`, `Spot`, `Spot`)
-- a map framed on the continental US rather than a real neighbourhood
+Every headline describes something visible in its own capture. The previous
+set promised "It lives in your chat" over a generic browse list and "Agree in
+one tap" over a screen with no agree button on it.
 
-They were built to prove the pipeline, not to ship. Real captures need the
-actual app with real search results, which needs CoreLocation — unavailable in
-this simulator (it returns no fix, so ranking never populates).
+## Why the captures look real without location services
 
-**To produce shippable screenshots:** run the app on a physical device with
-location enabled, in a city with real results, and capture:
+`ShotHarness` seeds two coordinates (Oakland and Berkeley) and runs a **real
+`MKLocalSearch`** around their midpoint, so the place names are genuine and the
+drive times are computed by the real ranker. MapKit search needs no location
+permission, which is what makes this work in a simulator that has no
+CoreLocation at all.
 
-| # | Headline | Screen |
-|---|---|---|
-| 1 | It lives in your chat | Extension expanded, real spot names + ETAs |
-| 2 | Fair means fair | Spot list showing everyone's minutes |
-| 3 | Agree in one tap | Proposal panel with the action row |
-| 4 | Search like Maps | Host app, committed search with results |
-| 5 | Plan it ahead | Plan sheet, scheduled (Pro) |
-| 6 | No account. No server. | Map with both pins, clean |
+The seed matters more than it sounds. `DebugLaunchSeed` — which the old
+captures used — puts the two people in San Francisco and San Jose, 45 miles
+apart, so every search returned 36-to-40-minute drives. The shipped
+screenshots therefore argued *against* the product: the pitch is "a fair spot
+between you", and the evidence on screen was an hour of driving to a place
+called "Lalala". Oakland ↔ Berkeley is a meetup someone might actually have,
+and the numbers sell the idea by themselves.
 
-Then drop them in here and re-run the two commands above.
+## Gotchas
+
+- **The "◀ AppName" breadcrumb.** A cold `simctl launch` while another app was
+  foregrounded stamps a back-to-app crumb into the status bar. Launch the same
+  app twice (or capture the scenes in a loop, as above) and it disappears.
+- **Give the scene ~7s.** It waits on a live MapKit search plus routing; a
+  capture taken too early shows the spinner.
 
 Copy for every slide, plus the full store listing, is in
 [`../app-store.md`](../app-store.md).

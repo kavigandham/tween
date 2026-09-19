@@ -18,6 +18,9 @@ struct ContentView: View {
             || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
             || CommandLine.arguments.contains("-HARNESS_HOST_RIDE_MAP") {
             OnboardingView()
+        } else if let scene = ShotScene.current {
+            // `-SHOT <scene>` — edge-to-edge App Store captures. See ShotHarness.
+            ShotHarness(scene: scene)
         } else if CommandLine.arguments.contains("-HARNESS_SHOT") {
             // Chrome-free, full-screen, real ranking — App Store captures.
             HarnessShotView(focus: HarnessFocus.current)
