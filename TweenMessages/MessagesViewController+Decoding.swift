@@ -136,7 +136,15 @@ extension MessagesViewController {
         // it arrives as generation 0 and loses to whatever this device holds.
         // The message type is the only surviving evidence; gating on an empty
         // incoming board keeps this from double-bumping the normal case.
-        if state.messageType == .pick, state.poll.options.isEmpty, poll.isDecided {
+        // Gated on the reconstruction actually LANDING: `absorbedPoll` bails
+        // when the sender is unnamed, and `normalized` drops the rebuilt
+        // option when the sender isn't on the merged roster. Without this
+        // check a `?type=pick` with no `opts` and no `fromId` un-decided the
+        // meetup while putting nothing in its place — the same door that was
+        // just closed for `?decs=999999` (audit 2026-09-19, fourth pass).
+        if state.messageType == .pick, state.poll.options.isEmpty, poll.isDecided,
+           let sender = state.senderID ?? state.senderName,
+           poll.option(proposedBy: sender) != nil {
             poll.reopen()
             ConversationMeetupStore.savePoll(poll, key: revisionKey)
         }

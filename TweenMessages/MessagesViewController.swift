@@ -212,6 +212,33 @@ final class MessagesViewController: MSMessagesAppViewController {
         handleReferralBubble(conversation.selectedMessage, in: conversation)
         presentUI(for: presentationStyle)
 
+        // HYDRATE THE BOARD BEFORE DECODING. This has to happen first, and the
+        // ordering is load-bearing in a way that isn't obvious:
+        //
+        // `switchedConversation` above zeroes `poll`, and it is ALWAYS true on
+        // a cold launch (`conversationKey` starts nil) — which is exactly what
+        // tapping a bubble does. Decoding into an empty board meant
+        // `merged`'s "this device owns its own pick" exemption had nothing to
+        // defend, so a peer's snapshot from before my re-pick won; and because
+        // `mergePoll` writes the result straight through to the store, the
+        // restore that used to run after the decode was reading a board this
+        // very activation had already clobbered.
+        //
+        // Worse, the exemption removed the self-healing that used to cover
+        // this: before it, the next merge re-adopted my correct pick through
+        // the re-pick rule. With it, the whole group converges on whatever
+        // this device holds — so this device had better hold the right thing
+        // (audit 2026-09-19, fourth pass).
+        //
+        // The STORE is `local` because it can be the fresher of the two: the
+        // host app writes it from another process and this extension has no
+        // MeetupSync observer, so preserving the stored vote keeps a surviving
+        // extension process from reverting a vote just cast in the app.
+        if !ConversationMeetupStore.localUserLeft(key: key) {
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
+                                     preservingVoteOf: localParticipantID())
+        }
+
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
         var snapshot = ConversationMeetupStore.load(key: key)
         // Expire stale per-chat snapshots. Without a TTL, a meetup negotiated
@@ -227,19 +254,6 @@ final class MessagesViewController: MSMessagesAppViewController {
         // only fills in when nothing decoded (drawer open, own bubble) instead
         // of clobbering a just-decoded state — the leave-clears empty the
         // snapshot, which erased the "X left" banner.
-        // The board survives an extension teardown: it's the conversation's
-        // state, so it must be there whether or not a bubble decoded on this
-        // activation (drawer open, own bubble tapped, live arrival).
-        if !ConversationMeetupStore.localUserLeft(key: key) {
-            // The STORE is `local` and it can be the fresher of the two: the
-            // host app writes it from another process, and this extension has
-            // no MeetupSync observer. Preserving the stored vote is what keeps
-            // a surviving extension process from reverting a vote the user
-            // just cast in the app (audit 2026-09-19, third pass). `mergePoll`
-            // writes both copies together, so in-memory is never ahead.
-            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
-                                     preservingVoteOf: localParticipantID())
-        }
         enRouteMarks = EnRouteLog.marks(key: key)
         if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants

@@ -468,3 +468,78 @@ final class MeetupPollStaleBoardTests: XCTestCase {
                        "reopening an already-open board must not escalate the generation")
     }
 }
+
+/// Fourth-pass regression. `merged`'s "this device owns its own pick"
+/// exemption only defends a board that HAS my pick in it — so the order in
+/// which the extension hydrates matters as much as the merge rule, and the
+/// controller isn't reachable from this target. These pin the invariant the
+/// ordering exists to satisfy.
+final class MeetupPollHydrationTests: XCTestCase {
+
+    private let alice = Participant(id: "id-alice", name: "Alice", latitude: 37.78, longitude: -122.41)
+    private let me = Participant(id: "id-me", name: "Me", latitude: 37.76, longitude: -122.43)
+    private let key = "hydration-conversation"
+
+    private func opt(_ name: String, _ lat: Double, by id: String) -> PollOption {
+        PollOption(name: name, latitude: lat, longitude: -122.42, proposerID: id)
+    }
+
+    override func setUp() {
+        super.setUp()
+        ConversationMeetupStore.clearIncludingSync(key: key)
+    }
+    override func tearDown() {
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        super.tearDown()
+    }
+
+    /// The stale bubble, merged into an EMPTY board — what a cold launch did
+    /// before the hydration moved above the decode. The exemption has nothing
+    /// to defend, so the rejected place wins and auto-settles.
+    func testMergingAStaleBoardIntoAnEmptyOneLosesYourPick() {
+        var stale = MeetupPoll.empty
+        stale.pick(opt("Hey Tea", 37.770, by: me.id))       // my OLD pick
+        stale.pick(opt("Boba Guys", 37.762, by: alice.id))
+        stale.vote(alice.id, for: opt("Hey Tea", 37.770, by: me.id).id)
+
+        let cold = MeetupPoll.merged(local: .empty, incoming: stale, preservingVoteOf: me.id)
+        XCTAssertEqual(cold.option(proposedBy: me.id)?.name, "Hey Tea")
+        XCTAssertNotNil(cold.settledOption(participants: [alice, me]),
+                        "this is the failure the hydration ordering prevents")
+    }
+
+    /// Hydrated first — the same bubble, merged into the board the store held.
+    func testHydratingFromTheStoreFirstDefendsYourPick() {
+        var mine = MeetupPoll.empty
+        mine.pick(opt("Hey Tea", 37.770, by: me.id))
+        mine.pick(opt("Boba Guys", 37.762, by: alice.id))
+        mine.pick(opt("Kung Fu Tea", 37.765, by: me.id))    // I changed my mind
+        ConversationMeetupStore.savePoll(mine, key: key)
+
+        var stale = MeetupPoll.empty
+        stale.pick(opt("Hey Tea", 37.770, by: me.id))
+        stale.pick(opt("Boba Guys", 37.762, by: alice.id))
+        stale.vote(alice.id, for: opt("Hey Tea", 37.770, by: me.id).id)
+
+        // The activation order: hydrate from the store, THEN fold in the bubble.
+        let hydrated = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
+                                         incoming: .empty, preservingVoteOf: me.id)
+        let merged = MeetupPoll.merged(local: hydrated, incoming: stale, preservingVoteOf: me.id)
+            .normalized(participants: [alice, me])
+
+        XCTAssertEqual(merged.option(proposedBy: me.id)?.name, "Kung Fu Tea")
+        XCTAssertEqual(merged.vote(by: me.id), opt("Kung Fu Tea", 37.765, by: me.id).id)
+        XCTAssertNil(merged.settledOption(participants: [alice, me]))
+    }
+
+    /// AUDIT [LOW/MED] — the reopen inference must not fire when the rebuilt
+    /// option didn't land, or the group loses its place and gains no contender.
+    func testABoardlessPickFromAnUnnamedSenderRebuildsNothing() {
+        let url = URL(string: "https://tween.app/m?t=Hey%20Tea&lat=37.770000&lon=-122.420000"
+                      + "&kind=place&type=pick")!
+        let decoded = try! XCTUnwrap(TweenState(url: url))
+        XCTAssertTrue(decoded.absorbedPoll.options.isEmpty,
+                      "no sender means no proposer, so nothing can be rebuilt — "
+                      + "and the caller must not reopen on the strength of it")
+    }
+}
