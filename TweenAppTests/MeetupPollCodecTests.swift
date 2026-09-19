@@ -595,3 +595,75 @@ final class MeetupPollTTLTests: XCTestCase {
         XCTAssertTrue(readAfterSweep.isEmpty, "and this is what it should have had")
     }
 }
+
+/// Sixth-pass regression. The activation path reads the conversation snapshot
+/// to restore state when nothing decoded — but "nothing decoded" is not
+/// "nothing written": `decodeAndCache`'s own-bubble branch commits a staged
+/// send and THEN returns false. These pin what that commit must leave behind,
+/// which is what the restore reads.
+final class StagedSendSnapshotTests: XCTestCase {
+
+    private let alice = Participant(id: "id-alice", name: "Alice", latitude: 37.78, longitude: -122.41)
+    private let me = Participant(id: "id-me", name: "Me", latitude: 37.76, longitude: -122.43)
+    private let key = "staged-conversation"
+
+    private func opt(_ name: String, _ lat: Double, by id: String) -> PollOption {
+        PollOption(name: name, latitude: lat, longitude: -122.42, proposerID: id)
+    }
+
+    override func setUp() {
+        super.setUp()
+        ConversationMeetupStore.clearIncludingSync(key: key)
+    }
+    override func tearDown() {
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        super.tearDown()
+    }
+
+    /// A staged pick, committed when the user finally sends it, must clear the
+    /// agreement it reopened. Reading the snapshot BEFORE that commit handed
+    /// the old decided state back, and the view force-expanded into the hero
+    /// for the place the user had just rejected.
+    func testCommittingAStagedPickClearsTheAgreementItReopened() {
+        let heyTea = opt("Hey Tea", 37.770, by: alice.id)
+        var decided = MeetupPoll.empty
+        decided.pick(heyTea)
+        decided.vote(me.id, for: heyTea.id)
+        decided.lockIn(heyTea.id)
+        let agreed = TweenState(text: "Hey Tea", latitude: 37.770, longitude: -122.420,
+                                senderName: "Alice", senderID: alice.id,
+                                kind: .place, messageType: .decided,
+                                participants: [alice, me],
+                                agreedNames: ["Me"], agreedIDs: [me.id],
+                                poll: decided)
+        ConversationMeetupStore.saveAgreed(agreed, key: key)
+        XCTAssertNotNil(ConversationMeetupStore.load(key: key)?.agreedState)
+
+        // What `commitStagedSendIfNeeded(.pick)` does via recordCanonicalSnapshot.
+        var reopened = decided
+        reopened.pick(opt("Kung Fu Tea", 37.765, by: me.id))
+        let pick = TweenState(text: "Kung Fu Tea", latitude: 37.765, longitude: -122.420,
+                              senderName: "Me", senderID: me.id,
+                              kind: .place, messageType: .pick,
+                              participants: [alice, me], poll: reopened)
+        ConversationMeetupStore.saveProposed(pick, key: key)
+
+        let after = ConversationMeetupStore.load(key: key)
+        XCTAssertNil(after?.agreedState,
+                     "a pick reopens the question — the restore must not hand back the old agreement")
+        XCTAssertEqual(after?.proposedState?.text, "Kung Fu Tea")
+    }
+
+    /// A staged leave commits the REMAINING roster. Restoring the pre-commit
+    /// one showed the leaver as still in, and any send in that window rebuilt
+    /// the roster from the stale list.
+    func testCommittingAStagedLeaveStoresTheRemainingRoster() {
+        ConversationMeetupStore.saveParticipants([alice, me], key: key)
+        // What `recordCanonicalSnapshot(.leave)` stores.
+        ConversationMeetupStore.saveParticipants([alice], key: key)
+
+        let after = ConversationMeetupStore.load(key: key)
+        XCTAssertEqual(after?.participants.map(\.id), [alice.id],
+                       "the leaver must not be restored into their own roster")
+    }
+}

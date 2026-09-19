@@ -240,16 +240,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         // where nothing resets it: a meetup from three days ago rendered as
         // the current MEETUP SET hero, and the first vote or pick wrote it back
         // with a fresh timestamp so it could never expire again (audit
-        // 2026-09-19, fifth pass). The load moved up with it; the block that
-        // consumes `snapshot` is gated on nothing having decoded, so reading it
-        // before the decode is equivalent there.
-        var snapshot = ConversationMeetupStore.load(key: key)
+        // 2026-09-19, fifth pass). Only the SWEEP moved — the snapshot the
+        // restore consumes is still loaded after the decode, for the reason
+        // spelled out at that load.
         // Expire stale per-chat snapshots. Without a TTL, a meetup negotiated
         // days ago resurrects (and force-expands the extension) every time the
         // user opens Tween in that chat, presenting old state as current.
-        if let stale = snapshot, Date().timeIntervalSince(stale.updatedAt) > ConversationMeetupStore.snapshotTTL {
+        if let stale = ConversationMeetupStore.load(key: key),
+           Date().timeIntervalSince(stale.updatedAt) > ConversationMeetupStore.snapshotTTL {
             ConversationMeetupStore.clear(key: key)
-            snapshot = nil
         }
         if !ConversationMeetupStore.localUserLeft(key: key) {
             poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
@@ -257,6 +256,18 @@ final class MessagesViewController: MSMessagesAppViewController {
         }
 
         let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
+        // Loaded AFTER the decode, and it has to be: "nothing decoded" is not
+        // "nothing written". `decodeAndCache`'s own-bubble branch runs
+        // `commitStagedSendIfNeeded` — which writes the canonical snapshot —
+        // and THEN returns false. For a staged `.pick` or `.leave` that commit
+        // also leaves `received` nil, so the restore below runs on whatever
+        // this read holds. Reusing a pre-decode value there handed back the
+        // agreement the pick had just reopened (force-expanding into the hero
+        // for the place the user rejected) and the pre-leave roster (showing
+        // the leaver as still in) — audit 2026-09-19, sixth pass. The TTL
+        // sweep above keeps its own read because it must run before the
+        // hydration.
+        let snapshot = ConversationMeetupStore.load(key: key)
         // decodeAndCache returns true only when a PEER COORDINATE was saved, so
         // a decoded message with no non-local participant (e.g. a .leave) still
         // reports false. Gate the snapshot restore on `received == nil` so it
