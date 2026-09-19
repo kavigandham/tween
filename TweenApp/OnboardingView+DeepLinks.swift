@@ -146,15 +146,20 @@ extension OnboardingView {
         // (handled above), self-opened URLs, and STALE payloads the revision
         // guard rejected (audit at 69a3886) shouldn't inflate the banner.
         if !openedOwnProposal && adoptRoster
-            && (state.kind == .participant || state.messageType == .agree || state.messageType == .leave) {
+            && (state.kind == .participant || state.messageType == .agree
+                || state.messageType == .vote || state.messageType == .decided
+                || state.messageType == .enroute || state.messageType == .leave) {
             PingLog.lastIncomingReplyAt = Date()
             lastReplyAt = PingLog.lastIncomingReplyAt
         }
 
         switch state.messageType {
-        case .propose, .counter:
+        // A poll-era place bubble that ISN'T terminal is a pick or a vote —
+        // both land the same way here: show the place, let the user act. The
+        // terminal ones fall through to `.agree`'s meetup-set handling below.
+        case .propose, .counter, .pick, .vote:
             if openedOwnProposal {
-                if state.messageType == .counter {
+                if state.messageType == .counter || state.messageType == .pick {
                     LocationCache.clearAgreedMeetup()
                     agreedMeetup = nil
                 }
@@ -164,7 +169,7 @@ extension OnboardingView {
                 showOwnProposalOnMap(state)
                 return
             }
-            if state.messageType == .counter {
+            if state.messageType == .counter || state.messageType == .pick {
                 LocationCache.clearAgreedMeetup()
                 agreedMeetup = nil
             }
@@ -194,8 +199,8 @@ extension OnboardingView {
                 position = Self.placeCameraPosition(for: state.coordinate)
             }
 
-        case .agree:
-            if state.isFullyAgreed {
+        case .agree, .decided, .enroute:
+            if state.isDecided {
                 LocationCache.saveAgreedMeetup(state)
                 if let activeConversationKey {
                     ConversationMeetupStore.saveAgreed(state, key: activeConversationKey)
@@ -217,9 +222,13 @@ extension OnboardingView {
                 position = Self.placeCameraPosition(for: state.coordinate)
             }
             let who = state.senderName ?? "Your friend"
-            showToast(state.isFullyAgreed
-                      ? "Meeting at \(state.text) — \(who) is in."
-                      : "\(who) agreed to \(state.text).")
+            if state.messageType == .enroute {
+                showToast("\(who) is leaving now — \(BubbleCaption.etaLine(state: state)).")
+            } else {
+                showToast(state.isDecided
+                          ? "Meeting at \(state.text) — \(who) is in."
+                          : "\(who) voted for \(state.text).")
+            }
 
         case .invite:
             // Bare participant invite — the legacy "I'm in" case. Cache and

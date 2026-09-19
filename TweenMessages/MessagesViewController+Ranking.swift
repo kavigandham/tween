@@ -23,7 +23,7 @@ extension MessagesViewController {
         // of an agreed meetup or a group invite, hammering the geod throttle
         // the whole app shares (lag audit 2026-08-08). Mirrors ExpandedView's
         // own isMeetupSet / isInvitePrompt.
-        let isMeetupSet = received?.messageType == .agree && received?.isFullyAgreed == true
+        let isMeetupSet = settledOption != nil || received?.isDecided == true
         let isInvitePrompt = received?.messageType == .invite && !isLocalUserInCurrentConversation
         if isMeetupSet || isInvitePrompt {
             isRanking = false
@@ -64,7 +64,8 @@ extension MessagesViewController {
                 category: self.selectedSearchCategory,
                 region: region,
                 minimumCount: Self.searchPoolSize,
-                timeoutNanoseconds: Self.searchTimeoutNanoseconds)
+                timeoutNanoseconds: Self.searchTimeoutNanoseconds,
+                openNowOnly: self.openNowOnly)
             guard !Task.isCancelled else { return }
             // Hard between-people cut BEFORE ranking: the merged pool can be
             // dominated by a commercial corridor off to one side (the request
@@ -112,13 +113,37 @@ extension MessagesViewController {
         kickOffRanking()
     }
 
+    /// Flips the Open Now filter and re-ranks. Clears the on-screen list
+    /// first: leaving the old UNFILTERED results under a now-active chip
+    /// presents closed places as filtered for the seconds the re-search takes
+    /// (the same fix the host app needed — post-push audit m2).
+    func toggleOpenNow() {
+        openNowOnly.toggle()
+        rankedSpots = []
+        kickOffRanking()
+    }
+
+    /// Appends the phrase MapKit honours server-side for opening hours.
+    /// See `OpenNowFilter` for the verified behaviour and the two rules that
+    /// come with it — in particular why the POI pass is SKIPPED below rather
+    /// than merged while this is on.
+    static func openNowQualified(_ query: String, openNowOnly: Bool) -> String {
+        OpenNowFilter.qualified(query, enabled: openNowOnly)
+    }
+
     static func searchCandidates(category: MessagesSearchCategory,
                                  region: MKCoordinateRegion,
                                  minimumCount: Int,
-                                 timeoutNanoseconds: UInt64) async -> [MKMapItem] {
-        let local = await searchPOIItems(category: category,
-                                         region: region,
-                                         timeoutNanoseconds: timeoutNanoseconds)
+                                 timeoutNanoseconds: UInt64,
+                                 openNowOnly: Bool = false) async -> [MKMapItem] {
+        // Open Now skips the POI engine outright: it takes no query text, so
+        // it can't carry the hours filter, and merging its results back in
+        // would re-add exactly the closed places the filter removed.
+        let local = openNowOnly
+            ? []
+            : await searchPOIItems(category: category,
+                                   region: region,
+                                   timeoutNanoseconds: timeoutNanoseconds)
         if local.count >= minimumCount {
             return SearchResultMerger.deduped(local)
         }
@@ -127,13 +152,15 @@ extension MessagesViewController {
                                           category: category,
                                           region: region,
                                           regionRequired: true,
-                                          timeoutNanoseconds: timeoutNanoseconds)
+                                          timeoutNanoseconds: timeoutNanoseconds,
+                                          openNowOnly: openNowOnly)
         if #available(iOS 18.0, *), localText.count < minimumCount {
             let fallback = await searchItems(query: category.mapKitQuery,
                                              category: category,
                                              region: region,
                                              regionRequired: false,
-                                             timeoutNanoseconds: timeoutNanoseconds)
+                                             timeoutNanoseconds: timeoutNanoseconds,
+                                             openNowOnly: openNowOnly)
             let localMerged = SearchResultMerger.merge(local: local, fallback: localText, minimumCount: minimumCount)
             return SearchResultMerger.merge(local: localMerged, fallback: fallback, minimumCount: minimumCount)
         }
@@ -161,9 +188,10 @@ extension MessagesViewController {
                             category: MessagesSearchCategory,
                             region: MKCoordinateRegion,
                             regionRequired: Bool,
-                            timeoutNanoseconds: UInt64) async -> [MKMapItem] {
+                            timeoutNanoseconds: UInt64,
+                            openNowOnly: Bool = false) async -> [MKMapItem] {
         let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = query
+        request.naturalLanguageQuery = openNowQualified(query, openNowOnly: openNowOnly)
         request.region = region
         request.resultTypes = .pointOfInterest
         request.pointOfInterestFilter = MKPointOfInterestFilter(including: category.poiCategories)

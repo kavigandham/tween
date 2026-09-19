@@ -82,7 +82,10 @@ extension MessagesViewController {
             // records a departure or agreement no peer will ever see. Keyed
             // off the conversation parameter, not the ivar, so a nil
             // conversationKey can't silently skip the marker.
-            if stagedInsert, state.messageType == .leave || state.messageType == .agree {
+            if stagedInsert, state.messageType == .leave
+                || state.messageType == .agree
+                || state.messageType == .vote
+                || state.messageType == .decided {
                 ConversationMeetupStore.setPendingStagedSend(
                     state.messageType, key: deliveryKey)
                 return true
@@ -115,11 +118,14 @@ extension MessagesViewController {
         switch state.messageType {
         case .invite:
             ConversationMeetupStore.saveParticipants(state.participants, key: conversationKey)
-        case .propose, .counter:
+        case .propose, .counter, .pick:
             ConversationMeetupStore.saveProposed(state, key: conversationKey)
+            ConversationMeetupStore.savePoll(state.absorbedPoll, key: conversationKey)
             ConversationMeetupStore.clearDraft(key: conversationKey)
-        case .agree:
-            if state.isFullyAgreed {
+            EnRouteLog.clear(key: conversationKey)
+        case .agree, .vote, .decided, .enroute:
+            ConversationMeetupStore.savePoll(state.absorbedPoll, key: conversationKey)
+            if state.isDecided {
                 ConversationMeetupStore.saveAgreed(state, key: conversationKey)
             } else {
                 ConversationMeetupStore.saveProposed(state, key: conversationKey)
@@ -137,11 +143,11 @@ extension MessagesViewController {
 
     func recordPendingInviteIfNeeded(for state: TweenState) {
         switch state.messageType {
-        case .invite, .propose, .counter:
+        case .invite, .propose, .counter, .pick:
             let pendingCount = max(totalConversationParticipants - state.participants.count, 0)
             guard pendingCount > 0 else { return }
             PingLog.logGenericInvite(count: pendingCount)
-        case .agree, .leave:
+        case .agree, .vote, .decided, .enroute, .leave:
             return
         }
     }

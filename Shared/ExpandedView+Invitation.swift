@@ -8,6 +8,9 @@ extension ExpandedView {
     // MARK: Invitation
 
     var statusEyebrow: String {
+        // An open vote outranks whichever bubble happens to be selected: the
+        // board is the live state, the tapped bubble is just how you got here.
+        if hasOpenVote { return voteStatusLine }
         guard let received else {
             return isUserIn ? "You're in" : "Tween"
         }
@@ -16,14 +19,20 @@ extension ExpandedView {
         switch received.messageType {
         case .invite: return "Invite"
         case .leave: return "\(name) left"
-        case .propose: return isMine ? "You chose" : "\(name) chose"
+        case .propose, .pick: return isMine ? "You picked" : "\(name) picked"
         case .counter: return isMine ? "You suggested" : "\(name) suggests"
+        case .vote: return isMine ? "You voted" : "\(name) voted"
+        case .decided: return "Meetup set"
+        case .enroute: return "\(name) is on the way"
         case .agree where received.isFullyAgreed: return "Meetup set"
         case .agree: return "Agreement"
         }
     }
 
     var statusTitle: String {
+        if hasOpenVote {
+            return board.options.count > 1 ? "Vote on where to meet" : "Vote or add your own"
+        }
         if let draft, received == nil {
             return "Ready to send \(draft.spotName)"
         }
@@ -46,6 +55,11 @@ extension ExpandedView {
     }
 
     func groupProgress(for state: TweenState) -> String? {
+        // The board's own progress wins while a vote is live.
+        if hasOpenVote {
+            let progress = board.voteProgress(participants: pollParticipants)
+            return "\(progress.voted)/\(progress.total)"
+        }
         let count = state.participants.count
         switch state.messageType {
         case .invite where count >= 2:

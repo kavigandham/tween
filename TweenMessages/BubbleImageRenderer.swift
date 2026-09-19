@@ -254,10 +254,20 @@ enum BubbleImageRenderer {
     /// (device feedback: the "I'm out" image was wasted space).
     static func footerHeadline(for state: TweenState) -> String {
         switch state.messageType {
-        case .propose, .counter:
+        case .propose, .counter, .pick:
             return state.text
         case .agree:
             return state.isFullyAgreed ? "Meeting at \(state.text)" : state.text
+        case .vote:
+            return "Vote: \(state.text)"
+        case .decided:
+            return "Meeting at \(state.text)"
+        case .enroute:
+            let who = UserName.peerDisplayName(state.senderName ?? "")
+            guard let seconds = state.etaSeconds, seconds > 0 else {
+                return "\(who) is on the way"
+            }
+            return "\(who) · \(max(Int((Double(seconds) / 60).rounded()), 1)) min away"
         case .invite:
             return "Where should we meet?"
         case .leave:

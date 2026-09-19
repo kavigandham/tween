@@ -58,15 +58,15 @@ extension MessagesViewController {
         logger.debug("Decoded incoming Tween message type=\(state.messageType.rawValue, privacy: .public) participants=\(state.participants.count, privacy: .public) agreed=\(state.agreedNames.count, privacy: .public)")
 
         // Persist / clear the agreed-meetup cache based on the new state:
-        //   - .agree fully agreed → persist (terminal state survives extension restarts)
-        //   - .counter → clear (counter restarts negotiation, prior agreement is undone)
+        //   - a decided meetup → persist (terminal state survives extension restarts)
+        //   - a new pick → clear (a place on the board reopens the question)
         //   - others → leave the cache alone
-        if state.messageType == .agree, state.isFullyAgreed {
+        if state.isDecided {
             LocationCache.saveAgreedMeetup(state)
             if let conversationKey {
                 ConversationMeetupStore.saveAgreed(state, key: conversationKey)
             }
-        } else if state.messageType == .counter {
+        } else if state.messageType == .counter || state.messageType == .pick {
             LocationCache.clearAgreedMeetup()
             if let conversationKey {
                 ConversationMeetupStore.saveProposed(state, key: conversationKey)
@@ -127,6 +127,25 @@ extension MessagesViewController {
             saveParticipantsForActiveConversation(merged)
         }
 
+        // Merge the board AFTER the roster, so `normalized` scopes it to who
+        // is actually still in: a person who left takes their pick and their
+        // vote with them, rather than leaving an unattended place able to win.
+        mergePoll(state.absorbedPoll, key: revisionKey)
+
+        // Departures. A new place on the board starts a new round, so the
+        // "on the way" strip from the previous one must not survive it.
+        switch state.messageType {
+        case .enroute:
+            noteEnRoute(participantID: state.senderID ?? state.senderName ?? "",
+                        seconds: state.etaSeconds,
+                        name: state.senderName.map(UserName.peerDisplayName))
+        case .pick, .propose, .counter:
+            EnRouteLog.clear(key: revisionKey)
+            enRouteMarks = []
+        default:
+            break
+        }
+
         // Legacy single-peer cache: write the most recent NON-LOCAL coordinate
         // so OnboardingView's polling keeps animating. The name comparison MUST
         // use the same fallback the host app uses (UserName.fallback = "You");
@@ -152,6 +171,49 @@ extension MessagesViewController {
         }
         logger.debug("Incoming message had no non-local participant; peer cache untouched")
         return false
+    }
+
+    // MARK: - Vote board
+
+    /// Folds an incoming board into this device's, scopes it to the live
+    /// roster, and persists it. One funnel for every writer (decode, send,
+    /// leave) so the in-memory copy and the stored one can never disagree.
+    @discardableResult
+    func mergePoll(_ incoming: MeetupPoll, key: String? = nil) -> MeetupPoll {
+        let merged = MeetupPoll.merged(local: poll, incoming: incoming)
+            .normalized(participants: pollParticipants())
+        poll = merged
+        if let key = key ?? conversationKey {
+            ConversationMeetupStore.savePoll(merged, key: key)
+        }
+        return merged
+    }
+
+    /// Everyone the board counts: the merged roster, falling back to the
+    /// stored snapshot before any bubble has been decoded this activation.
+    func pollParticipants() -> [Participant] {
+        currentParticipants.isEmpty ? activeSnapshotParticipants() : currentParticipants
+    }
+
+    /// Records a "leaving now" — the local user's own, or one decoded from a
+    /// peer's bubble. Device-local; see `EnRouteLog`.
+    func noteEnRoute(participantID: String, seconds: Int?, name: String? = nil) {
+        guard let conversationKey else { return }
+        let display = name ?? pollParticipants()
+            .first(where: { $0.id == participantID })
+            .map { UserName.peerDisplayName($0.name) }
+            ?? Self.localParticipantName()
+        EnRouteLog.note(EnRouteLog.Mark(participantID: participantID,
+                                        name: display,
+                                        etaSeconds: seconds,
+                                        sentAt: Date()),
+                        key: conversationKey)
+        enRouteMarks = EnRouteLog.marks(key: conversationKey)
+    }
+
+    /// The option this device would settle on, if the group has settled.
+    var settledOption: PollOption? {
+        poll.settledOption(participants: pollParticipants())
     }
 
     /// The local user's display name, with the same fallback the host app

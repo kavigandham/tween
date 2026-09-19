@@ -242,19 +242,36 @@ extension MessagesViewController {
         // activation stays clean via the snapshot-restore gate (the
         // .leave canonical snapshot wiped the store).
         received = nil
+        // The board and the "on the way" strip go with it. The STORED board
+        // deliberately survives (the meetup is still live for everyone else,
+        // and a rejoin restores it — same reasoning as the roster above);
+        // this device just stops rendering a vote it walked out of.
+        poll = .empty
+        enRouteMarks = []
     }
 
-    /// Proposes a specific ranked spot to the group. The participants list is
-    /// carried forward verbatim so the recipient knows everyone's in.
-    func sendChosenSpot(_ spot: RankedSpot) {
+    // MARK: - The vote board
+    //
+    // `sendChosenSpot` / `sendCounter` / `sendAgreedPlace` used to live here:
+    // one live proposal, agreed to or replaced. They're gone. A place now goes
+    // on a BOARD (`MeetupPoll`) that everyone votes on, so "I'd rather go
+    // somewhere else" adds a second option instead of overwriting the first —
+    // see MeetupPoll's type comment for why the old shape produced an
+    // agreement to the place someone was disagreeing with.
+
+    /// Puts a place on the board under the local user's name and votes for it.
+    /// Replaces this user's previous pick, if they had one.
+    func sendPick(_ spot: RankedSpot) {
         guard let item = spot.item else { return }
-        let coordinate = item.placemark.coordinate
+        sendPick(name: item.name ?? "Spot", coordinate: item.placemark.coordinate)
+    }
+
+    func sendPick(name: String, coordinate: CLLocationCoordinate2D) {
         // Fresh-only (audit W4): a cache older than the 5-min window must
         // not ride into the outgoing roster as if it were current — the
         // roster/currentParticipants fallback below carries the last
         // coordinate peers actually saw instead.
         let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
-        // Make sure my own entry is in the participants list before proposing.
         let participants: [Participant]
         if let mySelf {
             participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
@@ -262,152 +279,150 @@ extension MessagesViewController {
             participants = currentParticipants
         }
 
+        let option = PollOption(name: name, coordinate: coordinate,
+                                proposerID: localParticipantID())
+        var board = poll.normalized(participants: participants)
+        board.pick(option)
+
+        // A pick NEVER settles the meetup, however the arithmetic falls — see
+        // MeetupPoll.settledOption. It's a new contender by definition.
         let state = TweenState(
-            text: item.name ?? "Spot",
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude,
+            text: option.name,
+            latitude: option.latitude,
+            longitude: option.longitude,
             senderName: UserProfile.displayName,
             senderID: localParticipantID(),
             kind: .place,
             senderCoordinate: mySelf,
-            messageType: .propose,
+            messageType: .pick,
             participants: participants,
-            revision: nextOutgoingRevision()
+            revision: nextOutgoingRevision(),
+            poll: board
         )
         sendBubble(state: state) { [weak self] in
             guard let self else { return }
-            // Commit the roster only on delivery; the conversation-scoped
-            // write is covered by recordCanonicalSnapshot (.propose).
             self.currentParticipants = participants
+            self.mergePoll(board)
             LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+            // A new place on the board reopens the question, so a terminal
+            // state cached from a previous round must go. Cleared only on
+            // delivery: a failed pick must not erase this device's meetup
+            // while peers still hold theirs.
+            LocationCache.clearAgreedMeetup()
+            // A pick is also how a host-app hand-off is delivered (sendDraft),
+            // so the staged draft is consumed here — on delivery, never before.
+            OutgoingDraftStore.clear()
         }
     }
 
-    /// Agrees to a previously proposed place. Carries the participants forward
-    /// and appends this user's identity to the agreement list; the receiver decides if
-    /// that's enough for full consensus via `state.isFullyAgreed`.
-    func sendAgreedPlace(_ proposed: TweenState) {
-        let myName = Self.localParticipantName()
-        let myId = localParticipantID()
-        guard !proposed.isProposer(participantID: myId, name: myName),
-              !proposed.hasAgreed(participantID: myId, name: myName) else {
-            received = effectiveReceived(decoded: proposed)
-            presentUI(for: presentationStyle)
-            return
-        }
-        // Re-entrancy guard: without it the Agree button stayed enabled for
-        // the whole location-fix + send window, and a second tap past the
-        // point of no return emitted a second .agree bubble (audit).
+    /// Casts (or changes) this user's vote. When the board comes out
+    /// unanimous, the same tap sends the DECISION instead — the vote that
+    /// finishes it is the decision, so nobody has to confirm twice.
+    func sendVote(for option: PollOption) {
+        sendBoardUpdate(applying: { board, myID in board.vote(myID, for: option.id) },
+                        focus: option,
+                        progressCopy: "Sending your vote...")
+    }
+
+    /// Ends the vote on `option` explicitly — the escape hatch for a
+    /// plurality ("3 of 5 want Hey Tea, let's just go") and for a tie nobody
+    /// is breaking. Named after what it picks, never a bare "confirm".
+    func lockIn(_ option: PollOption) {
+        sendBoardUpdate(applying: { board, myID in
+                            board.vote(myID, for: option.id)
+                            board.lockIn(option.id)
+                        },
+                        focus: option,
+                        progressCopy: "Locking in \(option.name)...")
+    }
+
+    /// One send path for every board mutation: apply locally, work out
+    /// whether the result is terminal, compose, deliver, and only then commit.
+    /// Sharing it is what keeps "a vote that settles it" and "an explicit
+    /// lock-in" from drifting into two different terminal states.
+    private func sendBoardUpdate(applying mutate: @escaping (inout MeetupPoll, String) -> Void,
+                                 focus: PollOption,
+                                 progressCopy: String) {
+        // Re-entrancy guard, same as every other sender: a second tap during
+        // the location-fix + render window would emit a duplicate bubble.
         guard !isSending else { return }
         sendTask?.cancel()
         sendTask = Task { @MainActor in
             isSending = true
-            sendStatusMessage = "Sending your agreement..."
+            sendStatusMessage = progressCopy
             presentUI(for: presentationStyle)
-            // Same fresh-fix-first policy as handleImIn: never agree with a
-            // stale coord that might land you in a worst-case route the
-            // ranker would have rejected.
+
+            // Same fresh-fix-first policy as handleImIn: voting counts you as
+            // in, so the coordinate riding along must be current, and a
+            // declared "I'll be at…" must never be overwritten by a live fix.
             let senderCoordinate: CLLocationCoordinate2D?
             if let manual = LocationCache.loadSelf(), manual.isManual == true, LocationCache.isActive {
-                // Respect a declared "I'll be at…" location — agree with THAT,
-                // never overwrite it with a live GPS fix (which would broadcast
-                // your CURRENT spot and strip the declaration). Sibling of the
-                // handleImIn guard; missing it here was a post-push audit find.
                 senderCoordinate = manual.coordinate
             } else if let fresh = await acquireLocation() {
-                // Cache the fix but keep the prior active flag — activation
-                // (which the host app reads as "you're in") is committed only
-                // once the agree bubble is actually delivered
-                // (commitDeliveredAgree keys it off senderCoordinate).
-                // Honest measurement stamp, same as handleImIn — this twin was
-                // missed when that site was fixed (audit 2026-08-06).
                 LocationCache.save(fresh, at: locationProvider.lastFixAt ?? Date(),
                                    isActive: LocationCache.isActive)
                 senderCoordinate = fresh
             } else if LocationCache.isActive, let cached = LocationCache.loadSelf()?.coordinate {
                 senderCoordinate = cached
             } else {
-                // No fresh fix and the cache is stale/inactive: omit the
-                // sender coordinate (bubble drops slat/slon) rather than
-                // broadcasting a stale location as current (audit W4).
                 senderCoordinate = nil
             }
 
-            // Build the forward participants list. The proposed bubble's
-            // participants are authoritative; refresh my entry's coord.
-            var participants = proposed.participants.isEmpty
-                ? self.currentParticipants
-                : proposed.participants
-            if let myCoord = senderCoordinate {
-                let myId = self.localParticipantID()
-                let legacyID = self.legacyLocalParticipantID()
-                participants = participants.filter { !$0.matches(id: myId, name: myName) && $0.id != legacyID }
-                let needsRide = proposed.participants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
-                    ?? self.currentParticipants.first(where: { $0.matches(id: myId, name: myName) })?.needsRide
-                    ?? LocationCache.loadParticipants().first(where: { $0.matches(id: myId, name: myName) })?.needsRide
-                    ?? false
-                participants.append(Participant(id: myId, name: myName, coordinate: myCoord, needsRide: needsRide))
-            }
-
-            var agreed = proposed.agreedNames
-            // Case-insensitive replace-then-append: "hassan" and "Hassan" are
-            // the same person, so a case-variant duplicate would inflate the
-            // "X of Y agreed" copy — and appending keeps me as
-            // `agreedNames.last`, which captions read as the most recent
-            // agreer. agreedIDs drive real consensus; this is display-only.
-            agreed.removeAll { $0.caseInsensitiveCompare(myName) == .orderedSame }
-            agreed.append(myName)
-            // Legacy proposals (no senderID) stay in the NAME namespace end to
-            // end. The old fallback stamped the AGREER's id as proposer, which
-            // excluded the wrong person from consensus (T7) — and appending a
-            // UUID to agreedIDs while the roster ids are names made
-            // `isFullyAgreed` compare across namespaces and never fire (T6).
-            var agreedIDs: [String]
-            if proposed.senderID != nil {
-                agreedIDs = proposed.agreedIDs
-                if !agreedIDs.contains(myId) { agreedIDs.append(myId) }
+            let myID = self.localParticipantID()
+            let participants: [Participant]
+            if let senderCoordinate {
+                participants = self.nextParticipantList(myCoord: senderCoordinate,
+                                                        conversation: self.activeConversation)
             } else {
-                agreedIDs = []
+                participants = self.currentParticipants
             }
 
-            // Preserve the original proposer so consensus is calculated
-            // against every other participant, not the most recent agreer.
+            var board = self.poll.normalized(participants: participants)
+            // The user tapped a row they could SEE, so the option has to be on
+            // the board before we mutate it — otherwise voting for an option
+            // this device only knew from the open bubble is a silent no-op.
+            board.ensure(focus)
+            mutate(&board, myID)
+            let settled = board.settledOption(participants: participants)
+            // The spot the bubble is ABOUT: the winner once it's settled,
+            // otherwise the option just voted for. Legacy builds read this as
+            // the agreed place, which is true in both cases.
+            let subject = settled ?? focus
+            // Back-compat: a `.decided` must read as a FULL agreement to a
+            // build that predates the poll, or a 1.0.3 user sees "0 of 2
+            // agreed" under a meetup that's set.
+            let agreedIDs = settled == nil ? [] : participants.map(\.id).filter { $0 != subject.proposerID }
+            let agreedNames = settled == nil ? [] : participants.filter { $0.id != subject.proposerID }.map(\.name)
+
             let state = TweenState(
-                text: proposed.text,
-                latitude: proposed.latitude,
-                longitude: proposed.longitude,
-                senderName: proposed.senderName ?? UserProfile.displayName,
-                senderID: proposed.senderID,
+                text: subject.name,
+                latitude: subject.latitude,
+                longitude: subject.longitude,
+                senderName: UserProfile.displayName,
+                senderID: settled == nil ? self.localParticipantID() : subject.proposerID,
                 kind: .place,
                 senderCoordinate: senderCoordinate,
-                action: .agree,
-                messageType: .agree,
+                messageType: settled == nil ? .vote : .decided,
                 participants: participants,
-                agreedNames: agreed,
+                agreedNames: agreedNames,
                 agreedIDs: agreedIDs,
-                revision: self.nextOutgoingRevision()
+                revision: self.nextOutgoingRevision(),
+                poll: board
             )
-            logger.debug("Agreeing to place \(proposed.text, privacy: .public) agreed=\(agreed.count, privacy: .public)")
-            // Don't dismiss after an agree send — instead, lock in the local
-            // view as the terminal MEETUP SET so the agreer immediately sees
-            // "It's a plan!" with map-app direction choices, rather than being
-            // bounced back to the iMessage thread. The receiver gets the same
-            // view via didReceive → presentUI.
+            logger.debug("Sending board update type=\(state.messageType.rawValue, privacy: .public) options=\(board.options.count, privacy: .public)")
+
             let didSend = await sendBubbleNow(for: state)
-            // Direct-send rejection stages the bubble — the user hasn't
-            // actually agreed until they tap send on it (they can delete it
-            // instead). Same deferral as handleImOut: the staged commit
-            // waits for didStartSending / the decode backstop, so a deleted
-            // staged agree can't leave this device rendering a MEETUP SET
-            // no peer ever saw (post-push audit).
+            // A staged bubble hasn't happened yet — the user can still delete
+            // it instead of sending. Same deferral as the leave path: the
+            // commit waits for didStartSending / the decode backstop.
             if didSend, sendStatusMessage != Self.stagedDeliveryStatus {
-                commitDeliveredAgree(state)
+                commitDeliveredBoard(state)
             }
             isSending = false
             if didSend {
-                // Preserve the insert-fallback's "tap send to deliver" hint —
-                // only clear the status when it's still our in-progress copy.
-                if sendStatusMessage == "Sending your agreement..." { sendStatusMessage = nil }
+                if sendStatusMessage == progressCopy {
+                    sendStatusMessage = settled == nil ? nil : "It's a plan"
+                }
             } else if !Task.isCancelled {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
@@ -415,32 +430,27 @@ extension MessagesViewController {
         }
     }
 
-    /// The local-state half of an agree. Runs only once the agree bubble was
-    /// actually delivered (direct send) or actually sent by the user (staged
-    /// bubble → `commitStagedSendIfNeeded`).
-    func commitDeliveredAgree(_ state: TweenState) {
-        // A usable coordinate rode along — agreeing means being in. When no
+    /// The local-state half of a vote or a decision. Runs only once the bubble
+    /// was actually delivered (direct send) or actually sent by the user
+    /// (staged bubble → `commitStagedSendIfNeeded`).
+    func commitDeliveredBoard(_ state: TweenState) {
+        // A usable coordinate rode along — voting means being in. When no
         // fresh or cached fix existed the bubble omitted slat/slon and this
-        // device's opt-in state stays untouched, exactly as before.
+        // device's opt-in state stays untouched.
         if state.senderCoordinate != nil {
             LocationCache.setActive(true)
         }
         currentParticipants = state.participants
-        // Agreeing means being in — clear the leave tombstone (and any
-        // stale staged-send marker) BEFORE the roster write: LocationCache's
-        // global-mirror writes are dammed while the tombstone is set
-        // (audit at 69a3886).
+        // Voting means being in — clear the leave tombstone (and any stale
+        // staged-send marker) BEFORE the roster write: LocationCache's
+        // global-mirror writes are dammed while the tombstone is set.
         if let conversationKey {
             ConversationMeetupStore.setLocalUserLeft(false, key: conversationKey)
             ConversationMeetupStore.setPendingStagedSend(nil, key: conversationKey)
         }
         LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
-        // Persist the agreement so re-opening the extension (after iOS
-        // dispose, or after the user collapses + re-taps) re-renders
-        // MEETUP SET instead of the propose's Agree/Change buttons.
-        // Gated on real delivery: a rejected or still-staged send must not
-        // render MEETUP SET when no bubble ever reached the chat.
-        if state.isFullyAgreed {
+        mergePoll(state.poll)
+        if state.isDecided {
             LocationCache.saveAgreedMeetup(state)
             if let conversationKey {
                 ConversationMeetupStore.saveAgreed(state, key: conversationKey)
@@ -451,89 +461,114 @@ extension MessagesViewController {
         received = effectiveReceived(decoded: state)
     }
 
-    /// Counter-proposes a different spot, resetting agreement to zero. The
-    /// proposer becomes the local user and the agreedNames list starts empty.
-    func sendCounter(_ spot: RankedSpot) {
-        guard let item = spot.item else { return }
-        let coordinate = item.placemark.coordinate
-        // Fresh-only (audit W4): a cache older than the 5-min window must
-        // not ride into the outgoing roster as if it were current — the
-        // roster/currentParticipants fallback below carries the last
-        // coordinate peers actually saw instead.
-        let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
-        let participants: [Participant]
-        if let mySelf {
-            participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
-        } else {
-            participants = currentParticipants
-        }
+    // MARK: - Leaving now
 
-        let state = TweenState(
-            text: item.name ?? "Spot",
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude,
-            senderName: UserProfile.displayName,
-            senderID: localParticipantID(),
-            kind: .place,
-            senderCoordinate: mySelf,
-            messageType: .counter,
-            participants: participants,
-            agreedNames: [],
-            revision: nextOutgoingRevision()
-        )
-        sendBubble(state: state) { [weak self] in
-            guard let self else { return }
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
-            // A counter restarts negotiation — any prior agreement is
-            // invalidated, so the persisted terminal cache must be cleared
-            // too. Cleared only on delivery: a failed counter must not erase
-            // this device's MEETUP SET while peers still hold theirs. The
-            // conversation-scoped saveProposed (which also drops the scoped
-            // agreed state for counters) is covered by recordCanonicalSnapshot.
-            LocationCache.clearAgreedMeetup()
+    /// "I'm heading over" — announces departure WITH this user's live ETA to
+    /// the settled place, which is the whole point: the message a group
+    /// actually needs at that moment is "12 min away", not "leaving now".
+    ///
+    /// The ETA is resolved at send time from the user's CURRENT location, and
+    /// falls back to a straight-line estimate when MapKit can't route (or
+    /// times out) rather than sending a bare, uninformative announcement.
+    func sendLeavingNow() {
+        guard !isSending else { return }
+        guard let destination = enRouteDestination else { return }
+        sendTask?.cancel()
+        sendTask = Task { @MainActor in
+            isSending = true
+            sendStatusMessage = "Getting your ETA..."
+            presentUI(for: presentationStyle)
+
+            let origin: CLLocationCoordinate2D?
+            if let fresh = await acquireLocation() {
+                LocationCache.save(fresh, at: locationProvider.lastFixAt ?? Date(),
+                                   isActive: LocationCache.isActive)
+                origin = fresh
+            } else {
+                origin = LocationCache.loadSelf()?.coordinate
+            }
+
+            var seconds: Int?
+            if let origin {
+                let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
+                let travel = await FairnessRanker.travelTime(
+                    from: origin, to: destination.coordinate, mode: mode)
+                seconds = Int(travel.rounded())
+            }
+            guard !Task.isCancelled else { return }
+
+            let participants = origin.map {
+                self.nextParticipantList(myCoord: $0, conversation: self.activeConversation)
+            } ?? self.currentParticipants
+            // Legacy builds read `.enroute` as a full agreement, which it is —
+            // you only leave for a place the group settled on.
+            let agreedIDs = participants.map(\.id).filter { $0 != destination.proposerID }
+            let agreedNames = participants.filter { $0.id != destination.proposerID }.map(\.name)
+
+            let state = TweenState(
+                text: destination.name,
+                latitude: destination.latitude,
+                longitude: destination.longitude,
+                senderName: UserProfile.displayName,
+                senderID: self.localParticipantID(),
+                kind: .place,
+                senderCoordinate: origin,
+                messageType: .enroute,
+                participants: participants,
+                agreedNames: agreedNames,
+                agreedIDs: agreedIDs,
+                revision: self.nextOutgoingRevision(),
+                poll: self.poll.normalized(participants: participants),
+                etaSeconds: seconds
+            )
+            let didSend = await sendBubbleNow(for: state)
+            isSending = false
+            if didSend {
+                self.currentParticipants = participants
+                LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
+                self.noteEnRoute(participantID: self.localParticipantID(), seconds: seconds)
+                if sendStatusMessage == "Getting your ETA..." {
+                    sendStatusMessage = seconds.map {
+                        "On your way — about \(max(Int((Double($0) / 60).rounded()), 1)) min"
+                    } ?? "On your way"
+                }
+            } else if !Task.isCancelled {
+                sendStatusMessage = "Couldn't send the Tween message. Try again."
+            }
+            self.presentUI(for: self.presentationStyle)
         }
+    }
+
+    /// Where "Leaving now" would send you: the settled option, or the decided
+    /// place carried by whatever bubble is on screen (a thread that settled on
+    /// a pre-poll build still gets the button).
+    var enRouteDestination: PollOption? {
+        if let settled = settledOption { return settled }
+        guard let received, received.isDecided, received.kind == .place else { return nil }
+        return PollOption(name: received.text,
+                          latitude: received.latitude,
+                          longitude: received.longitude,
+                          proposerID: received.senderID ?? received.senderName ?? "")
     }
 
     /// Confirms a host-app hand-off: composes the bubble for the staged draft,
     /// clears it so it isn't offered again, and re-renders.
     func sendDraft() {
         guard let draft else { return }
-        // Fresh-only (audit W4): a cache older than the 5-min window must
-        // not ride into the outgoing roster as if it were current — the
-        // roster/currentParticipants fallback below carries the last
-        // coordinate peers actually saw instead.
-        let mySelf = LocationCache.isActive ? LocationCache.loadSelf()?.coordinate : nil
-        let participants: [Participant]
-        if let mySelf {
-            participants = nextParticipantList(myCoord: mySelf, conversation: activeConversation)
-        } else {
-            participants = currentParticipants
-        }
-
-        let state = TweenState(
-            text: draft.spotName,
-            latitude: draft.latitude,
-            longitude: draft.longitude,
-            senderName: UserProfile.displayName,
-            senderID: localParticipantID(),
-            kind: .place,
-            senderCoordinate: mySelf,
-            messageType: .propose,
-            participants: participants,
-            revision: nextOutgoingRevision()
-        )
-        sendBubble(state: state) { [weak self] in
-            guard let self else { return }
-            self.currentParticipants = participants
-            LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
-            // The staged hand-off is consumed only once the bubble is
-            // delivered — a failed send keeps the draft offered instead of
-            // losing it. Store-side draft clearing is covered by
-            // recordCanonicalSnapshot (.propose → clearDraft); sendBubble's
-            // own didSend block clears self.draft for place sends.
-            OutgoingDraftStore.clear()
-        }
+        // A hand-off from the host app is a PICK like any other — it used to
+        // go out as a `.propose`, which meant "search in the app, send" reset
+        // the negotiation instead of joining it (this is the path the reported
+        // bug arrived through most often). The draft is consumed in the pick's
+        // own delivery block below.
+        let spotName = draft.spotName
+        sendPick(name: spotName,
+                 coordinate: CLLocationCoordinate2D(latitude: draft.latitude,
+                                                    longitude: draft.longitude))
+        // The staged hand-off is consumed only once the bubble is delivered —
+        // a failed send keeps the draft offered instead of losing it.
+        // sendBubble's own didSend block clears `self.draft` for place sends,
+        // and recordCanonicalSnapshot clears the stored one.
+        _ = spotName
     }
 
     /// `onDelivered` runs only after the bubble was actually delivered (or
@@ -576,10 +611,14 @@ extension MessagesViewController {
 
     func sendingMessage(for state: TweenState) -> String {
         switch state.messageType {
-        case .propose, .counter:
+        case .propose, .counter, .pick:
             return "Sending \(state.text)..."
-        case .agree:
-            return "Sending your agreement..."
+        case .agree, .vote:
+            return "Sending your vote..."
+        case .decided:
+            return "Locking in \(state.text)..."
+        case .enroute:
+            return "Telling everyone you're on the way..."
         case .leave:
             return "Leaving this meetup..."
         case .invite:
@@ -589,10 +628,14 @@ extension MessagesViewController {
 
     func sentMessage(for state: TweenState) -> String {
         switch state.messageType {
-        case .propose, .counter:
-            return "Sent \(state.text) to the chat"
-        case .agree:
-            return "Agreement sent"
+        case .propose, .counter, .pick:
+            return "\(state.text) is on the board"
+        case .agree, .vote:
+            return "Vote sent"
+        case .decided:
+            return "It's a plan"
+        case .enroute:
+            return "On your way"
         case .leave:
             return "You're out"
         case .invite:

@@ -84,10 +84,26 @@ struct ExpandedView: View {
     /// Spot name the extension just sent with `MSConversation.send`, used to
     /// keep the CTA from looking tappable while Messages has already queued it.
     var recentlySentSpotName: String? = nil
+    /// The vote board for this chat — every place on the table and who voted
+    /// for what. Conversation state owned by the controller, NOT derived from
+    /// `received`: which bubble you happen to have tapped must not change what
+    /// the group has picked. See `MeetupPoll`.
+    var poll: MeetupPoll = .empty
+    /// Who has said "leaving now", newest first (`EnRouteLog`).
+    var enRouteMarks: [EnRouteLog.Mark] = []
+    /// Whether the spot search is hiding places that are closed right now.
+    var openNowOnly: Bool = true
     var onImIn: () -> Void
     var onImOut: () -> Void = {}
+    /// Puts the spot on the board under your name (and votes for it).
     var onSelectSpot: (RankedSpot) -> Void
-    var onAgreePlace: (TweenState) -> Void = { _ in }
+    /// Casts (or changes) your vote for a place already on the board.
+    var onVote: (PollOption) -> Void = { _ in }
+    /// Ends the vote on one option — the plurality / tie-break escape hatch.
+    var onLockIn: (PollOption) -> Void = { _ in }
+    /// "I'm heading over" — sends your live ETA to the settled place.
+    var onLeavingNow: () -> Void = {}
+    var onToggleOpenNow: () -> Void = {}
     var onSendDraft: () -> Void = {}
     var onOpenFullApp: () -> Void = {}
     var selectedSearchCategory: MessagesSearchCategory = .food
@@ -109,6 +125,10 @@ struct ExpandedView: View {
     @State var selectedSpotID: RankedSpot.ID?
     /// Bumped on every send so the CTA can fire an impact haptic.
     @State var sendTick = 0
+    /// While a vote is open the panel shows the BOARD, not the search results
+    /// — the places people already picked are the thing to act on. This
+    /// reveals the ranked list underneath so you can add one of your own.
+    @State var isPickingAlternative = false
 
     // Accessibility (Phase C): the floating panel + status pill are translucent
     // material; fall back to a solid surface under Reduce Transparency, and drop
@@ -177,12 +197,87 @@ struct ExpandedView: View {
         selfCoord != nil || peerCoord != nil || receivedPlaceCoord != nil || draft != nil || !rankedSpots.isEmpty
     }
 
-    /// Terminal state — everyone the proposer needs has agreed. Once true,
-    /// the body swaps from the spot-list/agree-or-change UI to the dedicated
-    /// MEETUP SET hero with map-app choices. No more negotiation.
-    var isMeetupSet: Bool {
-        guard let received else { return false }
-        return received.messageType == .agree && received.isFullyAgreed
+    /// Everyone the board counts — the roster the vote is scored against.
+    var pollParticipants: [Participant] {
+        var people = otherParticipants
+        if isUserIn || selfCoord != nil {
+            people.append(Participant(id: localParticipantID ?? myName, name: myName,
+                                      coordinate: selfCoord ?? MapGeometry.defaultCenter))
+        }
+        return people
+    }
+
+    /// The board this view actually renders.
+    ///
+    /// The controller's merged copy is authoritative, but the SELECTED
+    /// bubble's own board is folded in on top: tapping a bubble is how you
+    /// learn about a pick this device hasn't seen yet, and a pre-poll
+    /// `.propose`/`.agree` only becomes an option at all through
+    /// `absorbedPoll`. Doing it here means the view is correct whether or not
+    /// the caller pre-merged — which is also what keeps the DEBUG harness and
+    /// previews honest.
+    var board: MeetupPoll {
+        guard let received, received.kind == .place else { return poll }
+        return MeetupPoll.merged(local: poll, incoming: received.absorbedPoll)
+    }
+
+    /// The place the group settled on, if it has: an explicit lock-in, a
+    /// unanimous vote, or a decided bubble from a pre-poll thread.
+    var settledOption: PollOption? {
+        if let option = board.settledOption(participants: pollParticipants) { return option }
+        guard let received, received.isDecided, received.kind == .place else { return nil }
+        return PollOption(name: received.text,
+                          latitude: received.latitude,
+                          longitude: received.longitude,
+                          proposerID: received.senderID ?? received.senderName ?? "")
+    }
+
+    /// Terminal state — the group has a place. Once true, the body swaps from
+    /// the vote board to the dedicated MEETUP SET hero. No more negotiation.
+    var isMeetupSet: Bool { settledOption != nil }
+
+    /// The state the terminal hero renders from. Prefers the real decided
+    /// bubble (it carries the roster and the sender), and synthesises one from
+    /// the board when this device worked the decision out locally — the
+    /// unanimous case, where nobody had to tap "confirm".
+    var meetupSetState: TweenState? {
+        guard let option = settledOption else { return nil }
+        if let received, received.isDecided, received.kind == .place,
+           abs(received.latitude - option.latitude) < 1e-4,
+           abs(received.longitude - option.longitude) < 1e-4 {
+            return received
+        }
+        return TweenState(text: option.name,
+                          latitude: option.latitude,
+                          longitude: option.longitude,
+                          senderName: received?.senderName,
+                          senderID: option.proposerID,
+                          kind: .place,
+                          messageType: .decided,
+                          participants: received?.participants ?? pollParticipants,
+                          poll: board)
+    }
+
+    /// True while there is an open vote to show: at least one place on the
+    /// board and no winner yet.
+    var hasOpenVote: Bool {
+        !isMeetupSet && !board.options.isEmpty
+    }
+
+    /// The board, with each option's proposer resolved to a display name.
+    func proposerName(for option: PollOption) -> String {
+        if option.proposerID == (localParticipantID ?? myName) || option.proposerID == myName {
+            return "You"
+        }
+        if let match = otherParticipants.first(where: { $0.id == option.proposerID }) {
+            return match.name
+        }
+        return UserName.peerDisplayName(received?.senderName ?? "")
+    }
+
+    /// Which option this user voted for, if any.
+    var myVote: String? {
+        board.vote(by: localParticipantID ?? myName) ?? board.vote(by: myName)
     }
 
     /// Every not-in recipient of an invite gets the join hero — including the
@@ -244,8 +339,8 @@ struct ExpandedView: View {
 
     var body: some View {
         Group {
-            if isMeetupSet, let received {
-                meetupSetView(state: received)
+            if let settled = meetupSetState {
+                meetupSetView(state: settled)
             } else if isInvitePrompt, let received {
                 invitePromptView(state: received)
             } else {
@@ -336,18 +431,31 @@ struct ExpandedView: View {
 
             rosterStrip
 
-            if shouldShowCategoryRail {
-                categoryRail
-            }
-
-            if rankedSpots.isEmpty {
-                panelEmptyState
+            if hasOpenVote {
+                // A vote is open: the board IS the screen. The ranked list is
+                // one tap away behind "Add your pick" rather than competing
+                // with the places people already put up.
+                voteBoard
+                if isPickingAlternative {
+                    if shouldShowCategoryRail { categoryRail }
+                    if rankedSpots.isEmpty { panelEmptyState } else { spotCardRail }
+                    pickCTA
+                }
+                voteActionRow
             } else {
-                spotCardRail
-            }
+                if shouldShowCategoryRail {
+                    categoryRail
+                }
 
-            primaryCTA
-            bottomAction
+                if rankedSpots.isEmpty {
+                    panelEmptyState
+                } else {
+                    spotCardRail
+                }
+
+                primaryCTA
+                bottomAction
+            }
         }
         .padding(Tokens.Spacing.s4)
         .frame(maxWidth: .infinity)
@@ -472,6 +580,31 @@ struct ExpandedView: View {
     var categoryRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Tokens.Spacing.s2) {
+                // Open Now leads the rail because it's ON by default and it's
+                // the filter most likely to explain a short list ("why are
+                // there only three?"). Tappable off — the hours filter rides
+                // an undocumented MapKit behaviour, so the user always keeps
+                // a way back to the unfiltered results.
+                Button(action: onToggleOpenNow) {
+                    Label("Open now", systemImage: openNowOnly ? "clock.fill" : "clock")
+                        .font(Tokens.Typography.captionBold)
+                        .lineLimit(1)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .frame(minHeight: 36)
+                        .background(openNowOnly ? AnyShapeStyle(Tokens.Palette.brand)
+                                                : AnyShapeStyle(Tokens.Palette.elevated),
+                                    in: Capsule())
+                        .foregroundStyle(openNowOnly ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSending)
+                .accessibilityHint(openNowOnly
+                                   ? "Showing only places open right now. Tap to include closed places."
+                                   : "Showing all places. Tap to hide ones that are closed.")
+                .accessibilityAddTraits(openNowOnly ? [.isButton, .isSelected] : .isButton)
+
+                Divider().frame(height: 22)
+
                 ForEach(MessagesSearchCategory.allCases) { category in
                     let selected = category == selectedSearchCategory
                     Button {
@@ -498,6 +631,7 @@ struct ExpandedView: View {
         .fixedSize(horizontal: false, vertical: true)
         .layoutPriority(3)
         .sensoryFeedback(.selection, trigger: selectedSearchCategory)
+        .sensoryFeedback(.selection, trigger: openNowOnly)
     }
 
     var shouldShowCategoryRail: Bool {
@@ -540,28 +674,9 @@ struct ExpandedView: View {
             if isMeetupSet {
                 // Terminal state actions live inside meetupSetView.
                 EmptyView()
-            } else if let received, received.messageType == .agree {
-                // Group / partial-agree case: bubble carries an agree but not
-                // everyone currently in has agreed yet. People who still need
-                // to agree get the same Agree / Change controls as a proposal;
-                // people who already agreed get a wait state without blocking
-                // the rest of the spot flow.
-                let needsMyAgreement = !received.isProposer(participantID: localParticipantID, name: myName)
-                    && !received.hasAgreed(participantID: localParticipantID, name: myName)
-                if needsMyAgreement {
-                    agreeChangeRow(for: received)
-                } else {
-                    waitingChangeRow(for: received)
-                }
-            } else if let received, received.kind == .place {
-                if received.isFullyAgreed {
-                    directionButtons(for: received)
-                } else if received.isProposer(participantID: localParticipantID, name: myName)
-                            || received.hasAgreed(participantID: localParticipantID, name: myName) {
-                    waitingChangeRow(for: received)
-                } else {
-                    agreeChangeRow(for: received)
-                }
+            } else if hasOpenVote {
+                // The vote board owns these states — see voteActionRow.
+                EmptyView()
             } else if let draft {
                 let didSend = recentlySentSpotName == draft.spotName
                 Button {
@@ -639,107 +754,45 @@ struct ExpandedView: View {
         .sensoryFeedback(.impact, trigger: sendTick)
     }
 
-    func waitingChangeRow(for received: TweenState) -> some View {
-        let missing = received.missingAgreementNames(excluding: localParticipantID, name: myName)
-        return HStack(spacing: Tokens.Spacing.s2) {
-            Label(missing.isEmpty
-                    ? "Waiting for replies"
-                    : "Waiting for \(missing.joined(separator: ", "))",
-                  systemImage: "hourglass")
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .font(Tokens.Typography.subheadline.weight(.semibold))
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .padding(.horizontal, Tokens.Spacing.s3)
-                .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
-                .background(Tokens.Palette.surfaceSecondary, in: Capsule())
-
-            TweenActionButton(selectedSpot == nil ? "Others" : "Send",
-                              // "Others", not "Change": the first tap SELECTS the
-                              // top-ranked alternative and nothing sends, so a
-                              // label promising a change described an action
-                              // that hadn't happened yet. Short enough to survive
-                              // a 4-up row — "Pick another" truncated to
-                              // "Pick anot…" (App Store capture, 2026-08-03).
-                              systemImage: selectedSpot == nil
-                                  ? "list.bullet" : "paperplane.fill",
-                              isEnabled: !rankedSpots.isEmpty && !isSending) {
-                sendTick += 1
-                if let spot = selectedSpot {
-                    onSelectSpot(spot)
-                } else if let first = rankedSpots.first {
-                    select(first)
-                }
-            }
-            .frame(maxWidth: 110)
-            .accessibilityHint(selectedSpot == nil ? "Selects another fair spot" : "Sends the selected alternative")
-        }
-    }
-
-    /// The panel's action row, built like Apple Maps' place-card row: compact
-    /// equal-width buttons on ONE line, SF Symbol stacked over a short label,
-    /// with exactly one filled button carrying the hierarchy. This replaced
-    /// three stacked full-width buttons whose equal weight meant nothing read
-    /// as primary (screenshot audit).
-    func agreeChangeRow(for received: TweenState) -> some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            TweenActionButton("Agree", systemImage: "checkmark",
-                              variant: .prominent,
-                              // Every other send CTA disables mid-flight;
-                              // without this the user could double-fire
-                              // agreements while the first was still sending.
-                              isEnabled: !isSending) {
-                sendTick += 1
-                onAgreePlace(received)
-            }
-            .accessibilityHint("Sends that you agree to meet at \(received.text)")
-
-            TweenActionButton(selectedSpot == nil ? "Others" : "Send",
-                              // "Others", not "Change": the first tap SELECTS the
-                              // top-ranked alternative and nothing sends, so a
-                              // label promising a change described an action
-                              // that hadn't happened yet. Short enough to survive
-                              // a 4-up row — "Pick another" truncated to
-                              // "Pick anot…" (App Store capture, 2026-08-03).
-                              systemImage: selectedSpot == nil
-                                  ? "list.bullet" : "paperplane.fill",
-                              isEnabled: !rankedSpots.isEmpty && !isSending) {
-                sendTick += 1
-                if let spot = selectedSpot {
-                    onSelectSpot(spot)
-                } else if let first = rankedSpots.first {
-                    select(first)
-                }
-            }
-            .accessibilityHint(selectedSpot == nil ? "Shows fair alternatives to \(received.text)" : "Sends the selected alternative")
-
-            draftAlternateButton
-
-            TweenActionButton("I'm out", systemImage: "location.slash",
-                              variant: .destructive,
-                              action: onImOut)
-                .accessibilityHint("Stops sharing you as active for this meetup")
-        }
-    }
-
-    /// The preloaded-spot shortcut, as one more button in the action row.
-    /// Label is the bare spot name — Maps' row labels are one word ("Call",
-    /// "Website", "Order"), and "Send McDonald's instead" spanning a full row
-    /// was the widest thing on the panel.
+    /// The send button shown under the revealed ranked list while a vote is
+    /// open: it PUTS YOUR PICK ON THE BOARD rather than replacing anyone's.
     @ViewBuilder
-    var draftAlternateButton: some View {
-        if let draft {
-            let didSend = recentlySentSpotName == draft.spotName
-            TweenActionButton(draft.spotName,
-                              systemImage: didSend ? "checkmark" : "paperplane.fill",
-                              isEnabled: !isSending && !didSend) {
+    var pickCTA: some View {
+        if let spot = selectedSpot {
+            let spotName = spot.item?.name ?? "Spot"
+            let didSend = recentlySentSpotName == spotName
+            Button {
+                guard !didSend else { return }
                 sendTick += 1
-                onSendDraft()
+                onSelectSpot(spot)
+                isPickingAlternative = false
+            } label: {
+                Label(didSend ? "Added \(spotName)" : "Add \(spotName) to the vote",
+                      systemImage: didSend ? "checkmark.circle.fill" : "plus.circle.fill")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .accessibilityLabel(didSend ? "Sent \(draft.spotName)" : "Send \(draft.spotName) instead")
-            .accessibilityHint("Sends your preloaded spot instead of the received proposal")
+            .buttonStyle(.tweenPrimary(.subtle))
+            .disabled(isSending || didSend)
+            .accessibilityHint("Puts \(spotName) on the board for everyone to vote on")
+        } else if !rankedSpots.isEmpty {
+            Button {} label: {
+                Label("Pick a spot to add", systemImage: "mappin.and.ellipse")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .disabled(true)
+            .opacity(0.5)
+            .accessibilityHint("Tap a spot on the map or list to add it to the vote")
         }
     }
+
+    // `waitingChangeRow` / `agreeChangeRow` / `draftAlternateButton` lived
+    // here. They were the Agree · Others · <draft> · I'm out row of the old
+    // one-live-proposal model, and they are gone with it: "Others" selected a
+    // replacement for the proposal on screen, so choosing somewhere else
+    // DELETED the thing you were disagreeing with. The board (ExpandedView+Poll)
+    // shows every pick side by side instead, and `pickCTA` adds to it.
 
     /// The panel's tertiary row. Deliberately QUIETER than the CTAs above it:
     /// these are escape hatches ("look somewhere else", "count me out"), not
@@ -785,19 +838,6 @@ struct ExpandedView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    func directionButtons(for state: TweenState) -> some View {
-        Button {
-            sendTick += 1
-            onOpenInMaps(state)
-        } label: {
-            Label("Open in Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.tweenPrimary())
-        .accessibilityHint("Opens directions to \(state.text) in your maps app")
     }
 
     var openFullAppButton: some View {

@@ -82,6 +82,13 @@ struct MeetupSnapshot: Codable, Equatable {
     var participants: [Participant]
     private var proposedStateURL: URL?
     private var agreedStateURL: URL?
+    /// The vote board for this chat (`MeetupPoll`). Stored in its OWN field
+    /// rather than read back out of `proposedState`: the poll is conversation
+    /// state, not message state, and deriving it from whichever bubble
+    /// happened to be stored last is how the pre-poll code ended up rendering
+    /// a stale proposal as the live one. Absent for snapshots written by
+    /// builds that predate the poll.
+    var poll: MeetupPoll?
     var updatedAt: Date
     // The four fields below are LEGACY-DECODE ONLY. They now live under their
     // own storage keys (`ConversationSyncState`, the draft key) so the 24 h
@@ -107,12 +114,14 @@ struct MeetupSnapshot: Codable, Equatable {
          participants: [Participant] = [],
          proposedState: TweenState? = nil,
          agreedState: TweenState? = nil,
+         poll: MeetupPoll? = nil,
          pendingDraft: OutgoingDraft? = nil,
          updatedAt: Date = Date()) {
         self.conversationKey = conversationKey
         self.participants = participants
         self.proposedStateURL = proposedState?.encodedURL()
         self.agreedStateURL = agreedState?.encodedURL()
+        self.poll = poll
         self.pendingDraft = pendingDraft
         self.updatedAt = updatedAt
     }
@@ -264,8 +273,24 @@ enum ConversationMeetupStore {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.proposedState = nil
         snapshot.agreedState = nil
+        snapshot.poll = nil
         save(snapshot, key: key)
         clearDraft(key: key)
+    }
+
+    // MARK: - Vote board
+
+    /// The board for this chat, or an empty one. Always returns something so
+    /// callers can merge into it without a nil dance.
+    static func poll(key: String) -> MeetupPoll {
+        load(key: key)?.poll ?? .empty
+    }
+
+    static func savePoll(_ poll: MeetupPoll, key: String) {
+        var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        guard snapshot.poll != poll else { return }
+        snapshot.poll = poll.isEmpty ? nil : poll
+        save(snapshot, key: key)
     }
 
     static func saveParticipants(_ participants: [Participant], key: String) {
@@ -278,7 +303,9 @@ enum ConversationMeetupStore {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
         snapshot.participants = state.participants
         snapshot.proposedState = state
-        if state.messageType == .counter {
+        // A new place on the board reopens the question, so the terminal
+        // state has to go with it — `.pick` is the poll-era `.counter`.
+        if state.messageType == .counter || state.messageType == .pick {
             snapshot.agreedState = nil
         }
         save(snapshot, key: key)
@@ -484,7 +511,15 @@ enum ConversationMeetupStore {
         if revision > floor { return true }
         if revision < floor { return false }
         guard let floorSender = sync.lastRevisionSender else { return true }
-        return senderID == floorSender || messageType == .invite
+        // `isAdditive` generalises the original `.invite` exception to every
+        // message whose adoption is a UNION rather than a replacement — which
+        // now includes `.pick` and `.vote`. Two people picking different
+        // places before either has seen the other is the NORMAL opening of a
+        // vote, not a conflicting edit: rejecting one by tap order is exactly
+        // how a disagreement used to disappear. `.decided` keeps the strict
+        // tie-break — that one IS terminal, and two concurrent lock-ins must
+        // not both stick.
+        return senderID == floorSender || messageType.isAdditive
     }
 
     private static func storageKey(for key: String) -> String {

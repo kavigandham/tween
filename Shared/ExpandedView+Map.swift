@@ -11,7 +11,12 @@ extension ExpandedView {
     /// priority — tapping a card recenters the map (redesign: "selection
     /// re-focuses the snapshot") — then a received place or staged draft.
     var snapshotFocus: CLLocationCoordinate2D? {
-        selectedSpot?.item?.placemark.coordinate ?? receivedPlaceCoord ?? draft?.coordinate
+        // While a vote is open there is no single "the spot" to zoom to —
+        // focusing one of two contested picks quietly argues for it. Let the
+        // snapshotter frame everything instead, which is also the only way
+        // both options stay on screen.
+        if hasOpenVote, board.options.count > 1 { return nil }
+        return selectedSpot?.item?.placemark.coordinate ?? receivedPlaceCoord ?? draft?.coordinate
     }
 
     @ViewBuilder
@@ -62,6 +67,32 @@ extension ExpandedView {
         // is on the map, the ranked candidates all render as plain results —
         // three identical gold pins gave the user no way to tell which one was
         // the actual proposal.
+        // Every place on the board gets a pin. Showing only the bubble you
+        // tapped meant the alternative someone else picked was invisible on
+        // the map — you were asked to vote between two places while seeing
+        // one of them. The leader keeps the gold "the spot" pin; the rest are
+        // plain results, so the map still answers "which one is ahead".
+        if hasOpenVote {
+            let leaderID = board.leader?.id
+            for option in board.standings.prefix(Self.maxVisibleOptions) {
+                result.append(MapMarker(coordinate: option.option.coordinate,
+                                        role: option.option.id == leaderID ? .fairSpot : .result))
+            }
+            for (index, spot) in rankedSpots.enumerated() where isPickingAlternative {
+                guard let coordinate = spot.item?.placemark.coordinate else { continue }
+                // Never double-pin a ranked spot that's already on the board.
+                let onBoard = board.options.contains {
+                    abs($0.latitude - coordinate.latitude) < 1e-4
+                        && abs($0.longitude - coordinate.longitude) < 1e-4
+                }
+                if !onBoard {
+                    result.append(MapMarker(coordinate: coordinate,
+                                            role: selectedSpotID == spot.id ? .closestToUser : .result))
+                }
+                _ = index
+            }
+            return result
+        }
         let hasHeroSpot = receivedPlaceCoord != nil || draft != nil
         if let receivedPlaceCoord {
             result.append(MapMarker(coordinate: receivedPlaceCoord, role: .fairSpot))

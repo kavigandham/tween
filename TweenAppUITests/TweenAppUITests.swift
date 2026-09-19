@@ -16,36 +16,47 @@ final class TweenAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Expanded View"].waitForExistence(timeout: 5))
     }
 
-    func testProposalDraftShowsAgreeBeforeDraftSend() throws {
+    /// A friend's pick lands on the BOARD, not as an "Agree / Change" pair.
+    /// The old assertions are the point of the change: "Agree" and "Change"
+    /// shared one slot, so choosing somewhere else deleted what you were
+    /// disagreeing with. You now vote on it, or add your own alongside it.
+    func testIncomingPickOffersVoteAndAddsDraftToBoard() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-HARNESS", "-HARNESS_PROPOSAL_DRAFT"]
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Proposal With Draft View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Hangry Joe's Hot Chicken"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Coffee"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Food"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Gas"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Study"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Agree"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Send McDonald's instead"].waitForExistence(timeout: 5))
+        // The board row carries its own vote affordance...
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Hangry Joe'")).firstMatch
+            .waitForExistence(timeout: 5))
+        // ...and the host-app hand-off ADDS rather than replacing.
+        XCTAssertTrue(app.buttons["Add McDonald's"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Add your pick"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Agree"].exists)
+        XCTAssertFalse(app.buttons["Send McDonald's instead"].exists)
     }
 
-    func testOwnProposalKeepsCategoriesAndDoesNotOfferAgree() throws {
+    /// Your own pick shows as already voted for, and the search categories
+    /// stay one tap away behind "Add your pick" (the board owns the panel
+    /// while a vote is live, so the rail is disclosed, not removed).
+    func testOwnPickShowsAsVotedAndCategoriesStayReachable() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-HARNESS", "-HARNESS_OWN_PROPOSAL"]
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Own Proposal View"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["You chose"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Barnes & Noble"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Agree"].exists)
+
+        let addPick = app.buttons["Add your pick"]
+        XCTAssertTrue(addPick.waitForExistence(timeout: 5))
+        addPick.tap()
         XCTAssertTrue(app.buttons["Coffee"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Food"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Gas"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Study"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Change"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Agree"].exists)
     }
 
     func testSoloUserDoesNotShowEndlessFindingState() throws {
@@ -65,7 +76,7 @@ final class TweenAppUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Two Ready No Results View"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No fair spots found"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Browse spots"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Open Tween"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Finding fair spots..."].exists)
     }
 

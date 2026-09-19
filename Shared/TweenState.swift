@@ -30,9 +30,31 @@ struct TweenState: Equatable {
     enum MessageType: String, Codable {
         case invite   // I'm joining the meetup (sharing my location)
         case leave    // I'm leaving the meetup (removing my location)
-        case propose  // I'm suggesting a place
-        case agree    // I'm agreeing to the proposed place
-        case counter  // I'm suggesting a different place (resets agreement)
+        case propose  // LEGACY: I'm suggesting a place
+        case agree    // LEGACY: I'm agreeing to the proposed place
+        case counter  // LEGACY: I'm suggesting a different place
+
+        // The poll model (see `MeetupPoll`). `propose`/`agree`/`counter` are
+        // still DECODED — bubbles from 1.0.3 and earlier are in people's
+        // threads forever — but nothing emits them any more; every one of them
+        // is absorbed into the poll by `absorbedPoll`.
+        case pick     // I put a place on the board (and voted for it)
+        case vote     // I voted for a place already on the board
+        case decided  // The group settled on one
+        case enroute  // I'm leaving now — here's my ETA
+
+        /// True for the types that only ADD to shared state (a union merge),
+        /// so two of them minted concurrently at the same revision can both be
+        /// adopted instead of one being rejected as a conflicting edit. That
+        /// tie-break used to be right because a place message REPLACED the
+        /// proposal; on a board where two picks are supposed to coexist,
+        /// rejecting one is the bug.
+        var isAdditive: Bool {
+            switch self {
+            case .invite, .pick, .vote, .enroute: return true
+            case .leave, .propose, .agree, .counter, .decided: return false
+            }
+        }
     }
 
     let text: String
@@ -89,6 +111,14 @@ struct TweenState: Equatable {
     /// for a while after their first bubble so the introducer's device can
     /// count the referral. See `ReferralPolicy`. Nil for most bubbles.
     var referredBy: String? = nil
+    /// The whole board: every place on the table, who put it there, and who
+    /// voted for what (`MeetupPoll`). Carried on every place-bearing bubble,
+    /// exactly like `participants`, so any single bubble reconstructs the
+    /// negotiation. Empty for bubbles from builds that predate the poll.
+    var poll: MeetupPoll = .empty
+    /// Seconds of travel remaining, for an `.enroute` bubble ("leaving now —
+    /// 12 min away"). Nil everywhere else.
+    var etaSeconds: Int? = nil
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -106,6 +136,52 @@ struct TweenState: Equatable {
 
     var representsParticipantLocation: Bool {
         kind == .participant && messageType != .leave
+    }
+
+    /// Terminal: the group has a place. Covers the poll's own `.decided` (and
+    /// the `.enroute` bubbles that follow it) as well as a legacy fully-agreed
+    /// `.agree` from a 1.0.3 thread.
+    var isDecided: Bool {
+        switch messageType {
+        case .decided, .enroute: return true
+        case .agree: return isFullyAgreed
+        default: return poll.isDecided
+        }
+    }
+
+    /// The board as this bubble means it, with pre-poll bubbles folded in.
+    ///
+    /// A legacy `.propose`/`.counter` IS a pick; a legacy `.agree` is the
+    /// proposer's pick plus a vote from everyone in `agreedIDs`. Absorbing
+    /// them here (rather than special-casing legacy at every render site) is
+    /// what lets an old thread keep negotiating with a new build in it, and is
+    /// why the reported "friend sent a different place, it agreed to mine"
+    /// can't recur: a counter becomes a second option to vote on, never an
+    /// agreement to the first.
+    var absorbedPoll: MeetupPoll {
+        var result = poll
+        guard kind == .place, !text.isEmpty else { return result }
+        switch messageType {
+        case .propose, .counter, .agree:
+            let proposer = senderID ?? senderName ?? ""
+            guard !proposer.isEmpty else { return result }
+            let option = PollOption(name: text, latitude: latitude,
+                                    longitude: longitude, proposerID: proposer)
+            if result.option(id: option.id) == nil {
+                result.pick(option)
+            }
+            if messageType == .agree {
+                for voter in agreedIDs where !voter.isEmpty {
+                    result.vote(voter, for: option.id)
+                }
+                // A legacy full agreement is a decision — carry it across as
+                // one so the thread lands on the same terminal screen.
+                if isFullyAgreed { result.lockIn(option.id) }
+            }
+        case .pick, .vote, .decided, .enroute, .invite, .leave:
+            break
+        }
+        return result
     }
 
     /// True when every non-proposer participant has agreed to the current
@@ -214,6 +290,26 @@ struct TweenState: Equatable {
         if let referredBy, !referredBy.isEmpty {
             items.append(URLQueryItem(name: "ref", value: referredBy))
         }
+        // The board. Indexed against `participants` above, so it only travels
+        // when a roster does — see MeetupPoll's wire-format note.
+        if !poll.options.isEmpty, !participants.isEmpty {
+            let encodedOptions = MeetupPoll.encodeOptions(poll.options, participants: participants)
+            if !encodedOptions.isEmpty {
+                items.append(URLQueryItem(name: "opts", value: encodedOptions))
+                let encodedVotes = MeetupPoll.encodeVotes(poll.votes, options: poll.options,
+                                                          participants: participants)
+                if encodedVotes.contains(where: { $0 != "-" && $0 != "," }) {
+                    items.append(URLQueryItem(name: "votes", value: encodedVotes))
+                }
+                if let decided = poll.decidedOptionID,
+                   let index = poll.options.firstIndex(where: { $0.id == decided }) {
+                    items.append(URLQueryItem(name: "dec", value: String(index)))
+                }
+            }
+        }
+        if let etaSeconds {
+            items.append(URLQueryItem(name: "eta", value: String(etaSeconds)))
+        }
         components.queryItems = items
         guard let url = components.url else { return nil }
         if url.absoluteString.count <= 5000 { return url }
@@ -232,8 +328,19 @@ struct TweenState: Equatable {
         // send outright — tombstones also travel device-locally, so losing
         // the gossip degrades propagation, not correctness.
         components.queryItems = noRef.filter { $0.name != "pj" && $0.name != "gone" }
-        guard let slimmer = components.url, slimmer.absoluteString.count <= 5000 else { return nil }
-        return slimmer
+        if let slimmer = components.url, slimmer.absoluteString.count <= 5000 { return slimmer }
+        // Last rung: drop the board. It's the most valuable thing here, which
+        // is why it goes last — but a bubble that can't be sent at all loses
+        // the whole message, and this one still carries `t`/`lat`/`lon`, so
+        // the place itself (and the legacy propose/agree reading of it)
+        // survives for peers to absorb.
+        let leanest = noRef.filter {
+            $0.name != "pj" && $0.name != "gone"
+                && $0.name != "opts" && $0.name != "votes" && $0.name != "dec"
+        }
+        components.queryItems = leanest
+        guard let last = components.url, last.absoluteString.count <= 5000 else { return nil }
+        return last
     }
 
     private static func coordinateString(_ value: Double) -> String {
@@ -349,7 +456,9 @@ struct TweenState: Equatable {
         agreedIDs: [String] = [],
         revision: Int? = nil,
         departed: [String] = [],
-        referredBy: String? = nil
+        referredBy: String? = nil,
+        poll: MeetupPoll = .empty,
+        etaSeconds: Int? = nil
     ) {
         self.text = text
         self.latitude = latitude
@@ -360,14 +469,22 @@ struct TweenState: Equatable {
         self.kind = resolvedKind
         self.senderLatitude = senderCoordinate?.latitude
         self.senderLongitude = senderCoordinate?.longitude
-        self.action = action
-        self.messageType = messageType ?? Self.inferMessageType(kind: resolvedKind, action: action)
+        let resolvedType = messageType ?? Self.inferMessageType(kind: resolvedKind, action: action)
+        self.messageType = resolvedType
+        // Back-compat: builds that predate the poll don't know `type=pick`, so
+        // they fall back to inferring from `kind`+`action`. Stamping the
+        // legacy action that reads CLOSEST to the new intent means a 1.0.3
+        // user in the thread still sees "Hassan suggests Hey Tea" for a pick
+        // and "✓ Meeting at Hey Tea" for a decision, instead of nonsense.
+        self.action = Self.legacyAction(for: resolvedType) ?? action
         self.participants = participants
         self.agreedNames = agreedNames
         self.agreedIDs = agreedIDs
         self.revision = revision
         self.departed = departed
         self.referredBy = referredBy
+        self.poll = poll
+        self.etaSeconds = etaSeconds
     }
 
     /// A parsed coordinate is trustworthy only if it is real. `Double.init`
@@ -500,6 +617,29 @@ struct TweenState: Equatable {
         self.departed = items.first(where: { $0.name == "gone" })?.value.map(Self.decodeNames) ?? []
         self.referredBy = items.first(where: { $0.name == "ref" })?.value
             .flatMap { ReferralPolicy.isInstallID($0) ? $0 : nil }
+
+        // The board. Both halves are indexed against `participants`, which is
+        // already decoded above, so a payload whose roster failed to decode
+        // simply arrives with an empty poll rather than a mis-indexed one.
+        var decodedPoll = MeetupPoll.empty
+        if let rawOptions = items.first(where: { $0.name == "opts" })?.value, !rawOptions.isEmpty {
+            decodedPoll.options = MeetupPoll.decodeOptions(rawOptions, participants: self.participants)
+            if let rawVotes = items.first(where: { $0.name == "votes" })?.value, !rawVotes.isEmpty {
+                decodedPoll.votes = MeetupPoll.decodeVotes(rawVotes,
+                                                           options: decodedPoll.options,
+                                                           participants: self.participants)
+            }
+            if let rawDecided = items.first(where: { $0.name == "dec" })?.value,
+               let index = Int(rawDecided), decodedPoll.options.indices.contains(index) {
+                decodedPoll.decidedOptionID = decodedPoll.options[index].id
+            }
+        }
+        self.poll = decodedPoll
+        // Bounded: an ETA is a travel time, so anything past a day is junk and
+        // would render as "1440 min away". Negative reads as absent.
+        self.etaSeconds = items.first(where: { $0.name == "eta" })?.value
+            .flatMap(Int.init)
+            .flatMap { (0...86_400).contains($0) ? $0 : nil }
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {
@@ -507,6 +647,16 @@ struct TweenState: Equatable {
         case (.participant, _): return .invite
         case (.place, .invite):  return .propose
         case (.place, .agree):   return .agree
+        }
+    }
+
+    /// How a poll-era message should look to a build that only understands
+    /// `kind`+`action`. Nil means "leave the caller's action alone".
+    private static func legacyAction(for type: MessageType) -> Action? {
+        switch type {
+        case .pick: return .invite                      // reads as `.propose`
+        case .vote, .decided, .enroute: return .agree   // reads as `.agree`
+        case .invite, .leave, .propose, .agree, .counter: return nil
         }
     }
 }

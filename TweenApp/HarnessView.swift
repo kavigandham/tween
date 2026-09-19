@@ -116,7 +116,6 @@ struct HarnessView: View {
                             onImIn: {},
                             onImOut: {},
                             onSelectSpot: { _ in },
-                            onAgreePlace: { _ in },
                             onSendDraft: {},
                             onOpenFullApp: {}
                         )
@@ -136,7 +135,6 @@ struct HarnessView: View {
                             onImIn: {},
                             onImOut: {},
                             onSelectSpot: { _ in },
-                            onAgreePlace: { _ in },
                             onOpenFullApp: {}
                         )
                         .frame(height: 760)
@@ -151,6 +149,26 @@ struct HarnessView: View {
                             selfCoord: DebugLaunchSeed.selfCoordinate,
                             rankedSpots: [],
                             isUserIn: true,
+                            onImIn: {},
+                            onImOut: {},
+                            onSelectSpot: { _ in },
+                            onOpenFullApp: {}
+                        )
+                        .frame(height: 760)
+                        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card))
+                    }
+                }
+
+                if focus.includes(.contestedVote) {
+                    section("Contested Vote View") {
+                        ExpandedView(
+                            received: DebugLaunchSeed.contestedVote.state,
+                            selfCoord: DebugLaunchSeed.selfCoordinate,
+                            rankedSpots: DebugLaunchSeed.rankedSpots,
+                            isUserIn: true,
+                            totalSeats: 2,
+                            localParticipantID: DebugLaunchSeed.localParticipantID,
+                            poll: DebugLaunchSeed.contestedVote.poll,
                             onImIn: {},
                             onImOut: {},
                             onSelectSpot: { _ in },
@@ -205,12 +223,14 @@ enum HarnessFocus: Equatable {
     case ownProposal
     case soloWaiting
     case twoReadyNoResults
+    case contestedVote
 
     static var current: HarnessFocus {
         if CommandLine.arguments.contains("-HARNESS_INVITE") { return .invite }
         if CommandLine.arguments.contains("-HARNESS_MEETUP") { return .meetup }
         if CommandLine.arguments.contains("-HARNESS_PROPOSAL_DRAFT") { return .proposalDraft }
         if CommandLine.arguments.contains("-HARNESS_OWN_PROPOSAL") { return .ownProposal }
+        if CommandLine.arguments.contains("-HARNESS_CONTESTED_VOTE") { return .contestedVote }
         if CommandLine.arguments.contains("-HARNESS_SOLO_WAITING") { return .soloWaiting }
         if CommandLine.arguments.contains("-HARNESS_TWO_READY_NO_RESULTS") { return .twoReadyNoResults }
         return .all
@@ -380,6 +400,31 @@ enum DebugLaunchSeed {
             Participant(id: "remote-ashraf", name: "Ashraf Ullah", coordinate: friendCoordinate)
         ]
     )
+
+    /// THE reported scenario: Hassan picked Hey Tea, Belal picked Kung Fu Tea,
+    /// 1–1, nothing decided. Coordinates sit between the two seeds so the
+    /// snapshot map frames something sane.
+    static let contestedVote: (state: TweenState, poll: MeetupPoll) = {
+        let hassan = Participant(id: "remote-hassan", name: "Hassan", coordinate: friendCoordinate)
+        let me = Participant(id: localParticipantID, name: "Belal", coordinate: selfCoordinate)
+        var poll = MeetupPoll.empty
+        poll.pick(PollOption(name: "Hey Tea", latitude: 37.5630, longitude: -122.2300,
+                             proposerID: hassan.id))
+        poll.pick(PollOption(name: "Kung Fu Tea", latitude: 37.4419, longitude: -122.1430,
+                             proposerID: me.id))
+        let state = TweenState(
+            text: "Hey Tea",
+            latitude: 37.5630,
+            longitude: -122.2300,
+            senderName: "Hassan",
+            senderID: hassan.id,
+            kind: .place,
+            senderCoordinate: friendCoordinate,
+            messageType: .pick,
+            participants: [hassan, me],
+            poll: poll)
+        return (state, poll)
+    }()
 
     static let draft = OutgoingDraft(
         spotName: "McDonald's",

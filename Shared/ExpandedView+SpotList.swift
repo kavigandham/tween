@@ -40,6 +40,8 @@ extension ExpandedView {
                     Spacer(minLength: 0)
                 }
 
+                enRouteStrip
+
                 // One button, the user's maps app (Settings → Apple/Google) —
                 // the old Apple/Google pair made every user read two options
                 // to find theirs.
@@ -52,6 +54,16 @@ extension ExpandedView {
                 ) {
                     sendTick += 1
                     onOpenInMaps(state)
+                }
+
+                // "Leaving now" belongs HERE and only here: it's meaningless
+                // before there's a place to leave for, and once there is, it's
+                // the next thing anyone actually does. It sends the ETA, not
+                // just the announcement — "12 min away" is the message the
+                // group needs; "leaving now" on its own is a text they'd have
+                // typed anyway.
+                if isUserIn {
+                    leavingNowRow(state: state)
                 }
 
                 HStack(spacing: Tokens.Spacing.s2) {
@@ -112,6 +124,39 @@ extension ExpandedView {
             .sensoryFeedback(.success, trigger: isMeetupSet)
         }
         .background(Color(.systemBackground))
+    }
+
+    /// The departure button, or the countdown once you've tapped it.
+    @ViewBuilder
+    func leavingNowRow(state: TweenState) -> some View {
+        if let mine = myEnRouteMark {
+            directionRow(
+                title: "You're on the way",
+                subtitle: mine.summary,
+                systemImage: "figure.walk.motion",
+                foreground: Tokens.Palette.textPrimary,
+                background: Tokens.Palette.success.opacity(0.18)
+            ) {
+                // Tapping again re-sends a FRESH ETA — the useful thing when
+                // you've been sitting in traffic since you said you'd left.
+                sendTick += 1
+                onLeavingNow()
+            }
+            .accessibilityHint("Sends everyone an updated ETA")
+        } else {
+            directionRow(
+                title: isSending ? (statusMessage ?? "Getting your ETA...") : "Leaving now",
+                subtitle: "Tells everyone when you'll get there",
+                systemImage: "figure.walk.motion",
+                foreground: Tokens.Palette.textPrimary,
+                background: Tokens.Palette.surfaceSecondary
+            ) {
+                sendTick += 1
+                onLeavingNow()
+            }
+            .disabled(isSending)
+            .accessibilityHint("Sends a message with your ETA to \(state.text)")
+        }
     }
 
     func directionRow(

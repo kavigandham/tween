@@ -318,6 +318,19 @@ enum FairnessRanker {
         return RankedSpot(item: item, etas: etas, confidence: confidence)
     }
 
+    /// One leg, for callers outside ranking: "how long from here to there,
+    /// right now". Used by the extension's "Leaving now" button, which needs
+    /// exactly one number and needs it to be honest — so this is the same
+    /// deadlined MKDirections path the ranker uses, with the same
+    /// straight-line fallback rather than a refusal.
+    static func travelTime(from origin: CLLocationCoordinate2D,
+                           to destination: CLLocationCoordinate2D,
+                           mode: TravelMode = .driving) async -> TimeInterval {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        let (seconds, _, _) = await eta(from: origin, to: item, mode: mode)
+        return seconds
+    }
+
     /// Returns the ETA in seconds and whether it came from a real route.
     /// On any failure, estimates from straight-line distance at the mode's
     /// own speed. Defaults reproduce the original driving-now behaviour.

@@ -468,10 +468,10 @@ extension OnboardingView {
     }
 
     /// Appends the server-honored "open now" phrase when the filter chip is
-    /// active (see `openNowOnly`). No-op when the user already typed it.
+    /// active (see `openNowOnly`). Shared with the Messages extension so the
+    /// two surfaces can't drift — see `OpenNowFilter`.
     private func openNowQualified(_ query: String) -> String {
-        guard openNowOnly, !query.lowercased().contains("open now") else { return query }
-        return query + " open now"
+        OpenNowFilter.qualified(query, enabled: openNowOnly)
     }
 
     /// Toggles the Open Now filter chip and re-runs whatever search is on

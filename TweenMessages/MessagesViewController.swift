@@ -56,6 +56,18 @@ final class MessagesViewController: MSMessagesAppViewController {
     var pendingReferralReply: (inviterID: String, name: String)?
     var conversationKey: String?
     var selectedSearchCategory: MessagesSearchCategory = .food
+    /// Hide places that are closed right now. ON by default — a fair spot
+    /// you can't walk into isn't a fair spot (device feedback: the extension
+    /// was ranking shuttered cafes at 11pm). Carried on the TEXT search pass
+    /// only; see `openNowQualified`.
+    var openNowOnly = true
+    /// The vote board for the active conversation — every place on the table
+    /// and who voted for what. Conversation state, merged from every bubble
+    /// this device has seen, NOT whatever the last tapped message happened to
+    /// say. See `MeetupPoll`.
+    var poll: MeetupPoll = .empty
+    /// Who has said "leaving now" in this chat, newest first. See `EnRouteLog`.
+    var enRouteMarks: [EnRouteLog.Mark] = []
 
     let locationProvider = LocationProvider()
     let networkMonitor = NetworkMonitor()
@@ -176,6 +188,9 @@ final class MessagesViewController: MSMessagesAppViewController {
             sendStatusMessage = nil
             recentlySentSpotName = nil
             selectedSearchCategory = .food
+            openNowOnly = true
+            poll = .empty
+            enRouteMarks = []
             isRanking = false
             rankingTask?.cancel()
             // An in-flight send belongs to the chat it started in — abandon it so
@@ -212,6 +227,13 @@ final class MessagesViewController: MSMessagesAppViewController {
         // only fills in when nothing decoded (drawer open, own bubble) instead
         // of clobbering a just-decoded state — the leave-clears empty the
         // snapshot, which erased the "X left" banner.
+        // The board survives an extension teardown: it's the conversation's
+        // state, so it must be there whether or not a bubble decoded on this
+        // activation (drawer open, own bubble tapped, live arrival).
+        if !ConversationMeetupStore.localUserLeft(key: key) {
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll)
+        }
+        enRouteMarks = EnRouteLog.marks(key: key)
         if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
             // A user who left this meetup must NOT be restored into its agreed/
@@ -238,6 +260,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         // extension re-launches initiated by tapping any bubble, including
         // the agree bubble itself when it was sent by this device.
         received = effectiveReceived(decoded: received)
+        // Fold the bubble we're rendering into the board. decodeAndCache
+        // already does this for a live decode, but `received` can also come
+        // from the stored snapshot (drawer open, own bubble tapped) — and a
+        // snapshot written by a pre-poll build carries its proposal only in
+        // the legacy fields, which `absorbedPoll` is what turns into options.
+        if let received, received.kind == .place,
+           !ConversationMeetupStore.localUserLeft(key: key) {
+            mergePoll(received.absorbedPoll, key: key)
+        }
         // Jump to expanded when there's something to act on: a spot the host app
         // staged for us, or an incoming invite to respond to (so the invitation
         // banner and auto-ranked spots are front and center).
@@ -432,8 +463,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         switch state.messageType {
         case .leave:
             commitDeliveredLeave(remaining: state.participants)
-        case .agree:
-            commitDeliveredAgree(state)
+        case .agree, .vote, .decided:
+            commitDeliveredBoard(state)
         default:
             break
         }
@@ -479,16 +510,20 @@ final class MessagesViewController: MSMessagesAppViewController {
                     localParticipantID: localParticipantID(),
                     localNeedsRide: localNeedsRide,
                     recentlySentSpotName: recentlySentSpotName,
+                    poll: poll,
+                    enRouteMarks: enRouteMarks,
+                    openNowOnly: openNowOnly,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },
-                    onSelectSpot: { [weak self] spot in
-                        if self?.received?.kind == .place {
-                            self?.sendCounter(spot)
-                        } else {
-                            self?.sendChosenSpot(spot)
-                        }
-                    },
-                    onAgreePlace: { [weak self] state in self?.sendAgreedPlace(state) },
+                    // One path for every place send now: it goes on the board.
+                    // The old fork ("is there already a proposal? then this is
+                    // a COUNTER, which replaces it") is what let a
+                    // disagreement overwrite the thing it disagreed with.
+                    onSelectSpot: { [weak self] spot in self?.sendPick(spot) },
+                    onVote: { [weak self] option in self?.sendVote(for: option) },
+                    onLockIn: { [weak self] option in self?.lockIn(option) },
+                    onLeavingNow: { [weak self] in self?.sendLeavingNow() },
+                    onToggleOpenNow: { [weak self] in self?.toggleOpenNow() },
                     onSendDraft: { [weak self] in self?.sendDraft() },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
                     selectedSearchCategory: selectedSearchCategory,
