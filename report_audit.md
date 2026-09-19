@@ -117,3 +117,73 @@ place.
   machine has no test-target coverage at all.
 - Degradation ladder below `pj` (the `gone` rung).
 - `MeetupSync` Darwin post/observe; snapshot TTL expiry in `willBecomeActive`.
+
+
+---
+
+# Root cause of the seven-round sequence (pass 7, 2026-09-19)
+
+Pass 7 verified `4ce65ab` **clean** — the first fix in the sequence with no
+defect of its own. It also named why there were seven rounds.
+
+## The activation sequence is structurally untestable
+
+`MessagesViewController` lives in the `TweenMessages` target. `TweenAppTests`
+depends on `TweenApp`, whose sources are `TweenApp` + `Shared` + exactly one
+hoisted extension file (`TweenMessages/BubbleImageRenderer.swift`, hoisted for
+precisely this reason — see the comment in `project.yml`).
+
+So `decodeAndCache`, `commitStagedSendIfNeeded`, `mergePoll`,
+`recordCanonicalSnapshot` and `willBecomeActive` cannot be reached from any
+test. **All six defects were found by reading. None by a test.**
+
+## Rounds 3–6 were one defect in four costumes
+
+Not six unrelated bugs. Rounds 1–2 were codec defects (index misalignment,
+`Dictionary` traps, `Codable` `keyNotFound`) and have stopped recurring.
+Rounds 3, 4, 5 and 6 are all: *there are two copies of the board, and
+correctness depends on the order in which they are read and merged inside a
+60-line imperative sequence.* Each fix relocated a statement, and each
+relocation created the conditions for the next.
+
+`willBecomeActive` now carries ~45 lines of comment defending the position of
+~10 lines of code. That ratio is the diagnostic.
+
+## Recommended: Phase 0 (no wire change), then per-entry sequences in 1.1
+
+**Phase 0 — 1.0.5, ~1 day, no payload change:**
+1. Make the restore MERGE rather than assign. `received` and
+   `currentParticipants` are assigned from a re-read, clobbering what the
+   decode just computed — that is the bug *shape* of round 6, independent of
+   where the load sits.
+2. Extract the sequence into a pure function in `Shared/` —
+   `ActivationResolver.resolve(stored:decoded:inMemory:leftTombstone:now:)`.
+   **Highest-leverage change available**: it makes the activation testable for
+   the first time, via a `project.yml` edit of the shape that already exists
+   for `BubbleImageRenderer.swift`. Rounds 4, 5 and 6 would each have been a
+   ten-line unit test.
+3. Residuals: re-check the TTL on the restore's read; decide whether
+   `clear(key:)` should spare `pendingStagedKey` (a >24 h staged send
+   currently can never commit — same window, same shape as round 6).
+4. Ship the still-open MAJOR: apply the revision floor's tie-break to
+   `decidedOptionID` only, not the whole bubble.
+
+**Phase 1 — 1.1:** stamp each `PollOption` and each vote with the `rev` of the
+bubble that created it; merge becomes per-key max-seq. Then DELETE
+`preservingVoteOf`, `BoardSource`, `iHoldMyOwnPick`, `decisionSeq` and the
+`.pick`-reopen inference — ~80 lines of code and ~120 of justifying comment.
+
+Cost: ~40 chars on a five-person board, <1% of the 5000 ceiling.
+
+**Two hard constraints for Phase 1, both with precedent in this repo:**
+- **Never change `opts` record arity.** Build 458 enforces `parts.count == 4`;
+  a fifth field decodes every option to nil on 458–470. Parallel params only.
+- **`PollOption` needs a hand-written tolerant `init(from:)` before gaining a
+  stored property.** Synthesized `Codable` ignores defaults — this is exactly
+  what `42faf94` fixed on `MeetupPoll`, and it would recur at larger scale.
+
+Default a missing entry-seq to the bubble's own `rev`, and builds 458–470
+converge correctly without knowing the field exists. 1.0.3 predates the poll.
+
+**Verdict: restructure, staged — not "keep patching".** The patches were
+converging on reachability, not correctness.

@@ -596,11 +596,19 @@ final class MeetupPollTTLTests: XCTestCase {
     }
 }
 
-/// Sixth-pass regression. The activation path reads the conversation snapshot
-/// to restore state when nothing decoded — but "nothing decoded" is not
-/// "nothing written": `decodeAndCache`'s own-bubble branch commits a staged
-/// send and THEN returns false. These pin what that commit must leave behind,
-/// which is what the restore reads.
+/// Store semantics the sixth-pass fix DEPENDS on — not regression tests for it.
+///
+/// Stated plainly because the distinction matters: both of these pass on the
+/// parent commit too. They cannot fail before the fix and cannot catch a
+/// regression of it, because the defect lives in the ORDER of statements in
+/// `MessagesViewController.willBecomeActive`, and that file is in the
+/// extension target, which no test target can reach. Every defect in this
+/// seven-round sequence was found by reading; none by a test.
+///
+/// A real regression test needs the activation sequence extracted into a pure
+/// function in `Shared/` — see the Phase 0 note in `report_audit.md`. Until
+/// then these earn their place only by pinning what the staged-send commit
+/// must leave behind for the restore to read.
 final class StagedSendSnapshotTests: XCTestCase {
 
     private let alice = Participant(id: "id-alice", name: "Alice", latitude: 37.78, longitude: -122.41)
@@ -639,7 +647,10 @@ final class StagedSendSnapshotTests: XCTestCase {
         ConversationMeetupStore.saveAgreed(agreed, key: key)
         XCTAssertNotNil(ConversationMeetupStore.load(key: key)?.agreedState)
 
-        // What `commitStagedSendIfNeeded(.pick)` does via recordCanonicalSnapshot.
+        // The `saveProposed` HALF of what `commitStagedSendIfNeeded(.pick)`
+        // does. The real path also calls `savePoll`, `clearDraft` and
+        // `EnRouteLog.clear`; this models only the field the restore reads,
+        // so don't mistake it for a faithful stand-in for that commit.
         var reopened = decided
         reopened.pick(opt("Kung Fu Tea", 37.765, by: me.id))
         let pick = TweenState(text: "Kung Fu Tea", latitude: 37.765, longitude: -122.420,
