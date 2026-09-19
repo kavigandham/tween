@@ -28,7 +28,28 @@
         {
           "adHocOffers": [],
           "codeOffers": [],
-          "displayPrice": "1.99",
+          "displayPrice": "29.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "PRO_YEARLY",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Every Pro feature, billed yearly \u2014 half the price of monthly.",
+              "displayName": "Tween Pro \u2014 Yearly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.kavigandham.TweenApp.pro.yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Tween Pro Yearly",
+          "subscriptionGroupID": "PRO_GROUP",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "4.99",
           "familyShareable": false,
           "groupNumber": 1,
           "internalID": "PRO_MONTHLY",

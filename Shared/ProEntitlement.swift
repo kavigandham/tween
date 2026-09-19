@@ -8,11 +8,26 @@ import StoreKit
 /// the ~120 MB extension ceiling (constraint 1). A boolean preference, no PII
 /// (constraint 6).
 enum ProEntitlement {
-    /// Non-consumable lifetime unlock. Price lives in App Store Connect.
-    static let lifetimeProductID = "com.kavigandham.TweenApp.pro.lifetime"
-    /// Auto-renewable monthly alternative — either product grants Pro.
+    /// Auto-renewable yearly plan — the headline offer. Price lives in App
+    /// Store Connect.
+    static let yearlyProductID = "com.kavigandham.TweenApp.pro.yearly"
+    /// Auto-renewable monthly alternative — any product grants Pro.
     static let monthlyProductID = "com.kavigandham.TweenApp.pro.monthly"
-    static let productIDs: Set<String> = [lifetimeProductID, monthlyProductID]
+    /// RETIRED FROM SALE (2026-09-19, lifetime → yearly), never retired from
+    /// the entitlement. Its buyers paid once for "forever", so this ID stays in
+    /// `productIDs` permanently — dropping it would re-lock Pro on accounts
+    /// that own it, and with no server (constraint 8) there is nothing to
+    /// re-grant it from. It is simply absent from `purchasableProductIDs`.
+    static let lifetimeProductID = "com.kavigandham.TweenApp.pro.lifetime"
+
+    /// Every product that GRANTS Pro, the retired lifetime unlock included.
+    /// What `refresh()` checks `currentEntitlements` against.
+    static let productIDs: Set<String> = [yearlyProductID, monthlyProductID, lifetimeProductID]
+    /// What the paywall may SELL. Deliberately narrower than `productIDs`:
+    /// what Tween honours and what Tween offers are different questions, and
+    /// collapsing them into one set is how a retired product creeps back onto
+    /// the sheet the first time somebody reuses the "all the IDs" constant.
+    static let purchasableProductIDs: Set<String> = [yearlyProductID, monthlyProductID]
 
     /// The flag both processes gate on. The extension reads ONLY this.
     private static let unlockedKey = "tween.pro.unlocked"

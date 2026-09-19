@@ -28,13 +28,29 @@ final class ProEntitlementTests: XCTestCase {
         XCTAssertFalse(ProEntitlement.isUnlocked)
     }
 
-    // 2. Buying the lifetime product unlocks Pro through refresh().
-    func testLifetimePurchaseUnlocksPro() async throws {
+    // 2. The RETIRED lifetime unlock still grants Pro.
+    //
+    //    It left the paywall in the 2026-09-19 lifetime → yearly change, and
+    //    it must never leave the entitlement: those buyers paid once for
+    //    "forever" and there is no server to re-grant them from (constraint 8).
+    //    If this test ever goes red because the ID was tidied out of
+    //    `productIDs`, the fix is to put the ID back, not to update the test.
+    func testRetiredLifetimePurchaseStillUnlocksPro() async throws {
         let session = try startSession()
         try await buy(ProEntitlement.lifetimeProductID, in: session)
         let unlocked = await refreshUntilUnlocked()
         XCTAssertTrue(unlocked)
         XCTAssertTrue(ProEntitlement.isUnlocked)
+    }
+
+    // 2b. …and the paywall must not be able to OFFER it again. The two sets
+    //     answer different questions; this pins them apart.
+    func testRetiredLifetimeIsHonouredButNotPurchasable() {
+        XCTAssertTrue(ProEntitlement.productIDs.contains(ProEntitlement.lifetimeProductID))
+        XCTAssertFalse(ProEntitlement.purchasableProductIDs.contains(ProEntitlement.lifetimeProductID))
+        XCTAssertTrue(ProEntitlement.purchasableProductIDs.isSubset(of: ProEntitlement.productIDs))
+        XCTAssertEqual(ProEntitlement.purchasableProductIDs,
+                       [ProEntitlement.yearlyProductID, ProEntitlement.monthlyProductID])
     }
 
     // 3. The monthly subscription unlocks Pro too — either product grants it.
@@ -46,6 +62,15 @@ final class ProEntitlementTests: XCTestCase {
         // Assert the App Group write, not just the return value: the cache is
         // the only thing the extension can read, and it is what the two
         // processes actually disagree about.
+        XCTAssertTrue(ProEntitlement.isUnlocked)
+    }
+
+    // 3b. The yearly subscription unlocks Pro through the same path.
+    func testYearlySubscriptionUnlocksPro() async throws {
+        let session = try startSession()
+        try await buy(ProEntitlement.yearlyProductID, in: session)
+        let unlocked = await refreshUntilUnlocked()
+        XCTAssertTrue(unlocked)
         XCTAssertTrue(ProEntitlement.isUnlocked)
     }
 

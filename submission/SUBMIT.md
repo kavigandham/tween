@@ -66,8 +66,17 @@ A missing review screenshot is the single most common rejection here.
 
 | Product | ID | Type | Price |
 |---|---|---|---|
-| Tween Pro Lifetime | `com.kavigandham.TweenApp.pro.lifetime` | Non-Consumable | $9.99 |
-| Tween Pro Monthly | `com.kavigandham.TweenApp.pro.monthly` | Auto-Renewable | $1.99/mo |
+| Tween Pro Yearly | `com.kavigandham.TweenApp.pro.yearly` | Auto-Renewable | $29.99/yr |
+| Tween Pro Monthly | `com.kavigandham.TweenApp.pro.monthly` | Auto-Renewable | $4.99/mo |
+
+Both live in the **Tween Pro** subscription group at the **same level** — same
+features, different duration — so switching between them is a crossgrade.
+
+**Tween Pro Lifetime** (`com.kavigandham.TweenApp.pro.lifetime`, Non-Consumable,
+$9.99) is **removed from sale** as of the 2026-09-19 pricing change. Do NOT
+delete it: the accounts that bought it still verify against that product ID, and
+with no server there is nothing to re-grant Pro from if it disappears. Remove
+from sale only — the app keeps honouring it forever.
 
 For **each** product:
 

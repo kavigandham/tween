@@ -41,9 +41,9 @@ final class PaywallCaptureUITests: XCTestCase {
 
         // Wait for StoreKit to hand back products. Until it does, the sheet
         // shows a spinner or the unreachable message, and a capture is useless.
-        let lifetime = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] 'lifetime'")).firstMatch
-        let loaded = lifetime.waitForExistence(timeout: 30)
+        let yearly = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'yearly'")).firstMatch
+        let loaded = yearly.waitForExistence(timeout: 30)
 
         // Capture unconditionally — a failed capture is far more useful to
         // look at than a bare assertion message.
