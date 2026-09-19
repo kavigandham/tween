@@ -234,12 +234,15 @@ final class MessagesViewController: MSMessagesAppViewController {
         // host app writes it from another process and this extension has no
         // MeetupSync observer, so preserving the stored vote keeps a surviving
         // extension process from reverting a vote just cast in the app.
-        if !ConversationMeetupStore.localUserLeft(key: key) {
-            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
-                                     preservingVoteOf: localParticipantID())
-        }
-
-        let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
+        // EXPIRE BEFORE HYDRATING. The board is a field of `MeetupSnapshot`, so
+        // the TTL sweep is what ages it out — and it only works if the sweep
+        // runs FIRST. Hydrating above it read the aged-out board into memory,
+        // where nothing resets it: a meetup from three days ago rendered as
+        // the current MEETUP SET hero, and the first vote or pick wrote it back
+        // with a fresh timestamp so it could never expire again (audit
+        // 2026-09-19, fifth pass). The load moved up with it; the block that
+        // consumes `snapshot` is gated on nothing having decoded, so reading it
+        // before the decode is equivalent there.
         var snapshot = ConversationMeetupStore.load(key: key)
         // Expire stale per-chat snapshots. Without a TTL, a meetup negotiated
         // days ago resurrects (and force-expands the extension) every time the
@@ -248,6 +251,12 @@ final class MessagesViewController: MSMessagesAppViewController {
             ConversationMeetupStore.clear(key: key)
             snapshot = nil
         }
+        if !ConversationMeetupStore.localUserLeft(key: key) {
+            poll = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key), incoming: poll,
+                                     preservingVoteOf: localParticipantID())
+        }
+
+        let decodedIncoming = decodeAndCache(conversation.selectedMessage, in: conversation)
         // decodeAndCache returns true only when a PEER COORDINATE was saved, so
         // a decoded message with no non-local participant (e.g. a .leave) still
         // reports false. Gate the snapshot restore on `received == nil` so it

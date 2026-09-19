@@ -19,9 +19,29 @@ import Foundation
 // Captures come from `-SHOT <scene>` (TweenApp/ShotHarness.swift), which
 // renders one surface edge to edge with a believable seed. See ../README.md.
 
-let W: CGFloat = 1320, H: CGFloat = 2868
+/// One canvas per device class. The App Store wants a 6.9" iPhone set and,
+/// for an app that ships on iPad, a 13" iPad set — and it will NOT scale
+/// between the two, only within each. Rendering both here keeps the headlines
+/// and the crop identical across them, which is the whole reason the set reads
+/// as one family.
+struct Canvas {
+    let width: CGFloat, height: CGFloat
+    /// Where the captures live and where the slides go.
+    let rawDir: String, outDir: String
+    let titleSize: CGFloat, subSize: CGFloat
+    let maxShotWidth: CGFloat, corner: CGFloat
+}
+
+let iphone = Canvas(width: 1320, height: 2868,
+                    rawDir: "raw", outDir: "promo",
+                    titleSize: 96, subSize: 44, maxShotWidth: 1180, corner: 74)
+let ipad = Canvas(width: 2064, height: 2752,
+                  rawDir: "raw-ipad", outDir: "promo-ipad",
+                  titleSize: 130, subSize: 60, maxShotWidth: 1760, corner: 54)
 
 struct Slide {
+    /// File names only — the canvas supplies the directories, so one slide
+    /// list renders at every size.
     let file: String, title: String, sub: String, out: String
     let top: NSColor, bottom: NSColor
     /// Fraction of the capture's HEIGHT to trim off the top before drawing.
@@ -43,30 +63,37 @@ func c(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
 // promised "It lives in your chat" over a generic browse list and "Agree in
 // one tap" over a screen with no agree button on it.
 let slides: [Slide] = [
-    .init(file: "raw/fair.png",
+    .init(file: "fair.png",
           title: "Fair means fair",
           sub: "Ranked by everyone's drive time — not distance",
-          out: "promo/01-fair.png", top: c(10, 42, 78), bottom: c(5, 14, 26),
+          out: "01-fair.png", top: c(10, 42, 78), bottom: c(5, 14, 26),
           cropTop: 0.20),
-    .init(file: "raw/vote.png",
+    .init(file: "vote.png",
           title: "Can't agree? Vote.",
           sub: "Everyone's pick on the board, side by side",
-          out: "promo/02-vote.png", top: c(12, 50, 70), bottom: c(5, 14, 26),
+          out: "02-vote.png", top: c(12, 50, 70), bottom: c(5, 14, 26),
           cropTop: 0.26),
-    .init(file: "raw/plan.png",
+    .init(file: "plan.png",
           title: "Then tell them you left",
           sub: "One tap sends your real ETA to the chat",
-          out: "promo/03-plan.png", top: c(14, 46, 60), bottom: c(5, 14, 26),
+          out: "03-plan.png", top: c(14, 46, 60), bottom: c(5, 14, 26),
           cropTop: 0.22),
-    .init(file: "screenshots/04-search-like-maps.png",
-          title: "Search like Maps",
-          sub: "Coffee, food, gas — or anywhere by name",
-          out: "promo/04-search.png", top: c(20, 40, 76), bottom: c(5, 14, 26)),
 ]
 
-func render(_ s: Slide) {
-    guard let shot = NSImage(contentsOfFile: s.file) else {
-        print("MISSING \(s.file)"); return
+/// iPhone-only: the host app's search, captured before the ShotHarness
+/// existed, so there is no iPad equivalent to pair with it.
+let iphoneOnly: [Slide] = [
+    .init(file: "../screenshots/04-search-like-maps.png",
+          title: "Search like Maps",
+          sub: "Coffee, food, gas — or anywhere by name",
+          out: "04-search.png", top: c(20, 40, 76), bottom: c(5, 14, 26)),
+]
+
+func render(_ s: Slide, on canvas: Canvas) {
+    let W = canvas.width, H = canvas.height
+    let source = canvas.rawDir + "/" + s.file
+    guard let shot = NSImage(contentsOfFile: source) else {
+        print("MISSING \(source)"); return
     }
     guard let rep = NSBitmapImageRep(
         bitmapDataPlanes: nil,
@@ -94,7 +121,7 @@ func render(_ s: Slide) {
     titleStyle.alignment = .center
     titleStyle.lineHeightMultiple = 0.95
     let title = NSAttributedString(string: s.title, attributes: [
-        .font: NSFont.systemFont(ofSize: 96, weight: .heavy),
+        .font: NSFont.systemFont(ofSize: canvas.titleSize, weight: .heavy),
         .foregroundColor: NSColor.white,
         .kern: -2.5,
         .paragraphStyle: titleStyle,
@@ -107,7 +134,7 @@ func render(_ s: Slide) {
     let subStyle = NSMutableParagraphStyle()
     subStyle.alignment = .center
     let sub = NSAttributedString(string: s.sub, attributes: [
-        .font: NSFont.systemFont(ofSize: 44, weight: .medium),
+        .font: NSFont.systemFont(ofSize: canvas.subSize, weight: .medium),
         .foregroundColor: c(150, 186, 222),
         .paragraphStyle: subStyle,
     ])
@@ -137,7 +164,7 @@ func render(_ s: Slide) {
     let bleed: CGFloat = 70
     var shotH = topOfShot + bleed
     var shotW = shotH / ratio
-    let maxW: CGFloat = 1180
+    let maxW: CGFloat = canvas.maxShotWidth
     if shotW > maxW {
         shotW = maxW
         shotH = shotW * ratio
@@ -152,7 +179,7 @@ func render(_ s: Slide) {
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -40), blur: 90,
                   color: NSColor.black.withAlphaComponent(0.55).cgColor)
-    let path = NSBezierPath(roundedRect: rect, xRadius: 74, yRadius: 74)
+    let path = NSBezierPath(roundedRect: rect, xRadius: canvas.corner, yRadius: canvas.corner)
     NSColor.black.setFill()
     path.fill()
     ctx.restoreGState()
@@ -170,11 +197,13 @@ func render(_ s: Slide) {
     NSGraphicsContext.restoreGraphicsState()
 
     guard let png = rep.representation(using: .png, properties: [:]) else { return }
+    let out = canvas.outDir + "/" + s.out
     try? FileManager.default.createDirectory(
-        at: URL(fileURLWithPath: s.out).deletingLastPathComponent(),
+        at: URL(fileURLWithPath: out).deletingLastPathComponent(),
         withIntermediateDirectories: true)
-    try? png.write(to: URL(fileURLWithPath: s.out))
-    print("wrote \(s.out)  \(rep.pixelsWide) x \(rep.pixelsHigh)")
+    try? png.write(to: URL(fileURLWithPath: out))
+    print("wrote \(out)  \(rep.pixelsWide) x \(rep.pixelsHigh)")
 }
 
-slides.forEach(render)
+for slide in slides + iphoneOnly { render(slide, on: iphone) }
+for slide in slides { render(slide, on: ipad) }

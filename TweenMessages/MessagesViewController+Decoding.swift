@@ -77,6 +77,13 @@ extension MessagesViewController {
                 if let conversationKey {
                     ConversationMeetupStore.clearProposalState(key: conversationKey)
                 }
+                // The IN-MEMORY board goes with it. `clearProposalState` nils
+                // the stored one, but `absorbedPoll` is empty for a `.leave`,
+                // so the `mergePoll` below returns this device's copy
+                // unchanged and writes it straight back — leaving a decided
+                // meetup standing after the last person left (audit
+                // 2026-09-19, fifth pass).
+                poll = .empty
             }
         } else if state.kind == .place, let conversationKey {
             ConversationMeetupStore.saveProposed(state, key: conversationKey)

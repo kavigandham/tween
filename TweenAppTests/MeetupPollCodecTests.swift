@@ -543,3 +543,55 @@ final class MeetupPollHydrationTests: XCTestCase {
                       + "and the caller must not reopen on the strength of it")
     }
 }
+
+/// Fifth-pass regression: the board is a FIELD of `MeetupSnapshot`, so the
+/// 24 h TTL sweep is what ages it out — and only if the sweep runs before
+/// anything reads it.
+final class MeetupPollTTLTests: XCTestCase {
+
+    private let alice = Participant(id: "id-alice", name: "Alice", latitude: 37.78, longitude: -122.41)
+    private let key = "ttl-conversation"
+
+    override func setUp() {
+        super.setUp()
+        ConversationMeetupStore.clearIncludingSync(key: key)
+    }
+    override func tearDown() {
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        super.tearDown()
+    }
+
+    /// `clear` is what the TTL sweep calls. It has to take the board with it,
+    /// or a meetup from days ago renders as the current one.
+    func testClearingAnExpiredSnapshotTakesTheBoardWithIt() {
+        var board = MeetupPoll.empty
+        let heyTea = PollOption(name: "Hey Tea", latitude: 37.770,
+                                longitude: -122.420, proposerID: alice.id)
+        board.pick(heyTea)
+        board.lockIn(heyTea.id)
+        ConversationMeetupStore.savePoll(board, key: key)
+        XCTAssertTrue(ConversationMeetupStore.poll(key: key).isDecided)
+
+        ConversationMeetupStore.clear(key: key)
+        XCTAssertTrue(ConversationMeetupStore.poll(key: key).isEmpty,
+                      "an expired chat must not hand back a decided board")
+    }
+
+    /// The ordering the activation path depends on: read the store only AFTER
+    /// the sweep. Reading first is what put an aged-out board in memory, where
+    /// the next vote re-persisted it with a fresh timestamp so it could never
+    /// expire again.
+    func testReadingBeforeTheSweepIsWhatResurrectsTheBoard() {
+        var board = MeetupPoll.empty
+        board.pick(PollOption(name: "Hey Tea", latitude: 37.770,
+                              longitude: -122.420, proposerID: alice.id))
+        ConversationMeetupStore.savePoll(board, key: key)
+
+        let readBeforeSweep = ConversationMeetupStore.poll(key: key)
+        ConversationMeetupStore.clear(key: key)
+        let readAfterSweep = ConversationMeetupStore.poll(key: key)
+
+        XCTAssertFalse(readBeforeSweep.isEmpty, "this is the value the old order kept")
+        XCTAssertTrue(readAfterSweep.isEmpty, "and this is what it should have had")
+    }
+}
