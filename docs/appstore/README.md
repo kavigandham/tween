@@ -4,6 +4,7 @@ Two commands, from a booted simulator to uploadable slides.
 
 ```bash
 # 1. Capture. -SHOT renders ONE surface edge to edge (TweenApp/ShotHarness.swift).
+#    Do this TWICE: an iPhone 17 Pro Max into raw/, an iPad Pro 13" into raw-ipad/.
 SIM=$(xcrun simctl list devices booted | grep "iPhone 17 Pro Max" | grep -o "[0-9A-F-]\{36\}")
 xcrun simctl status_bar "$SIM" override --time "9:41" \
   --batteryState charged --batteryLevel 100 \
@@ -12,14 +13,17 @@ for scene in fair vote plan; do
   xcrun simctl terminate "$SIM" com.kavigandham.TweenApp
   xcrun simctl launch "$SIM" com.kavigandham.TweenApp -SHOT "$scene"
   sleep 7   # the scene runs a real MKLocalSearch
-  xcrun simctl io "$SIM" screenshot "raw/$scene.png"
+  xcrun simctl io "$SIM" screenshot "raw/$scene.png"     # raw-ipad/ on the iPad pass
 done
 
 # 2. Compose.
 xcrun swiftc -O compose.swift -o composebin && ./composebin
 ```
 
-Output lands in `promo/` at **exactly 1320 × 2868** (6.9"). Upload it as-is.
+Output lands in `promo/` at **exactly 1320 × 2868** (6.9") and `promo-ipad/` at
+**2064 × 2752** (iPad 13"). Upload both as-is — App Store Connect scales within
+each device class but never between them, so an app that ships on iPad needs
+both sets or iPad users see whatever was there last.
 
 > **Do not run `sips` afterwards.** The old README told you to downscale to
 > 1284 × 2778; `compose.swift` renders at the final size, so that step was
@@ -32,8 +36,14 @@ App Store Connect needs **one** iPhone set; it scales the rest.
 
 | Display | Pixels | Use |
 |---|---|---|
-| 6.9" | 1320 × 2868 | **Upload this one** |
-| 6.5" | 1284 × 2778 | Accepted alternative — but don't downscale into it, re-capture |
+| iPhone 6.9" | 1320 × 2868 | **Upload this one**; ASC then shows "Using 6.9" Display" on the smaller slots |
+| iPhone 6.5" | 1284 × 2778 | Accepted alternative — but don't downscale into it, re-capture |
+| iPad 13" | 2064 × 2752 | Required while the app ships on iPad |
+
+The **iMessage App** tab in Media Manager is a SEPARATE set with its own iPhone
+and iPad slots — the extension has its own store page. Give it the three
+extension scenes (`fair`, `vote`, `plan`); the host-app search slide doesn't
+belong there.
 
 ## The scenes
 
