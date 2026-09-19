@@ -42,8 +42,8 @@ targets:
       path: TweenApp/Info.plist
       properties:
         CFBundleDisplayName: Tween
-        CFBundleShortVersionString: "1.0.3"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.4"
+        CFBundleVersion: "4"
         CFBundleIconName: AppIcon
         CFBundleURLTypes:
           - CFBundleURLName: com.kavigandham.TweenApp
@@ -94,8 +94,8 @@ targets:
       path: TweenMessages/Info.plist
       properties:
         CFBundleDisplayName: Tween
-        CFBundleShortVersionString: "1.0.3"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.4"
+        CFBundleVersion: "4"
         MSMessagesExtensionStoreIconName: iMessage App Icon
         NSExtension:
           NSExtensionPointIdentifier: com.apple.message-payload-provider
