@@ -98,7 +98,7 @@ For meetups you plan in advance:
 
 Meeting up right now stays free, forever.
 
-Tween Pro is available as a one-time purchase or a monthly subscription.
+Tween Pro is available as a monthly or yearly subscription.
 ```
 
 ## Keywords (100 char max, comma-separated, no spaces after commas)
@@ -179,10 +179,18 @@ TO TEST THE CORE FEATURE:
 The standalone app is for searching places, managing friends, and settings.
 
 TWEEN PRO:
-Pro is unlocked by in-app purchase - Lifetime $9.99 (non-consumable) or Monthly
-$1.99 (auto-renewable subscription). Both are included in this submission. To
-reach the paywall: the "..." button at the top right of the map -> Settings ->
-"Tween Pro". Please use a sandbox Apple Account to test a purchase.
+Pro is unlocked by auto-renewable subscription - Yearly $29.99 or Monthly $4.99,
+both in the "Tween Pro" group at the same level. Both are included in this
+submission. To reach the paywall: the "..." button at the top right of the map
+-> "Tween Pro", or Friends -> "Get Pro". Please use a sandbox Apple Account to
+test a purchase.
+
+(The Lifetime $9.99 non-consumable is retired by the 2026-09-19 pricing change
+and is not part of this submission - do the "Remove from Sale" click in App
+Store Connect before pasting these notes, or the claim is false. The app still
+honours that product ID for the accounts that bought it - see
+ProEntitlement.productIDs - so it must never be DELETED, only removed from
+sale.)
 
 (The on-device redeem code this section used to publish was REMOVED in a9d0b5f.
 Never offer App Review a way to unlock Pro without exercising the IAPs — a
