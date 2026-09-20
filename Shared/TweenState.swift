@@ -474,6 +474,15 @@ struct TweenState: Equatable {
         }.joined(separator: ",")
     }
 
+    /// `decodeNames` for POSITIONAL lists: keeps empty fields so index i of
+    /// the result is still field i of the input. See the `pids` decode.
+    static func decodeAlignedNames(_ raw: String) -> [String] {
+        raw.split(separator: ",", omittingEmptySubsequences: false).map { raw in
+            let s = String(raw)
+            return s.removingPercentEncoding ?? s
+        }
+    }
+
     static func decodeNames(_ raw: String) -> [String] {
         raw.split(separator: ",", omittingEmptySubsequences: true).map { raw in
             let s = String(raw)
@@ -606,7 +615,15 @@ struct TweenState: Equatable {
             // The compact format collapses id → name; restore real identity
             // from the aligned `pids=` list when the sender provided one.
             if let rawIDs = items.first(where: { $0.name == "pids" })?.value {
-                let ids = Self.decodeNames(rawIDs)
+                // decodeAlignedNames, not decodeNames: `pids` is positional —
+                // it is zipped against `decoded` below — and decodeNames omits
+                // empty fields. An unnamed participant decodes with id == ""
+                // (decodeParticipants collapses id to name, and outgoingName
+                // blanks the "You" fallback), so one such entry shortened the
+                // list, failed the count check, and silently skipped the
+                // restoration for EVERYONE — collapsing the whole roster back
+                // to name-keyed identity while the board stayed id-keyed.
+                let ids = Self.decodeAlignedNames(rawIDs)
                 if ids.count == decoded.count, ids.allSatisfy({ $0.count <= Self.maxIDLength }) {
                     decoded = zip(decoded, ids).map { participant, id in
                         Participant(id: id,

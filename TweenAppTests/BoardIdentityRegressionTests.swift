@@ -1,0 +1,176 @@
+import XCTest
+import CoreLocation
+@testable import TweenApp
+
+/// The 2026-09-20 device report: "I sent a place from the app, he agreed, and
+/// when it says both agreed we tap it and it asks to choose a place instead of
+/// Open in Maps — and the chip says Friend while the rows say Saad."
+///
+/// One cause with three faces: a roster whose identity had collapsed to
+/// DISPLAY NAMES (which `Participant`'s own doc says happens whenever a
+/// payload travels without usable ids) met a board keyed by STABLE IDS.
+final class BoardIdentityRegressionTests: XCTestCase {
+
+    private let hassanID = "11111111-2222-3333-4444-555555555555"
+    private let saadID   = "66666666-7777-8888-9999-000000000000"
+
+    private func hunan(by proposer: String) -> PollOption {
+        PollOption(name: "Hunan Village", latitude: 39.05, longitude: -77.48, proposerID: proposer)
+    }
+
+    /// The settled board, as it stands on the device that sent the lock-in.
+    private func settledBoard(proposer: String, voter: String) -> MeetupPoll {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: proposer))
+        board.vote(voter, for: hunan(by: proposer).id)
+        board.lockIn(hunan(by: proposer).id)
+        return board
+    }
+
+    // MARK: - The wipe
+
+    /// A name-keyed roster must not delete an id-keyed board. It used to drop
+    /// every option, clear the decision AND bump `decisionSeq`, which left the
+    /// extension on "Ready to pick a spot" with an empty board.
+    func testNameKeyedRosterKeepsAnIDKeyedBoardSettled() {
+        let board = settledBoard(proposer: hassanID, voter: saadID)
+        let nameKeyed = [Participant(id: "Saad", name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: "Hassan", name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: nameKeyed)
+
+        XCTAssertEqual(normalized.options.map(\.name), ["Hunan Village"],
+                       "an id/name identity mismatch is not a departure — the board must survive")
+        XCTAssertEqual(normalized.decidedOptionID, hunan(by: hassanID).id)
+        XCTAssertEqual(normalized.decisionSeq, board.decisionSeq,
+                       "bumping the generation here is what made the wipe permanent")
+        XCTAssertNotNil(normalized.settledOption(participants: nameKeyed))
+    }
+
+    /// And the mirror image: an id-keyed roster against a name-keyed board
+    /// (the bubble arrived without usable ids, so its options resolved to
+    /// names).
+    func testIDKeyedRosterKeepsANameKeyedBoardSettled() {
+        let board = settledBoard(proposer: "Hassan", voter: "Saad")
+        let idKeyed = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                       Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: idKeyed)
+
+        XCTAssertNotNil(normalized.settledOption(participants: idKeyed))
+        XCTAssertEqual(normalized.decisionSeq, board.decisionSeq)
+    }
+
+    /// The reason the wipe never healed: `merged` gives the decision slot to
+    /// the newer GENERATION, so a board that wrongly bumped `decisionSeq`
+    /// out-ranked the peer's real lock-in on every later merge.
+    func testAWipedBoardNoLongerOutranksThePeersLockIn() {
+        let peer = settledBoard(proposer: hassanID, voter: saadID)
+        let nameKeyed = [Participant(id: "Saad", name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: "Hassan", name: "Hassan", latitude: 39.10, longitude: -77.45)]
+        let local = peer.normalized(participants: nameKeyed)
+
+        let merged = MeetupPoll.merged(local: local, incoming: peer, preservingVoteOf: hassanID)
+
+        XCTAssertEqual(merged.decidedOptionID, hunan(by: hassanID).id,
+                       "the peer's lock-in must still land after a normalize")
+    }
+
+    /// A real departure still takes that person's pick with it — the guard
+    /// above must not become "never drop anything".
+    func testALeaversPickIsStillRemoved() {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: saadID))
+        board.lockIn(hunan(by: saadID).id)
+        let remaining = [Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: remaining)
+
+        XCTAssertTrue(normalized.options.isEmpty, "a leaver takes their pick with them")
+        XCTAssertNil(normalized.decidedOptionID)
+        XCTAssertGreaterThan(normalized.decisionSeq, board.decisionSeq,
+                             "THAT is a real reopen, and must still say so")
+    }
+
+    /// An UNNAMED participant must not become a wildcard: their empty name
+    /// would otherwise match every option whose proposer failed to resolve.
+    /// Scored alongside a resolvable option so the keyspace guard above stays
+    /// out of it and this tests the key set itself.
+    func testAnEmptyNameIsNotAnIdentityKey() {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))
+        board.pick(PollOption(name: "Ledo Pizza", latitude: 39.02, longitude: -77.49,
+                              proposerID: ""))
+        let roster = [Participant(id: saadID, name: "", latitude: 39.00, longitude: -77.50),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: roster)
+
+        XCTAssertEqual(normalized.options.map(\.name), ["Hunan Village"],
+                       "the unnamed participant must not vouch for an unresolvable proposer")
+    }
+
+    // MARK: - How the roster collapsed in the first place
+
+    /// `pids` is POSITIONAL. One participant with an empty id (which is what an
+    /// unnamed person decodes to) used to shorten the list, fail the count
+    /// check, and silently drop the real ids for EVERYONE.
+    func testPidsSurvivesAnEmptyID() {
+        let roster = [Participant(id: "", name: "", latitude: 39.00, longitude: -77.50),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+        let state = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                               senderName: "Hassan", senderID: hassanID, kind: .place,
+                               messageType: .pick, participants: roster, revision: 1)
+        // `pj` is the first thing the 5000-char ladder drops, and `pids` exists
+        // precisely to carry identity when it does.
+        var components = URLComponents(url: state.encodedURL()!, resolvingAgainstBaseURL: false)!
+        components.queryItems = components.queryItems!.filter { $0.name != "pj" }
+
+        let decoded = TweenState(url: components.url!)
+
+        XCTAssertEqual(decoded?.participants.map(\.id), ["", hassanID])
+    }
+
+    // MARK: - The panel disagreeing with itself
+
+    /// "There's no sync — Friend and Saad": with `received` nil (every
+    /// snapshot-restore path), the chips fell through to a synthetic
+    /// `Participant(id: "peer", name: "Friend")` while the spot rows beside
+    /// them were already labelled from the controller's real roster.
+    func testChipsUseTheControllerRosterWhenNoBubbleIsSelected() {
+        let roster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+        let view = ExpandedView(received: nil,
+                                selfCoord: CLLocationCoordinate2D(latitude: 39.10, longitude: -77.45),
+                                rankedSpots: [],
+                                isUserIn: true,
+                                localParticipantID: hassanID,
+                                rosterParticipants: roster,
+                                onImIn: {},
+                                onSelectSpot: { _ in })
+
+        XCTAssertEqual(view.otherParticipants.map(\.name), ["Saad"],
+                       "the chip must name the same person the ranked rows do")
+    }
+
+    // MARK: - The terminal-state predicate
+
+    /// `ConversationMeetupStore.saveAgreed` stores on `isDecided`; the reader
+    /// in `effectiveReceived` used to gate on `isFullyAgreed`, which is false
+    /// for anything that isn't a legacy `.agree`. The two must agree, or the
+    /// store keeps an agreement the restore refuses to show.
+    func testAPollEraLockInReadsAsDecidedNotAsFullyAgreed() {
+        let state = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                               senderName: "Saad", senderID: saadID, kind: .place,
+                               messageType: .decided,
+                               participants: [Participant(id: saadID, name: "Saad",
+                                                          latitude: 39.00, longitude: -77.50),
+                                              Participant(id: hassanID, name: "Hassan",
+                                                          latitude: 39.10, longitude: -77.45)],
+                               poll: settledBoard(proposer: hassanID, voter: saadID))
+
+        XCTAssertTrue(state.isDecided)
+        XCTAssertFalse(state.isFullyAgreed,
+                       "documents WHY the reader must not use isFullyAgreed here")
+    }
+}

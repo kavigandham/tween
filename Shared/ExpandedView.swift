@@ -175,6 +175,22 @@ struct ExpandedView: View {
                 .map { Participant(id: $0.id, name: UserName.peerDisplayName($0.name),
                                    coordinate: $0.coordinate, needsRide: $0.needsRide) }
         }
+        // The controller's live roster, before any synthetic fallback. It is
+        // the SAME list the ranker and the board score against
+        // (`pollParticipants` already prefers it for exactly this reason), and
+        // `received` is nil on every snapshot-restore path — drawer opened
+        // from the app icon, own bubble selected, a decode rejected by the
+        // revision guard. Falling straight through to the synthetic peer below
+        // meant the chips said "Friend" while the spot rows beside them were
+        // already showing "Saad 7 · Hassan 6" from this very roster: one panel
+        // disagreeing with itself about who is in (device report 2026-09-20).
+        if !rosterParticipants.isEmpty {
+            let myId = localParticipantID ?? myName
+            return rosterParticipants
+                .filter { !$0.matches(id: myId, name: myName) }
+                .map { Participant(id: $0.id, name: UserName.peerDisplayName($0.name),
+                                   coordinate: $0.coordinate, needsRide: $0.needsRide) }
+        }
         // Legacy fallback: only one peer's worth of info.
         if let legacyPeer = legacyPeerCoord {
             return [Participant(id: "peer", name: "Friend", coordinate: legacyPeer)]
@@ -815,7 +831,10 @@ struct ExpandedView: View {
     /// audit: "the buttons don't flow").
     @ViewBuilder
     var bottomAction: some View {
-        if let received, received.kind == .place, received.isFullyAgreed {
+        // `isDecided`, not `isFullyAgreed` — the latter is false for every
+        // poll-era `.decided`, so this branch never fired for a modern
+        // settled meetup (see effectiveReceived for the same fix).
+        if let received, received.kind == .place, received.isDecided {
             openFullAppButton
         } else if isUserIn, received?.kind == .place {
             // "I'm out" lives in the action row on a proposal, so all that's

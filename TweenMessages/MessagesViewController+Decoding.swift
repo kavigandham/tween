@@ -347,7 +347,18 @@ extension MessagesViewController {
         } else {
             agreedCandidate = LocationCache.loadAgreedMeetup()
         }
-        guard let agreed = agreedCandidate, agreed.isFullyAgreed else {
+        // `isDecided`, NOT `isFullyAgreed` — the same predicate
+        // `ConversationMeetupStore.saveAgreed` uses to store this value.
+        // `isFullyAgreed` answers false for anything whose messageType isn't
+        // `.agree`, and the poll-era lock-in is `.decided`, so this whole
+        // sticky-agreement override was dead code for every modern meetup:
+        // the store wrote the agreement and this read threw it away. It is the
+        // backstop that puts the user on MEETUP SET "regardless of which bubble
+        // iOS happens to pick" — with it dead, a board that lost its options
+        // for any reason left nothing to render the terminal state from
+        // (device report 2026-09-20). `.agree` behaviour is unchanged:
+        // `isDecided` forwards to `isFullyAgreed` for that case.
+        guard let agreed = agreedCandidate, agreed.isDecided else {
             return decoded
         }
         // Nothing selected — show the agreement so the user lands on the
