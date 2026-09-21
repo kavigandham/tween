@@ -217,15 +217,28 @@ extension MessagesViewController {
     @discardableResult
     func mergePoll(_ incoming: MeetupPoll, from source: BoardSource,
                    key: String? = nil) -> MeetupPoll {
+        let storeKey = key ?? conversationKey
+        // Departure tombstones tell `normalized` which unresolvable proposers
+        // genuinely LEFT, as opposed to ones whose identity collapsed to a
+        // display name in transit. Without them it cannot tell the two apart
+        // and has to keep the board — which stranded a settled meetup on a
+        // departed proposer's place (post-push audit 2026-09-21).
+        let departed = storeKey.map { ConversationMeetupStore.departedParticipants(key: $0) } ?? []
         let merged = MeetupPoll.merged(
             local: poll, incoming: incoming,
             preservingVoteOf: source == .peer ? localParticipantID() : nil)
-            .normalized(participants: pollParticipants())
+            .normalized(participants: pollParticipants(), departed: departed)
         poll = merged
-        if let key = key ?? conversationKey {
+        if let key = storeKey {
             ConversationMeetupStore.savePoll(merged, key: key)
         }
         return merged
+    }
+
+    /// The departure tombstones for the chat this controller is in — the
+    /// discriminator `normalized` needs. Empty when no conversation is active.
+    func departedForActiveConversation() -> Set<String> {
+        conversationKey.map { ConversationMeetupStore.departedParticipants(key: $0) } ?? []
     }
 
     /// Everyone the board counts: the merged roster, falling back to the

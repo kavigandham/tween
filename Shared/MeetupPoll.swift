@@ -245,30 +245,29 @@ struct MeetupPoll: Equatable, Codable {
         decisionSeq += 1
     }
 
-    /// Every string a participant can be addressed by: the stable id AND the
-    /// display name.
+    /// Every string a participant can be addressed by, for matching a board's
+    /// `proposerID` and vote keys.
     ///
-    /// `Participant`'s own documentation says identity COLLAPSES to the name
-    /// whenever a payload travels without usable ids — `p=` with a missing or
-    /// misaligned `pids=`, or a bubble from a build that predates them. A board
-    /// composed against stable ids and a roster restored name-keyed therefore
-    /// describe the same people with different strings, and matching only on
-    /// `id` read that as "nobody here proposed any of this": `normalized` then
-    /// deleted EVERY option, cleared the decision, and bumped `decisionSeq` —
-    /// which `merged` reads as "someone reopened it", so the wiped board went
-    /// on to beat the peer's decided one forever after. A settled meetup
-    /// re-opened itself permanently and the extension fell back to "Ready to
-    /// pick a spot" (device report 2026-09-20). `RosterMerge.senderKeys` and
-    /// `Participant.matches(id:name:)` already treat both as identity; this
-    /// was the one place that didn't.
+    /// A participant's display NAME is minted only when it is already serving
+    /// as their id (`id == name`) — exactly the rule `RosterMerge.isDeparted`
+    /// applies, and for the same reason its doc gives: "name keys can collide
+    /// across people, so they are never minted alongside an ID." Minting names
+    /// unconditionally let a DEPARTED member's name-keyed option survive
+    /// whenever any live member happened to share that name, which is the very
+    /// thing `normalized` exists to prevent.
     ///
-    /// Empty names are excluded — an unnamed participant decodes with
-    /// `name == ""`, and admitting that would match every option whose
-    /// proposer failed to resolve.
+    /// Empty strings are excluded on both sides. An unnamed participant
+    /// decodes with `id == name == ""` (`decodeParticipants` collapses id to
+    /// name and `outgoingName` blanks the "You" fallback), and an option whose
+    /// proposer failed to resolve carries `""` too — so admitting it would make
+    /// one unnamed participant vouch for every unattributable option and vote.
     static func identityKeys(of participants: [Participant]) -> Set<String> {
-        var keys = Set(participants.map(\.id))
-        for name in participants.map(\.name) where !name.isEmpty {
-            keys.insert(name)
+        var keys = Set<String>()
+        for participant in participants where !participant.id.isEmpty {
+            keys.insert(participant.id)
+            if participant.id == participant.name {
+                keys.insert(participant.name)
+            }
         }
         return keys
     }
@@ -276,26 +275,36 @@ struct MeetupPoll: Equatable, Codable {
     /// Scopes the poll to who is actually still in: a person who left takes
     /// their pick and their vote with them. Without this a leaver's option
     /// could still win a vote they are not attending.
-    func normalized(participants: [Participant]) -> MeetupPoll {
+    func normalized(participants: [Participant],
+                    departed: Set<String> = []) -> MeetupPoll {
         guard !participants.isEmpty else { return self }
         let live = Self.identityKeys(of: participants)
-        // NOT ONE proposer resolves? Then this roster and this board are
-        // naming people in different keyspaces (stable ids vs display names)
-        // rather than telling us everyone left, and normalizing against a
-        // roster that can't name anybody on the board is meaningless. The
-        // concrete path: the host app writes the board keyed by
-        // `TweenIdentity.stableID`, the extension restores `currentParticipants`
-        // from a snapshot whose entries came from a payload that lost its ids,
-        // and the wipe was then persisted by `mergePoll`'s `savePoll` — so a
-        // settled meetup deleted itself permanently (device report 2026-09-20).
+        // NOT ONE proposer resolves, and none of them is a KNOWN DEPARTURE?
+        // Then this roster and this board are naming people in different
+        // keyspaces (stable ids vs display names) rather than telling us
+        // everyone left, and normalizing against a roster that can't name
+        // anybody on the board is meaningless. The concrete path: the host app
+        // writes the board keyed by `TweenIdentity.stableID`, the extension
+        // restores `currentParticipants` from a snapshot whose entries came
+        // from a payload that lost its ids, and the wipe was then persisted by
+        // `mergePoll`'s `savePoll` — so a settled meetup deleted itself
+        // permanently (device report 2026-09-20).
         //
-        // Held to rosters of 2+ on purpose: a roster down to ONE person is the
-        // ordinary "my friend left" case, where their pick genuinely must go
-        // with them. The gap this leaves — every proposer in a 3+ group
-        // departing at once, whose picks now linger until the next pick or
-        // leave clears them — is the lesser of the two failures.
+        // The tombstone check is what keeps this from becoming the opposite
+        // bug. Without it, the ordinary 3-person case — one person proposes
+        // the only place, the group locks it in, the proposer leaves — read as
+        // a keyspace mismatch, so the departed proposer's option AND the
+        // decision survived. The remaining two were pinned to MEETUP SET at a
+        // place its chooser had walked away from, with no board and no "I'm
+        // out" in that branch to escape it, and a later `.leave` re-entered
+        // the same bail-out (post-push audit 2026-09-21).
+        //
+        // Rosters of 1 skip the bail-out entirely: that is the everyday "my
+        // friend left" shape, where the pick must go with them even if this
+        // device never recorded a tombstone.
         if participants.count >= 2, !options.isEmpty,
-           !options.contains(where: { live.contains($0.proposerID) }) {
+           !options.contains(where: { live.contains($0.proposerID) }),
+           !options.contains(where: { departed.contains($0.proposerID) }) {
             return self
         }
         var copy = self

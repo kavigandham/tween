@@ -68,6 +68,14 @@ extension OnboardingView {
         return ConversationMeetupStore.poll(key: key)
     }
 
+    /// Departure tombstones for the active chat. `MeetupPoll.normalized` needs
+    /// them to tell a proposer who LEFT from one whose identity collapsed to a
+    /// display name in transit — see the bail-out in that method.
+    func activeConversationDeparted() -> Set<String> {
+        guard let key = ConversationMeetupStore.lastActiveConversationKey else { return [] }
+        return ConversationMeetupStore.departedParticipants(key: key)
+    }
+
     func refreshFromAppGroup() -> Bool {
         // Group-aware path: the extension writes the full participants roster
         // whenever it receives or sends a bubble. If present, keep the first

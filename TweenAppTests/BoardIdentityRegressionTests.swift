@@ -61,19 +61,28 @@ final class BoardIdentityRegressionTests: XCTestCase {
         XCTAssertEqual(normalized.decisionSeq, board.decisionSeq)
     }
 
-    /// The reason the wipe never healed: `merged` gives the decision slot to
-    /// the newer GENERATION, so a board that wrongly bumped `decisionSeq`
-    /// out-ranked the peer's real lock-in on every later merge.
-    func testAWipedBoardNoLongerOutranksThePeersLockIn() {
+    /// Devices that already ran the broken build have an EMPTY board with an
+    /// inflated `decisionSeq` sitting in their App Group. `merged` gives the
+    /// decision slot to the newer generation, so that stale generation still
+    /// out-ranks the peer's real lock-in — the meetup has to come back anyway.
+    ///
+    /// Constructed by hand on purpose: with the fix in place `normalized` can
+    /// no longer PRODUCE this board, so deriving it from a normalize would
+    /// merge a board with itself and assert nothing.
+    func testAnAlreadyWipedBoardStillRecoversOnTheNextTap() {
         let peer = settledBoard(proposer: hassanID, voter: saadID)
-        let nameKeyed = [Participant(id: "Saad", name: "Saad", latitude: 39.00, longitude: -77.50),
-                         Participant(id: "Hassan", name: "Hassan", latitude: 39.10, longitude: -77.45)]
-        let local = peer.normalized(participants: nameKeyed)
+        var wiped = MeetupPoll.empty
+        wiped.decisionSeq = peer.decisionSeq + 1      // the old wipe's bogus "reopen"
+        let roster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
-        let merged = MeetupPoll.merged(local: local, incoming: peer, preservingVoteOf: hassanID)
+        let merged = MeetupPoll.merged(local: wiped, incoming: peer, preservingVoteOf: hassanID)
+            .normalized(participants: roster)
 
-        XCTAssertEqual(merged.decidedOptionID, hunan(by: hassanID).id,
-                       "the peer's lock-in must still land after a normalize")
+        XCTAssertEqual(merged.options.map(\.name), ["Hunan Village"],
+                       "the place comes back through the union")
+        XCTAssertNotNil(merged.settledOption(participants: roster),
+                        "and unanimity re-settles it even though the stale generation holds `dec`")
     }
 
     /// A real departure still takes that person's pick with it — the guard
@@ -110,6 +119,61 @@ final class BoardIdentityRegressionTests: XCTestCase {
                        "the unnamed participant must not vouch for an unresolvable proposer")
     }
 
+    // MARK: - The bail-out must not become the opposite bug
+
+    /// The audit's case (2026-09-21): three people, ONE proposer, the group
+    /// locks his place in, and then he leaves. The remaining two must not be
+    /// pinned to MEETUP SET at a place its chooser walked away from — that
+    /// state has no board and no "I'm out" to escape it.
+    func testTheOnlyProposerLeavingAThreePersonChatReopensTheBoard() {
+        let belalID = "BBBBBBBB-0000-0000-0000-000000000000"
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))
+        board.vote(saadID, for: hunan(by: hassanID).id)
+        board.vote(belalID, for: hunan(by: hassanID).id)
+        board.lockIn(hunan(by: hassanID).id)
+
+        let remaining = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40)]
+        let normalized = board.normalized(participants: remaining, departed: [hassanID])
+
+        XCTAssertTrue(normalized.options.isEmpty, "the leaver takes his pick with him")
+        XCTAssertNil(normalized.decidedOptionID)
+        XCTAssertNil(normalized.settledOption(participants: remaining))
+        XCTAssertGreaterThan(normalized.decisionSeq, board.decisionSeq,
+                             "this IS a reopen and must propagate as one")
+        XCTAssertNil(normalized.votes[hassanID], "a leaver's vote must stop counting")
+    }
+
+    /// The keyspace mismatch is still held, because no tombstone explains it.
+    func testAMismatchWithNoTombstoneStillKeepsTheBoard() {
+        let board = settledBoard(proposer: hassanID, voter: saadID)
+        let nameKeyed = [Participant(id: "Saad", name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: "Hassan", name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        XCTAssertNotNil(board.normalized(participants: nameKeyed, departed: [])
+                            .settledOption(participants: nameKeyed))
+    }
+
+    /// A DEPARTED member's name-keyed option must not be rescued by a live
+    /// member who merely shares their display name. `RosterMerge.isDeparted`
+    /// gates name matching on `id == name` for exactly this reason.
+    func testALeaversOptionIsNotRescuedByANameCollision() {
+        let belalID = "BBBBBBBB-0000-0000-0000-000000000000"
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: "Saad"))          // departed, name-keyed
+        board.pick(PollOption(name: "Ledo Pizza", latitude: 39.02, longitude: -77.49,
+                              proposerID: belalID))
+        // A DIFFERENT, live, id-keyed person who happens to be called Saad.
+        let roster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                      Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40)]
+
+        let normalized = board.normalized(participants: roster)
+
+        XCTAssertEqual(normalized.options.map(\.name), ["Ledo Pizza"],
+                       "a shared display name must not vouch for someone who left")
+    }
+
     // MARK: - How the roster collapsed in the first place
 
     /// `pids` is POSITIONAL. One participant with an empty id (which is what an
@@ -129,6 +193,28 @@ final class BoardIdentityRegressionTests: XCTestCase {
         let decoded = TweenState(url: components.url!)
 
         XCTAssertEqual(decoded?.participants.map(\.id), ["", hassanID])
+    }
+
+    /// An EMPTY `pids=` must not downgrade the name-keys `p=` already gave us.
+    /// `decodeAlignedNames("")` is `[""]`, which now PASSES the count check
+    /// that `decodeNames`'s `[]` used to fail — so the guard has to be on the
+    /// value, not the count.
+    func testAnEmptyPidsDoesNotEraseANameKey() {
+        let state = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                               senderName: "Hassan", senderID: hassanID, kind: .place,
+                               messageType: .pick,
+                               participants: [Participant(id: "Saad", name: "Saad",
+                                                          latitude: 39.00, longitude: -77.50)],
+                               revision: 1)
+        var components = URLComponents(url: state.encodedURL()!, resolvingAgainstBaseURL: false)!
+        components.queryItems = components.queryItems!
+            .filter { $0.name != "pj" }
+            .map { $0.name == "pids" ? URLQueryItem(name: "pids", value: "") : $0 }
+
+        let decoded = TweenState(url: components.url!)
+
+        XCTAssertEqual(decoded?.participants.map(\.id), ["Saad"],
+                       "an empty id is not an identity")
     }
 
     // MARK: - The panel disagreeing with itself

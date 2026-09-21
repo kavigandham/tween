@@ -356,7 +356,8 @@ extension OnboardingView {
         let option = PollOption(name: selection.name,
                                 coordinate: selection.coordinate,
                                 proposerID: incoming.senderID ?? incoming.senderName ?? "")
-        var board = activeConversationBoard().normalized(participants: participants)
+        var board = activeConversationBoard().normalized(participants: participants,
+                                                     departed: activeConversationDeparted())
         board.ensure(option)
         board.vote(myID, for: option.id)
         // Terminal ONLY when the board actually says so — a unanimous vote, or

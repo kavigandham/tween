@@ -626,7 +626,13 @@ struct TweenState: Equatable {
                 let ids = Self.decodeAlignedNames(rawIDs)
                 if ids.count == decoded.count, ids.allSatisfy({ $0.count <= Self.maxIDLength }) {
                     decoded = zip(decoded, ids).map { participant, id in
-                        Participant(id: id,
+                        // An EMPTY aligned id is not an identity — keep the
+                        // name-key the compact format already gave us. Without
+                        // this, `pids=` (one empty field, one participant) now
+                        // passes the count check that used to reject it and
+                        // replaces a usable key with "" (post-push audit
+                        // 2026-09-21).
+                        Participant(id: id.isEmpty ? participant.id : id,
                                     name: participant.name,
                                     latitude: participant.latitude,
                                     longitude: participant.longitude,

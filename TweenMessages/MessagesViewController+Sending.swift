@@ -281,7 +281,8 @@ extension MessagesViewController {
 
         let option = PollOption(name: name, coordinate: coordinate,
                                 proposerID: localParticipantID())
-        var board = poll.normalized(participants: participants)
+        var board = poll.normalized(participants: participants,
+                                    departed: departedForActiveConversation())
         board.pick(option)
 
         // A pick NEVER settles the meetup, however the arithmetic falls — see
@@ -377,7 +378,8 @@ extension MessagesViewController {
                 participants = self.currentParticipants
             }
 
-            var board = self.poll.normalized(participants: participants)
+            var board = self.poll.normalized(participants: participants,
+                                             departed: self.departedForActiveConversation())
             // The user tapped a row they could SEE, so the option has to be on
             // the board before we mutate it — otherwise voting for an option
             // this device only knew from the open bubble is a silent no-op.
@@ -530,7 +532,8 @@ extension MessagesViewController {
                 agreedNames: agreedNames,
                 agreedIDs: agreedIDs,
                 revision: self.nextOutgoingRevision(),
-                poll: self.poll.normalized(participants: participants),
+                poll: self.poll.normalized(participants: participants,
+                                           departed: self.departedForActiveConversation()),
                 etaSeconds: seconds
             )
             let didSend = await sendBubbleNow(for: state)

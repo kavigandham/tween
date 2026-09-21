@@ -118,7 +118,8 @@ extension OnboardingView {
             // reported "my friend's different place agreed to mine" happened.
             let option = PollOption(name: selection.name, coordinate: coord,
                                     proposerID: TweenIdentity.stableID)
-            var board = activeConversationBoard().normalized(participants: participants)
+            var board = activeConversationBoard().normalized(participants: participants,
+                                                     departed: activeConversationDeparted())
             board.pick(option)
             let messageType: TweenState.MessageType = .pick
             let state = TweenState(
