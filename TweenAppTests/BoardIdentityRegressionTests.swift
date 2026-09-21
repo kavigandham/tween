@@ -37,7 +37,7 @@ final class BoardIdentityRegressionTests: XCTestCase {
         let nameKeyed = [Participant(id: "Saad", name: "Saad", latitude: 39.00, longitude: -77.50),
                          Participant(id: "Hassan", name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
-        let normalized = board.normalized(participants: nameKeyed)
+        let normalized = board.normalized(participants: nameKeyed, departed: [])
 
         XCTAssertEqual(normalized.options.map(\.name), ["Hunan Village"],
                        "an id/name identity mismatch is not a departure — the board must survive")
@@ -55,7 +55,7 @@ final class BoardIdentityRegressionTests: XCTestCase {
         let idKeyed = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
                        Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
-        let normalized = board.normalized(participants: idKeyed)
+        let normalized = board.normalized(participants: idKeyed, departed: [])
 
         XCTAssertNotNil(normalized.settledOption(participants: idKeyed))
         XCTAssertEqual(normalized.decisionSeq, board.decisionSeq)
@@ -77,7 +77,7 @@ final class BoardIdentityRegressionTests: XCTestCase {
                       Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
         let merged = MeetupPoll.merged(local: wiped, incoming: peer, preservingVoteOf: hassanID)
-            .normalized(participants: roster)
+            .normalized(participants: roster, departed: [])
 
         XCTAssertEqual(merged.options.map(\.name), ["Hunan Village"],
                        "the place comes back through the union")
@@ -93,7 +93,7 @@ final class BoardIdentityRegressionTests: XCTestCase {
         board.lockIn(hunan(by: saadID).id)
         let remaining = [Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
-        let normalized = board.normalized(participants: remaining)
+        let normalized = board.normalized(participants: remaining, departed: [])
 
         XCTAssertTrue(normalized.options.isEmpty, "a leaver takes their pick with them")
         XCTAssertNil(normalized.decidedOptionID)
@@ -113,7 +113,7 @@ final class BoardIdentityRegressionTests: XCTestCase {
         let roster = [Participant(id: saadID, name: "", latitude: 39.00, longitude: -77.50),
                       Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
 
-        let normalized = board.normalized(participants: roster)
+        let normalized = board.normalized(participants: roster, departed: [])
 
         XCTAssertEqual(normalized.options.map(\.name), ["Hunan Village"],
                        "the unnamed participant must not vouch for an unresolvable proposer")
@@ -168,10 +168,94 @@ final class BoardIdentityRegressionTests: XCTestCase {
         let roster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
                       Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40)]
 
-        let normalized = board.normalized(participants: roster)
+        let normalized = board.normalized(participants: roster, departed: ["Saad"])
 
         XCTAssertEqual(normalized.options.map(\.name), ["Ledo Pizza"],
                        "a shared display name must not vouch for someone who left")
+    }
+
+    /// The view re-merges the SELECTED bubble's board and re-normalizes it, so
+    /// it needs the tombstones too. Without them `ExpandedView` re-admitted the
+    /// option the controller had just dropped and offered "Lock in <it>", which
+    /// a send would then broadcast back to everyone.
+    func testTheViewAlsoScopesTheBoardToTombstones() {
+        let belalID = "BBBBBBBB-0000-0000-0000-000000000000"
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))
+        board.lockIn(hunan(by: hassanID).id)
+        // Hassan's own pick bubble, still sitting in the snapshot after he left.
+        let hisBubble = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                                   senderName: "Hassan", senderID: hassanID, kind: .place,
+                                   messageType: .pick, participants: [], poll: board)
+        let remaining = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40)]
+
+        let view = ExpandedView(received: hisBubble,
+                                selfCoord: CLLocationCoordinate2D(latitude: 39.00, longitude: -77.50),
+                                rankedSpots: [],
+                                isUserIn: true,
+                                localParticipantID: saadID,
+                                rosterParticipants: remaining,
+                                poll: .empty,
+                                departed: [hassanID],
+                                onImIn: {},
+                                onSelectSpot: { _ in })
+
+        XCTAssertTrue(view.board.options.isEmpty,
+                      "the tapped bubble must not re-admit a departed proposer's place")
+        XCTAssertFalse(view.isMeetupSet, "and it must not read as a settled meetup")
+        XCTAssertNil(view.settledOption)
+    }
+
+    /// A PARTIAL keyspace mismatch: one option resolves, one is name-keyed from
+    /// a legacy bubble. The collapsed one must survive — the old all-or-nothing
+    /// guard deleted it precisely because its neighbour resolved.
+    func testAPartialKeyspaceMismatchKeepsTheCollapsedOption() {
+        let belalID = "BBBBBBBB-0000-0000-0000-000000000000"
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: belalID))                     // resolves
+        board.pick(PollOption(name: "Ledo Pizza", latitude: 39.02, longitude: -77.49,
+                              proposerID: "Hassan"))       // name-keyed, collapsed
+        let roster = [Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: roster, departed: [])
+
+        XCTAssertEqual(Set(normalized.options.map(\.name)), ["Hunan Village", "Ledo Pizza"],
+                       "one resolvable neighbour is not proof the other person left")
+    }
+
+    /// And a MIXED board — one proposer tombstoned, one merely unresolvable.
+    /// The tombstoned one goes; the unresolvable one stays. The old guard was
+    /// all-or-nothing, so the single tombstone disarmed it and took both.
+    func testATombstonedProposerDoesNotTakeAnUnresolvableOneWithIt() {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))                    // tombstoned below
+        board.pick(PollOption(name: "Ledo Pizza", latitude: 39.02, longitude: -77.49,
+                              proposerID: "Belal"))        // name-keyed, no tombstone
+        let roster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                      Participant(id: "ZZZ", name: "Zoe", latitude: 39.30, longitude: -77.30)]
+
+        let normalized = board.normalized(participants: roster, departed: [hassanID])
+
+        XCTAssertEqual(normalized.options.map(\.name), ["Ledo Pizza"])
+    }
+
+    /// An unnamed participant decodes with `id == ""`. Excluding empty ids from
+    /// the MATCHING keys must not also strip their vote — that made unanimity
+    /// unreachable for their whole group.
+    func testAnUnnamedParticipantKeepsTheirVote() {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))
+        board.vote("", for: hunan(by: hassanID).id)
+        let roster = [Participant(id: "", name: "", latitude: 39.00, longitude: -77.50),
+                      Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: roster, departed: [])
+
+        XCTAssertEqual(normalized.votes[""], hunan(by: hassanID).id)
+        XCTAssertNotNil(normalized.unanimousOption(participants: roster),
+                        "both voted the same way — that is a settled meetup")
     }
 
     // MARK: - How the roster collapsed in the first place

@@ -134,7 +134,7 @@ final class MeetupPollTests: XCTestCase {
         poll.pick(heyTea(by: hassan.id))
         poll.pick(kungFuTea(by: belal.id))
 
-        let remaining = poll.normalized(participants: [hassan])
+        let remaining = poll.normalized(participants: [hassan], departed: [])
         XCTAssertEqual(remaining.options.count, 1)
         XCTAssertEqual(remaining.options.first?.name, "Hey Tea")
         XCTAssertNil(remaining.vote(by: belal.id))
@@ -145,7 +145,7 @@ final class MeetupPollTests: XCTestCase {
         poll.pick(kungFuTea(by: belal.id))
         poll.lockIn(kungFuTea(by: belal.id).id)
 
-        let remaining = poll.normalized(participants: [hassan])
+        let remaining = poll.normalized(participants: [hassan], departed: [])
         XCTAssertFalse(remaining.isDecided)
     }
 

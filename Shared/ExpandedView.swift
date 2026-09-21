@@ -99,6 +99,14 @@ struct ExpandedView: View {
     var poll: MeetupPoll = .empty
     /// Who has said "leaving now", newest first (`EnRouteLog`).
     var enRouteMarks: [EnRouteLog.Mark] = []
+    /// Departure tombstones for this chat (`ConversationMeetupStore`).
+    ///
+    /// `board` below re-normalizes, so without them THIS view re-admitted a
+    /// departed proposer's option that the controller had correctly dropped —
+    /// and then offered "Lock in <their place>", which broadcast it back to
+    /// everyone (post-push audit 2026-09-21). Empty is correct only where
+    /// there is no conversation to read them from: previews and the harness.
+    var departed: Set<String> = []
     /// Whether the spot search is hiding places that are closed right now.
     var openNowOnly: Bool = true
     var onImIn: () -> Void
@@ -247,7 +255,7 @@ struct ExpandedView: View {
         guard let received, received.kind == .place else { return poll }
         return MeetupPoll.merged(local: poll, incoming: received.absorbedPoll,
                                  preservingVoteOf: localParticipantID)
-            .normalized(participants: pollParticipants)
+            .normalized(participants: pollParticipants, departed: departed)
     }
 
     /// The place the group settled on, if it has: an explicit lock-in, a
@@ -255,10 +263,18 @@ struct ExpandedView: View {
     var settledOption: PollOption? {
         if let option = board.settledOption(participants: pollParticipants) { return option }
         guard let received, received.isDecided, received.kind == .place else { return nil }
+        // This second path synthesises the terminal state from the BUBBLE, so
+        // it walks straight past `board` and everything `normalized` just
+        // decided. A `.pick` whose embedded poll carries a lock-in answers
+        // `isDecided` too, so scoping `board` alone left the departed
+        // proposer's place still rendering as MEETUP SET — the stranding, one
+        // property further down (post-push audit 2026-09-21).
+        let proposer = received.senderID ?? received.senderName ?? ""
+        guard !departed.contains(proposer) else { return nil }
         return PollOption(name: received.text,
                           latitude: received.latitude,
                           longitude: received.longitude,
-                          proposerID: received.senderID ?? received.senderName ?? "")
+                          proposerID: proposer)
     }
 
     /// Terminal state — the group has a place. Once true, the body swaps from

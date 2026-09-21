@@ -276,41 +276,45 @@ struct MeetupPoll: Equatable, Codable {
     /// their pick and their vote with them. Without this a leaver's option
     /// could still win a vote they are not attending.
     func normalized(participants: [Participant],
-                    departed: Set<String> = []) -> MeetupPoll {
+                    departed: Set<String>) -> MeetupPoll {
         guard !participants.isEmpty else { return self }
         let live = Self.identityKeys(of: participants)
-        // NOT ONE proposer resolves, and none of them is a KNOWN DEPARTURE?
-        // Then this roster and this board are naming people in different
-        // keyspaces (stable ids vs display names) rather than telling us
-        // everyone left, and normalizing against a roster that can't name
-        // anybody on the board is meaningless. The concrete path: the host app
-        // writes the board keyed by `TweenIdentity.stableID`, the extension
-        // restores `currentParticipants` from a snapshot whose entries came
-        // from a payload that lost its ids, and the wipe was then persisted by
-        // `mergePoll`'s `savePoll` — so a settled meetup deleted itself
-        // permanently (device report 2026-09-20).
+        // Roster ids VERBATIM, empty string included. An unnamed participant
+        // still holds a vote, and `identityKeys` deliberately refuses "" as a
+        // matching key — so without this their vote was stripped on every pass
+        // and unanimity became unreachable for their whole group.
+        let rosterIDs = Set(participants.map(\.id))
+
+        // Three answers, not two. A key the roster NAMES is live; a key a
+        // departure TOMBSTONE names is gone; and a key neither can place is
+        // UNRESOLVABLE — identity collapses to display names whenever a
+        // payload travels without usable ids, so an id-keyed board meeting a
+        // name-keyed roster is describing the same people in two alphabets.
         //
-        // The tombstone check is what keeps this from becoming the opposite
-        // bug. Without it, the ordinary 3-person case — one person proposes
-        // the only place, the group locks it in, the proposer leaves — read as
-        // a keyspace mismatch, so the departed proposer's option AND the
-        // decision survived. The remaining two were pinned to MEETUP SET at a
-        // place its chooser had walked away from, with no board and no "I'm
-        // out" in that branch to escape it, and a later `.leave` re-entered
-        // the same bail-out (post-push audit 2026-09-21).
+        // Deleting on that third answer wiped settled meetups permanently
+        // (device report 2026-09-20). Keeping it wholesale stranded them on a
+        // departed proposer's place, with no board and no "I'm out" to escape
+        // through (post-push audit 2026-09-21). So only a TOMBSTONE deletes —
+        // per option and per vote, never all-or-nothing for the board, which
+        // let one tombstoned proposer disarm the protection for everyone else.
         //
-        // Rosters of 1 skip the bail-out entirely: that is the everyday "my
-        // friend left" shape, where the pick must go with them even if this
-        // device never recorded a tombstone.
-        if participants.count >= 2, !options.isEmpty,
-           !options.contains(where: { live.contains($0.proposerID) }),
-           !options.contains(where: { departed.contains($0.proposerID) }) {
-            return self
+        // The exception is a roster down to ONE person: the everyday "my
+        // friend left" shape, where this device may hold no tombstone at all
+        // and there is nobody left for the board to belong to.
+        func belongs(_ key: String) -> Bool {
+            if live.contains(key) || rosterIDs.contains(key) { return true }
+            if departed.contains(key) { return false }
+            return participants.count >= 2
         }
+
         var copy = self
-        copy.options = options.filter { live.contains($0.proposerID) }
+        copy.options = options.filter { option in
+            // An empty proposer is not an identity, it is a failed lookup —
+            // nothing later can resolve it, so it is never worth keeping.
+            !option.proposerID.isEmpty && belongs(option.proposerID)
+        }
         let liveOptionIDs = Set(copy.options.map(\.id))
-        copy.votes = votes.filter { live.contains($0.key) && liveOptionIDs.contains($0.value) }
+        copy.votes = votes.filter { belongs($0.key) && liveOptionIDs.contains($0.value) }
         if let decided = copy.decidedOptionID, !liveOptionIDs.contains(decided) {
             copy.decidedOptionID = nil
             copy.decisionSeq += 1

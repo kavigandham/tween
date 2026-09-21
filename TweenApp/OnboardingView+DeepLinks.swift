@@ -358,7 +358,11 @@ extension OnboardingView {
                                 proposerID: incoming.senderID ?? incoming.senderName ?? "")
         var board = activeConversationBoard().normalized(participants: participants,
                                                      departed: activeConversationDeparted())
-        board.ensure(option)
+        // Never re-add a place whose chooser has left — see the extension's
+        // sendBoardUpdate for what that did.
+        if !activeConversationDeparted().contains(option.proposerID) {
+            board.ensure(option)
+        }
         board.vote(myID, for: option.id)
         // Terminal ONLY when the board actually says so — a unanimous vote, or
         // a lock-in already on it. A plurality still needs someone to say so.

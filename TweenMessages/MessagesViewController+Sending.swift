@@ -383,7 +383,13 @@ extension MessagesViewController {
             // The user tapped a row they could SEE, so the option has to be on
             // the board before we mutate it — otherwise voting for an option
             // this device only knew from the open bubble is a silent no-op.
-            board.ensure(focus)
+            // But NEVER re-add a place whose chooser has left: `normalized`
+            // just dropped it, and putting it back here is what turned a
+            // stale render into a `.decided` broadcast that pinned everyone
+            // else to it (post-push audit 2026-09-21).
+            if !self.departedForActiveConversation().contains(focus.proposerID) {
+                board.ensure(focus)
+            }
             mutate(&board, myID)
             let settled = board.settledOption(participants: participants)
             // The spot the bubble is ABOUT: the winner once it's settled,

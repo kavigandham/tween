@@ -564,6 +564,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     recentlySentSpotName: recentlySentSpotName,
                     poll: poll,
                     enRouteMarks: enRouteMarks,
+                    departed: departedForActiveConversation(),
                     openNowOnly: openNowOnly,
                     onImIn: { [weak self] in self?.handleImIn() },
                     onImOut: { [weak self] in self?.handleImOut() },

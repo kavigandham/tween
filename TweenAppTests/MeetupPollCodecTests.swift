@@ -395,7 +395,7 @@ final class MeetupPollStaleBoardTests: XCTestCase {
         stale.vote(me.id, for: heyTea(by: me.id).id)
 
         let merged = MeetupPoll.merged(local: mine, incoming: stale, preservingVoteOf: me.id)
-            .normalized(participants: [alice, me])
+            .normalized(participants: [alice, me], departed: [])
 
         XCTAssertNotNil(merged.option(proposedBy: me.id))
         XCTAssertEqual(merged.option(proposedBy: me.id)?.name, "Kung Fu Tea",
@@ -525,7 +525,7 @@ final class MeetupPollHydrationTests: XCTestCase {
         let hydrated = MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
                                          incoming: .empty, preservingVoteOf: me.id)
         let merged = MeetupPoll.merged(local: hydrated, incoming: stale, preservingVoteOf: me.id)
-            .normalized(participants: [alice, me])
+            .normalized(participants: [alice, me], departed: [])
 
         XCTAssertEqual(merged.option(proposedBy: me.id)?.name, "Kung Fu Tea")
         XCTAssertEqual(merged.vote(by: me.id), opt("Kung Fu Tea", 37.765, by: me.id).id)

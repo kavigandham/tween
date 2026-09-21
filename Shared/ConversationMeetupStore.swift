@@ -321,7 +321,20 @@ enum ConversationMeetupStore {
         // to persist and the terminal screen vanished on relaunch.
         if state.isDecided {
             snapshot.agreedState = state
-            snapshot.poll = state.absorbedPoll
+            // MERGE and re-scope — do NOT replace. On the send path
+            // `mergePoll` has already stored a tombstone-scoped board by the
+            // time this runs, and a wholesale replace threw that away, so a
+            // departed proposer's option came back on the next hydration. The
+            // host app's incoming-`.decided` path was worse still: it replaced
+            // this device's board, its own picks and votes included
+            // (post-push audit 2026-09-21). Everything this needs is already
+            // here — the roster rides in the state, the tombstones in sync
+            // state — so there is no reason for this writer to be the one
+            // that skips the scoping every other writer does.
+            snapshot.poll = MeetupPoll
+                .merged(local: snapshot.poll ?? .empty, incoming: state.absorbedPoll)
+                .normalized(participants: state.participants,
+                            departed: departedParticipants(key: key))
         }
         save(snapshot, key: key)
     }
