@@ -66,7 +66,7 @@ A missing review screenshot is the single most common rejection here.
 
 | Product | ID | Type | Price |
 |---|---|---|---|
-| Tween Pro Yearly | `com.kavigandham.TweenApp.pro.yearly` | Auto-Renewable | $29.99/yr |
+| Tween Pro Yearly | `com.kavigandham.TweenApp.pro.annual` | Auto-Renewable | $29.99/yr |
 | Tween Pro Monthly | `com.kavigandham.TweenApp.pro.monthly` | Auto-Renewable | $4.99/mo |
 
 Both live in the **Tween Pro** subscription group at the **same level** — same

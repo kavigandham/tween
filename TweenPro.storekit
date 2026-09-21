@@ -40,7 +40,7 @@
               "locale": "en_US"
             }
           ],
-          "productID": "com.kavigandham.TweenApp.pro.yearly",
+          "productID": "com.kavigandham.TweenApp.pro.annual",
           "recurringSubscriptionPeriod": "P1Y",
           "referenceName": "Tween Pro Yearly",
           "subscriptionGroupID": "PRO_GROUP",

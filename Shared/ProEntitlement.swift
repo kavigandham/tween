@@ -10,7 +10,14 @@ import StoreKit
 enum ProEntitlement {
     /// Auto-renewable yearly plan — the headline offer. Price lives in App
     /// Store Connect.
-    static let yearlyProductID = "com.kavigandham.TweenApp.pro.yearly"
+    /// `.pro.annual`, NOT `.pro.yearly`. App Store Connect refuses
+    /// `…pro.yearly` as already in use — the product does not appear in either
+    /// the subscription group or the In-App Purchase list, so the string was
+    /// burned by an earlier create-then-delete, and Apple never releases a
+    /// product ID back. Nothing was ever sold under it, so there is no
+    /// grandfathering to preserve here (unlike `lifetimeProductID` below).
+    /// Keep this in lockstep with TweenPro.storekit and the ASC product.
+    static let yearlyProductID = "com.kavigandham.TweenApp.pro.annual"
     /// Auto-renewable monthly alternative — any product grants Pro.
     static let monthlyProductID = "com.kavigandham.TweenApp.pro.monthly"
     /// RETIRED FROM SALE (2026-09-19, lifetime → yearly), never retired from
