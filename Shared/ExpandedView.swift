@@ -99,6 +99,14 @@ struct ExpandedView: View {
     var poll: MeetupPoll = .empty
     /// Who has said "leaving now", newest first (`EnRouteLog`).
     var enRouteMarks: [EnRouteLog.Mark] = []
+    /// The live Arrival Sync for this chat: the target arrival somebody's
+    /// departure set, and when everyone else should leave to match it.
+    /// Nil until somebody taps I Left. See `ArrivalSyncState`.
+    var arrivalSync: ArrivalSyncState? = nil
+    /// Whether this device owns Tween Pro. Read from the cached App Group flag
+    /// by the controller — the extension never touches StoreKit (constraint 1).
+    /// Gates INITIATING a sync only; receiving one is free for everybody.
+    var isProUnlocked: Bool = false
     /// Departure tombstones for this chat (`ConversationMeetupStore`).
     ///
     /// `board` below re-normalizes, so without them THIS view re-admitted a
@@ -110,6 +118,12 @@ struct ExpandedView: View {
     /// Whether the spot search is hiding places that are closed right now.
     var openNowOnly: Bool = true
     var onImIn: () -> Void
+    /// Joins with the user's saved Home instead of a live fix. Nil when no
+    /// Home is saved — the drawer has no address search (constraint 3 keeps
+    /// text input out of the extension), so there is nothing useful to offer
+    /// besides hiding the row.
+    var savedHome: MyPlace? = nil
+    var onImInFromHome: () -> Void = {}
     var onImOut: () -> Void = {}
     /// Puts the spot on the board under your name (and votes for it).
     var onSelectSpot: (RankedSpot) -> Void
@@ -117,8 +131,12 @@ struct ExpandedView: View {
     var onVote: (PollOption) -> Void = { _ in }
     /// Ends the vote on one option — the plurality / tie-break escape hatch.
     var onLockIn: (PollOption) -> Void = { _ in }
-    /// "I'm heading over" — sends your live ETA to the settled place.
+    /// "I'm heading over" — sends your live ETA to the settled place, and for
+    /// a Pro user starts the Arrival Sync that tells everyone else when to go.
     var onLeavingNow: () -> Void = {}
+    /// Non-Pro tapped the Arrival Sync upsell. Trampolines to the host app's
+    /// paywall — StoreKit is deliberately absent from the extension.
+    var onUpgradeToPro: () -> Void = {}
     var onToggleOpenNow: () -> Void = {}
     var onSendDraft: () -> Void = {}
     var onOpenFullApp: () -> Void = {}
@@ -267,14 +285,27 @@ struct ExpandedView: View {
         // it walks straight past `board` and everything `normalized` just
         // decided. A `.pick` whose embedded poll carries a lock-in answers
         // `isDecided` too, so scoping `board` alone left the departed
-        // proposer's place still rendering as MEETUP SET — the stranding, one
-        // property further down (post-push audit 2026-09-21).
-        let proposer = received.senderID ?? received.senderName ?? ""
-        guard !departed.contains(proposer) else { return nil }
+        // proposer's place still rendering as MEETUP SET.
+        //
+        // And the identity to check is the place's OWNER, never the bubble's
+        // sender: `sendBoardUpdate` deliberately stamps `senderID: myID`, so
+        // on a `.decided` that is whoever LOCKED IN, and on an `.enroute`
+        // whoever is leaving. Guarding on the sender passed the ordinary case
+        // straight through — B locks in C's place, C leaves — and put the
+        // group back on a departed friend's spot (audit round 3, which also
+        // caught that the test I wrote for this had the same blind spot).
+        // The bubble's own board still carries the option with its real
+        // proposer, so ask that and fall back to the sender only when the
+        // payload carried no board at all (a pre-poll bubble).
+        let owner = received.absorbedPoll.options.first {
+            abs($0.latitude - received.latitude) < 1e-4
+                && abs($0.longitude - received.longitude) < 1e-4
+        }?.proposerID ?? received.senderID ?? received.senderName ?? ""
+        guard !departed.contains(owner) else { return nil }
         return PollOption(name: received.text,
                           latitude: received.latitude,
                           longitude: received.longitude,
-                          proposerID: proposer)
+                          proposerID: owner)
     }
 
     /// Terminal state — the group has a place. Once true, the body swaps from
@@ -794,6 +825,7 @@ struct ExpandedView: View {
                 .buttonStyle(.tweenPrimary())
                 .disabled(isSending)
                 .accessibilityHint("Shares where you are with your friend")
+                fromHomeButton
             }
         }
         .sensoryFeedback(.impact, trigger: sendTick)
@@ -886,6 +918,28 @@ struct ExpandedView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// "From Home" — join with the saved address instead of a live fix.
+    ///
+    /// The quiet second action under "I'm in", not a picker: the drawer is a
+    /// keyboard-height surface with two real choices, and a sheet to pick
+    /// between them would cost more taps than it saves. No address is drawn —
+    /// the label is the place's name, so a shoulder-surfer in a group chat
+    /// learns nothing.
+    @ViewBuilder
+    var fromHomeButton: some View {
+        if let savedHome {
+            Button(action: onImInFromHome) {
+                Label("I'm in — from \(savedHome.label)", systemImage: MyPlaceKind.home.symbol)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .buttonStyle(.tweenPrimary(.subtle))
+            .disabled(isSending)
+            .accessibilityLabel("I'm in, from \(savedHome.label)")
+            .accessibilityHint("Joins using your saved home address instead of your current location")
+        }
     }
 
     var openFullAppButton: some View {

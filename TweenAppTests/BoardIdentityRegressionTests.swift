@@ -258,6 +258,80 @@ final class BoardIdentityRegressionTests: XCTestCase {
                         "both voted the same way — that is a settled meetup")
     }
 
+    /// Round 3's hit, and the one my own test missed: on a `.decided` the
+    /// sender is whoever LOCKED IN, not whose place it is. B locks in C's
+    /// place, C leaves — guarding on the sender let C's place straight back
+    /// through as a settled meetup.
+    func testTheTerminalStateChecksThePlacesOwnerNotTheBubblesSender() {
+        let belalID = "BBBBBBBB-0000-0000-0000-000000000000"
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))            // Hassan's place
+        board.vote(belalID, for: hunan(by: hassanID).id)
+        board.lockIn(hunan(by: hassanID).id)
+        // ...locked in by BELAL, who is still here. Hassan has left.
+        let lockIn = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                                senderName: "Belal", senderID: belalID, kind: .place,
+                                messageType: .decided, participants: [], poll: board)
+        let remaining = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                         Participant(id: belalID, name: "Belal", latitude: 39.20, longitude: -77.40)]
+
+        let view = ExpandedView(received: lockIn,
+                                selfCoord: CLLocationCoordinate2D(latitude: 39.00, longitude: -77.50),
+                                rankedSpots: [], isUserIn: true,
+                                localParticipantID: saadID,
+                                rosterParticipants: remaining,
+                                poll: .empty,
+                                departed: [hassanID],
+                                onImIn: {}, onSelectSpot: { _ in })
+
+        XCTAssertNil(view.settledOption,
+                     "the place belongs to Hassan, who left — the locker-in being present is irrelevant")
+        XCTAssertFalse(view.isMeetupSet)
+    }
+
+    /// A tombstone has to outrank a roster that still lists the leaver —
+    /// which is the normal state of any peer who never processed the leave.
+    func testATombstoneBeatsARosterThatStillListsTheLeaver() {
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: hassanID))
+        board.lockIn(hunan(by: hassanID).id)
+        // A peer's roster, still carrying Hassan because they never saw his leave.
+        let staleRoster = [Participant(id: saadID, name: "Saad", latitude: 39.00, longitude: -77.50),
+                           Participant(id: hassanID, name: "Hassan", latitude: 39.10, longitude: -77.45)]
+
+        let normalized = board.normalized(participants: staleRoster, departed: [hassanID])
+
+        XCTAssertTrue(normalized.options.isEmpty,
+                      "the tombstone is the authority, not the roster that lags it")
+        XCTAssertNil(normalized.decidedOptionID)
+    }
+
+    /// And the roster writers must not put the leaver back either — on the
+    /// host path `saveAgreed` runs after the merged roster is stored, so an
+    /// unfiltered write both re-admitted them and silenced the gossip.
+    func testStoringADecidedStateDoesNotReadmitADepartedParticipant() {
+        let key = "ZZtombstoneRoster"
+        ConversationMeetupStore.clearIncludingSync(key: key)
+        ConversationMeetupStore.noteDeparted([hassanID], key: key)
+        var board = MeetupPoll.empty
+        board.pick(hunan(by: saadID))
+        board.lockIn(hunan(by: saadID).id)
+        let decided = TweenState(text: "Hunan Village", latitude: 39.05, longitude: -77.48,
+                                 senderName: "Saad", senderID: saadID, kind: .place,
+                                 messageType: .decided,
+                                 participants: [Participant(id: saadID, name: "Saad",
+                                                            latitude: 39.00, longitude: -77.50),
+                                                Participant(id: hassanID, name: "Hassan",
+                                                            latitude: 39.10, longitude: -77.45)],
+                                 poll: board)
+
+        ConversationMeetupStore.saveAgreed(decided, key: key)
+
+        XCTAssertEqual(ConversationMeetupStore.load(key: key)?.participants.map(\.id), [saadID],
+                       "a payload roster never overrules this device's tombstones")
+        ConversationMeetupStore.clearIncludingSync(key: key)
+    }
+
     // MARK: - How the roster collapsed in the first place
 
     /// `pids` is POSITIONAL. One participant with an empty id (which is what an

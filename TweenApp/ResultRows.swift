@@ -145,6 +145,10 @@ struct ResultCard: View {
     /// left the estimate stale until a routed time landed (audit
     /// 2026-09-06).
     var soloMode: TravelMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
+    /// One short line explaining why this place fits the active mood, derived
+    /// from its POI category (`MoodIntent.note(for:)`). Nil for every ordinary
+    /// search — the card then renders exactly as it always has.
+    var moodNote: String? = nil
     let onDirections: () -> Void
     let onSendToChat: () -> Void
 
@@ -208,10 +212,15 @@ struct ResultCard: View {
                 Spacer(minLength: 0)
             }
 
-            if let category = item.pointOfInterestCategory?.displayName {
-                Text(category)
+            // The mood note takes this slot when there is one: it says more
+            // than the bare category label, and `displayName` is nil for most
+            // activity categories (bowling, go-karts) anyway — so a mood
+            // search would otherwise have no subtitle at all.
+            if let subtitle = moodNote ?? item.pointOfInterestCategory?.displayName {
+                Text(subtitle)
                     .font(Tokens.Typography.callout)
                     .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
             }
 
             HStack(spacing: Tokens.Spacing.s2) {
@@ -319,6 +328,9 @@ extension ResultCard: Equatable {
             && a.bestWorstETA == b.bestWorstETA
             && a.soloETA == b.soloETA
             && a.soloMode == b.soloMode
+            // Without this the card keeps the PREVIOUS mood's note after a
+            // refinement tap: same item, same ranking, different reason.
+            && a.moodNote == b.moodNote
     }
 
     /// The user's coordinate at ~100 m: the card shows a 0.1 mi distance and a

@@ -111,6 +111,14 @@ extension OnboardingView {
         GroupEditorSheet(
             group: group,
             draftMemberIDs: draftMemberIDs,
+            // A new group arrives already named after its people, so Save is
+            // reachable on the first tap (spec §15). Resolved against the
+            // live roster — the draft's ids were just written to it.
+            draftName: group == nil
+                ? GroupNaming.suggested(from: draftMemberIDs.compactMap { id in
+                    friends.first { $0.id == id }?.name
+                  })
+                : "",
             friends: friends,
             onSave: { saved in
                 GroupStore.upsert(saved)

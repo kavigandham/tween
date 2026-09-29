@@ -45,6 +45,10 @@ extension OnboardingView {
             // stack still laid spacing between four empty slots.
             VStack(spacing: Tokens.Spacing.s3) {
                 if !monitor.isOnline { offlineBanner }
+                // Above the planned-meetup banner: a departure that is already
+                // happening outranks a schedule for later, and this carries the
+                // one time-critical number on the screen.
+                arrivalSyncBanner
                 plannedMeetupBanner
                 replyBanner
                 mapPanel

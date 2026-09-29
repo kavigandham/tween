@@ -302,8 +302,13 @@ struct MeetupPoll: Equatable, Codable {
         // friend left" shape, where this device may hold no tombstone at all
         // and there is nobody left for the board to belong to.
         func belongs(_ key: String) -> Bool {
-            if live.contains(key) || rosterIDs.contains(key) { return true }
+            // TOMBSTONE FIRST. Peers who never processed a leave keep
+            // broadcasting the leaver in their rosters — that is precisely
+            // what tombstones are for (see RosterMerge) — so asking the
+            // roster first meant `departed` was never reached in the one case
+            // it exists to decide (audit round 3).
             if departed.contains(key) { return false }
+            if live.contains(key) || rosterIDs.contains(key) { return true }
             return participants.count >= 2
         }
 

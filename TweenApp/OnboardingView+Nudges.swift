@@ -94,6 +94,11 @@ extension OnboardingView {
         if !nameFieldFocused, let stored = UserProfile.displayName, stored != profileName {
             profileName = stored
         }
+        // Home can be written by either process (the extension offers "From
+        // Home" too), so re-read it on the same tick the referral blob uses
+        // rather than from a view body.
+        let freshHome = MyPlaceStore.home()
+        if freshHome != homePlace { homePlace = freshHome }
         let fresh = ReferralStore.load()
         if fresh != referralSnapshot { referralSnapshot = fresh }
         guard activeSheet == nil, tourStep == nil else { return }

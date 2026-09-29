@@ -80,8 +80,10 @@ from sale only — the app keeps honouring it forever.
 
 For **each** product:
 
-- [ ] **Review screenshot** → upload `submission/paywall-review-screenshot.png`
+- [ ] **Review screenshot** → upload `submission/yearly-review-screenshot.png`
       (in this folder). This is the required "Review Information" screenshot.
+      NOT `paywall-review-screenshot.png` — that one carries an alpha channel,
+      which Apple rejects, and still shows the retired lifetime pricing.
 - [ ] **Review notes** — paste the text from §5 below.
 - [ ] Display name and description filled in.
 - [ ] Price tier matches the table above.
@@ -135,8 +137,8 @@ The monthly also needs, one time only:
 > the map, choose Settings, then tap "Tween Pro". No prior setup is needed.
 >
 > The attached screenshot shows that screen: a Free vs Pro comparison and the
-> two purchase options (Lifetime $9.99 one-time, Monthly $1.99). Restore
-> Purchases is on the same screen.
+> two purchase options (Yearly $29.99, Monthly $4.99 — both auto-renewing).
+> Restore Purchases is on the same screen.
 >
 > No account or login is required to test — the app has no server and no sign-in.
 

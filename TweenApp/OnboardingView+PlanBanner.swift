@@ -11,9 +11,16 @@ import MapKit
 // A plan is state the user created and expects to see, edit, and cancel. This is
 // its home.
 extension OnboardingView {
+    /// Reads the `currentPlan` MIRROR, not `MeetupPlanStore.current`.
+    ///
+    /// This banner sits in the bottom sheet's always-resident stack, which
+    /// SwiftUI re-evaluates on every drag frame (see the note on that stack in
+    /// `sheetContent` — it is kept in the hierarchy on purpose). `current` is
+    /// a UserDefaults read plus a JSON decode plus a staleness check, so it
+    /// was paying all three per frame for the whole length of a sheet drag.
     @ViewBuilder
     var plannedMeetupBanner: some View {
-        let plan = MeetupPlanStore.current
+        let plan = currentPlan
         if let arrival = plan.arrivalDate, let spot = plan.spotName {
             Button {
                 reopenPlan(spotName: spot)
@@ -94,6 +101,10 @@ extension OnboardingView {
 
     func cancelPlan() {
         MeetupPlanStore.clear()
+        // Drop the mirror in the same turn as the store write. The App Group
+        // tick would catch up within ~300 ms anyway, but the banner the user
+        // just cancelled should not survive even that long.
+        currentPlan = MeetupPlanStore.current
         LeaveByReminder.cancel()
         rerankAfterPlanChange()
         showToast("Plan cancelled")

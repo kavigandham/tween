@@ -11,16 +11,32 @@ struct AddPointSheet: View {
     var prompt = "Address, or where they are"
     let region: MKCoordinateRegion
     let resolvePlace: (String, MKCoordinateRegion) async -> [MKMapItem]
-    let onAdd: (Participant) -> Void
+    /// Callers that need the FULL resolved place — a saved Home wants the
+    /// formatted address, which `Participant` has no room for — take this
+    /// instead of `onAdd`. Exactly one of the two runs, so a sheet can never
+    /// report the same pick twice.
+    ///
+    /// Sits before `onAdd` so a bare trailing closure still binds to `onAdd`
+    /// at the three call sites that predate it.
+    var onResolve: ((MKMapItem) -> Void)? = nil
+    var onAdd: (Participant) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var completer = SearchCompleter()
     @State private var adding = false
+    /// Why the last pick didn't resolve. Cleared as soon as the user types
+    /// again, so a stale failure never sits over fresh suggestions.
+    @State private var failure: String?
 
     var body: some View {
         NavigationStack {
             List {
+                if let failure {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .font(Tokens.Typography.footnote)
+                        .foregroundStyle(Tokens.Palette.warning)
+                }
                 if adding {
                     HStack(spacing: Tokens.Spacing.s2) { ProgressView(); Text("Adding…") }
                         .foregroundStyle(Tokens.Palette.textSecondary)
@@ -47,7 +63,10 @@ struct AddPointSheet: View {
             .searchable(text: $query,
                         placement: .navigationBarDrawer(displayMode: .always),
                         prompt: prompt)
-            .onChange(of: query) { _, q in completer.debouncedUpdate(query: q, region: region) }
+            .onChange(of: query) { _, q in
+                failure = nil
+                completer.debouncedUpdate(query: q, region: region)
+            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -60,7 +79,11 @@ struct AddPointSheet: View {
     }
 
     private func pick(_ completion: MKLocalSearchCompletion) {
+        // A second tap while the first resolve is in flight would run the
+        // caller's handler twice — two Homes, two manual points.
+        guard !adding else { return }
         adding = true
+        failure = nil
         // @MainActor: onAdd mutates OnboardingView @State and dismiss() drives
         // presentation — both must run on the main actor, not off the bare Task.
         Task { @MainActor in
@@ -68,8 +91,20 @@ struct AddPointSheet: View {
                 ? completion.title : "\(completion.title), \(completion.subtitle)"
             let items = await resolvePlace(query, region)
             if let item = items.first {
-                onAdd(Participant.manual(label: item.name ?? completion.title,
-                                         coordinate: item.placemark.coordinate))
+                if let onResolve {
+                    onResolve(item)
+                } else {
+                    onAdd(Participant.manual(label: item.name ?? completion.title,
+                                             coordinate: item.placemark.coordinate))
+                }
+            } else {
+                // The completion couldn't be turned into a place — offline, or
+                // a suggestion MapKit can no longer resolve. Say so instead of
+                // dismissing as though something was saved (spec §2, geocoding
+                // failures are handled, never silent).
+                adding = false
+                failure = "Couldn't find that address. Try another one."
+                return
             }
             dismiss()
         }

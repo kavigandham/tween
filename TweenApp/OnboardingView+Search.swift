@@ -117,6 +117,11 @@ extension OnboardingView {
             return
         }
         searchTask?.cancel()
+        // Typing is a different question from a mood — the field no longer
+        // describes what's on screen, so leave mood mode before anything
+        // downstream reads `activeMood`. Invalidates the mood ticket too, so
+        // a mood search still in flight can't publish over the typing session.
+        clearMood()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             searchResults = []
@@ -212,7 +217,11 @@ extension OnboardingView {
         // Nearby" category row for this query (so "coffee" → local coffee, not
         // one shop named Coffee Bean), and require the top row to actually be
         // the place the user named.
-        if selectedCategory == nil,
+        // `activeMood == nil` alongside the chip guard: the field holds the
+        // mood's display text ("Something fun 🎳"), and a stale completer row
+        // could otherwise resolve THAT as a place name and replace the whole
+        // mood search with one shop.
+        if selectedCategory == nil, activeMood == nil,
            let top = completer.results.first,
            !CompletionRegionFilter.isSearchNearby(subtitle: top.subtitle),
            !completer.results.contains(where: { CompletionRegionFilter.isSearchNearby(subtitle: $0.subtitle) }),
@@ -622,6 +631,9 @@ extension OnboardingView {
 
     func removeManualPoint(_ point: Participant) {
         manualParticipants.removeAll { $0.id == point.id }
+        // The group's people are gone from the map, so a place picked from
+        // here is no longer that group's outing.
+        if manualParticipants.isEmpty { activeGroupID = nil }
         frameUserContext()
         searchTask?.cancel()
         isSearchLoading = false
@@ -691,6 +703,16 @@ extension OnboardingView {
         // the POI-category engine (how Apple Maps' own category buttons work).
         // "Study Spots" means nothing to the text engine, which is why the
         // Study chip found nothing (device feedback).
+        // A MOOD is a multi-category browse with exclusions — resolved by
+        // `MoodPlaceSearch`, then handed to the very same
+        // `presentSearchResults` below. It publishes from inside
+        // `runMoodSearch` (it carries its own stale-request ticket), so this
+        // path returns rather than falling through.
+        if let mood = activeMood, trimmed == mood.searchFieldText {
+            await runMoodSearch(mood, region: region, reframeMap: reframeMap)
+            return
+        }
+
         let items: [MKMapItem]
         var rewrittenQuery: String?
         if let preset = selectedCategory, trimmed == preset.searchQuery {
@@ -824,6 +846,7 @@ extension OnboardingView {
         isSearchLoading = false
         searchState = .idle
         completer.update(query: "")
+        clearMood()
         selectedCategory = nil
         selectedResult = nil
         openNowOnly = false
@@ -839,6 +862,8 @@ extension OnboardingView {
         if selectedCategory == preset {
             clearSearch()
         } else {
+            // A chip and a mood answer the same question; the newer tap wins.
+            clearMood()
             selectedCategory = preset
             setSearchTextProgrammatically(preset.searchQuery)
             expandToSearchDetent()

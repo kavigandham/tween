@@ -37,6 +37,10 @@ struct TweenAppApp: App {
                 // listener. The extension never does StoreKit work — it reads
                 // the cached flag this keeps fresh.
                 .task { ProEntitlement.activate() }
+                // Arrival Sync notification taps land on the meetup instead of
+                // wherever the app was last. Registered here, once, because
+                // the notification centre holds its delegate weakly.
+                .task { ArrivalSyncNotificationDelegate.shared.register() }
         }
     }
 }

@@ -45,9 +45,27 @@ enum LocationCache {
         /// goes stale, so it's exempt from the 5-minute freshness window.
         /// Optional so pre-provenance blobs keep decoding (nil = GPS).
         var isManual: Bool? = nil
+        /// WHICH declared place this came from — Home, a saved place, or a
+        /// one-off address (`JoinOrigin`). A snapshot taken at join time, not
+        /// a live reference: deleting Home later must not rewrite a meetup
+        /// that already copied its coordinate. Stored as the raw string so an
+        /// unknown value from a later build degrades instead of failing the
+        /// blob's decode; nil for pre-origin blobs (and for GPS).
+        ///
+        /// Deliberately NOT the place's name: this suite holds coordinates and
+        /// preferences, and a kind is a preference. Home's LABEL is resolved
+        /// from `MyPlaceStore` at display time.
+        var origin: String? = nil
 
         var coordinate: CLLocationCoordinate2D {
             CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        }
+
+        /// How the user said they'd get here. Falls back to the older
+        /// `isManual` bool for blobs written before origins existed.
+        var joinOrigin: JoinOrigin {
+            if let origin { return JoinOrigin(storage: origin) }
+            return isManual == true ? .custom : .current
         }
     }
 
@@ -64,10 +82,18 @@ enum LocationCache {
     // MARK: - Self
 
     static func save(_ coordinate: CLLocationCoordinate2D, at date: Date = Date(),
-                     isActive: Bool = true, isManual: Bool = false) {
-        write(coordinate, at: date, key: selfKey, isActive: isActive, isManual: isManual)
+                     isActive: Bool = true, isManual: Bool = false,
+                     origin: JoinOrigin? = nil) {
+        write(coordinate, at: date, key: selfKey, isActive: isActive, isManual: isManual,
+              origin: origin)
         defaults?.set(isActive, forKey: selfActiveKey)   // legacy mirror
         MeetupSync.post()
+    }
+
+    /// Where the user said they were leaving from for the CURRENT join, as
+    /// snapshotted when they joined. `.current` when nothing has been saved.
+    static var selfOrigin: JoinOrigin {
+        loadSelf()?.joinOrigin ?? .current
     }
 
     static func loadSelf() -> CachedCoord? {
@@ -281,12 +307,18 @@ enum LocationCache {
     // MARK: - Atomic single-key codec
 
     private static func write(_ coordinate: CLLocationCoordinate2D, at date: Date,
-                              key: String, isActive: Bool, isManual: Bool = false) {
+                              key: String, isActive: Bool, isManual: Bool = false,
+                              origin: JoinOrigin? = nil) {
+        // An unstated origin follows the provenance flag rather than inventing
+        // one, so the two can never disagree: a declared coordinate with no
+        // named origin is a one-off address, a measured one is GPS.
+        let resolved = origin ?? (isManual ? .custom : .current)
         let coord = CachedCoord(latitude: coordinate.latitude,
                                 longitude: coordinate.longitude,
                                 timestamp: date,
                                 isActive: isActive,
-                                isManual: isManual)
+                                isManual: isManual,
+                                origin: resolved.rawValue)
         guard let data = try? JSONEncoder().encode(coord) else { return }
         defaults?.set(data, forKey: key)
     }

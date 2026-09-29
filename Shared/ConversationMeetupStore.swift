@@ -299,9 +299,25 @@ enum ConversationMeetupStore {
         save(snapshot, key: key)
     }
 
+    /// An incoming payload's roster, minus anyone this device has a departure
+    /// tombstone for.
+    ///
+    /// These two writers set `snapshot.participants` from the bubble verbatim,
+    /// and a peer who never processed a leave keeps broadcasting the leaver —
+    /// so the raw roster undid `RosterMerge`'s work. In the extension the call
+    /// ordering hid it; in the host app `saveAgreed` runs AFTER the merged
+    /// roster is stored and overwrote it, which both re-admitted the leaver
+    /// locally and stopped `RosterMerge.gossipKeys` telling anyone else they
+    /// had gone (audit round 3).
+    static func stillHere(_ participants: [Participant], key: String) -> [Participant] {
+        let gone = departedParticipants(key: key)
+        guard !gone.isEmpty else { return participants }
+        return participants.filter { !gone.contains($0.id) && !gone.contains($0.name) }
+    }
+
     static func saveProposed(_ state: TweenState, key: String) {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        snapshot.participants = state.participants
+        snapshot.participants = stillHere(state.participants, key: key)
         snapshot.proposedState = state
         // A new place on the board reopens the question, so the terminal
         // state has to go with it — `.pick` is the poll-era `.counter`.
@@ -313,7 +329,7 @@ enum ConversationMeetupStore {
 
     static func saveAgreed(_ state: TweenState, key: String) {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
-        snapshot.participants = state.participants
+        snapshot.participants = stillHere(state.participants, key: key)
         snapshot.proposedState = state
         // `isDecided`, not `isFullyAgreed`: a lock-in is terminal on its own,
         // and `isFullyAgreed` answers false whenever the roster minus the
@@ -333,7 +349,7 @@ enum ConversationMeetupStore {
             // that skips the scoping every other writer does.
             snapshot.poll = MeetupPoll
                 .merged(local: snapshot.poll ?? .empty, incoming: state.absorbedPoll)
-                .normalized(participants: state.participants,
+                .normalized(participants: snapshot.participants,
                             departed: departedParticipants(key: key))
         }
         save(snapshot, key: key)

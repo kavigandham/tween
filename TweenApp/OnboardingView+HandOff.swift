@@ -161,11 +161,26 @@ extension OnboardingView {
                         onSent: {
                             noteEngagement(.sendToChat)
                             noteOutgoingRevision(revision)
+                            // Name this outing after the place, for the
+                            // group's "Recent Tweens" list. Only when the
+                            // search actually came from a group, and only
+                            // once it was SENT — a place nobody was told
+                            // about is not a meetup.
+                            if let activeGroupID {
+                                GroupStore.noteSpot(selection.name, for: activeGroupID)
+                                groups = GroupStore.load()
+                            }
                             if let key = ConversationMeetupStore.lastActiveConversationKey {
                                 ConversationMeetupStore.saveProposed(state, key: key)
+                                // Re-scope after the union: `board` was
+                                // scoped when it was composed, but the stored
+                                // board may have moved on while the composer
+                                // sheet was open (audit round 3).
                                 ConversationMeetupStore.savePoll(
                                     MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
-                                                      incoming: board),
+                                                      incoming: board)
+                                        .normalized(participants: participants,
+                                                    departed: activeConversationDeparted()),
                                     key: key)
                             }
                             pendingProposal = state

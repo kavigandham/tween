@@ -163,9 +163,26 @@ extension MessagesViewController {
             noteEnRoute(participantID: state.senderID ?? state.senderName ?? "",
                         seconds: state.etaSeconds,
                         name: state.senderName.map(UserName.peerDisplayName))
+            // ARRIVAL SYNC. A departure carrying an arrival target is the
+            // event this device works backwards from. Async because it
+            // re-measures THIS user's own leg fresh — the spec's "never rely
+            // solely on old ETAs" — and tracked like every other task here so
+            // `willResignActive` can drop it (constraint 1).
+            applyArrivalSync(from: state, key: revisionKey)
         case .pick, .propose, .counter:
             EnRouteLog.clear(key: revisionKey)
             enRouteMarks = []
+            // A new place on the board reopens the question, so any sync is
+            // now aimed at a destination the group may no longer be going to.
+            // `invalidateIfDestinationChanged` keeps it when the place is in
+            // fact unchanged (somebody re-picked the same spot).
+            let settled = self.poll.settledOption(participants: pollParticipants())
+            if ArrivalSyncService.invalidateIfDestinationChanged(
+                meetingID: revisionKey,
+                destinationName: settled?.name,
+                destination: settled?.coordinate) {
+                arrivalSync = nil
+            }
         default:
             break
         }
@@ -261,6 +278,49 @@ extension MessagesViewController {
                                         sentAt: Date()),
                         key: conversationKey)
         enRouteMarks = EnRouteLog.marks(key: conversationKey)
+    }
+
+    /// Applies an incoming departure event and arms this device's reminder.
+    ///
+    /// Fire-and-forget on purpose: decoding must not wait on two MKDirections
+    /// round trips before the panel renders, and the useful state (who left,
+    /// where, the target arrival) is already on screen from `EnRouteLog`
+    /// before this lands. The store write posts `MeetupSync`, so the host app
+    /// picks it up too.
+    ///
+    /// The extension never REQUESTS notification permission — a permission
+    /// alert must not appear over somebody's conversation — so with the grant
+    /// missing this stores the sync and arms nothing, and the host app's
+    /// foreground reconciliation collects it (`ArrivalSyncService.reconcile`),
+    /// exactly as `LeaveByRefresher` collects an orphaned leave-by reminder.
+    func applyArrivalSync(from state: TweenState, key conversationKey: String) {
+        guard state.arrivalTarget != nil else { return }
+        let participants = pollParticipants()
+        let departed = ConversationMeetupStore.departedParticipants(key: conversationKey)
+        let localID = localParticipantID()
+        let localName = Self.localParticipantName()
+        let origin = LocationCache.loadSelf()?.coordinate
+        arrivalSyncTask?.cancel()
+        arrivalSyncTask = Task { @MainActor [weak self] in
+            let result = await ArrivalSyncService.receive(
+                event: state,
+                meetingID: conversationKey,
+                localID: localID,
+                localName: localName,
+                localOrigin: origin,
+                participants: participants,
+                departed: departed)
+            guard let self, !Task.isCancelled else { return }
+            // Only re-render for a result that actually changed something —
+            // a stale or duplicate event must not bounce the panel.
+            switch result {
+            case .armed, .leaveNow:
+                self.arrivalSync = ArrivalSyncStore.load(key: conversationKey)
+                self.presentUI(for: self.presentationStyle)
+            case .duplicate, .notApplicable, .stale:
+                break
+            }
+        }
     }
 
     /// The option this device would settle on, if the group has settled.

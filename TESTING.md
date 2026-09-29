@@ -22,6 +22,34 @@ appears. To re-test the first-run experience, delete the app and reinstall.
 
 ---
 
+## Screenshot audit (simulator, automated)
+
+Every user-visible screen, in light and dark, captured from a booted simulator
+and reviewed against the Apple Maps bar:
+
+```bash
+xcodebuild -project TweenApp.xcodeproj -scheme TweenApp -configuration Debug \
+  -destination "platform=iOS Simulator,id=$UDID" build     # default DerivedData
+xcrun simctl install "$UDID" <path-to>/TweenApp.app
+scripts/audit_screens.sh --out /tmp/screens                # ~7 min, 27 scenes x2
+```
+
+`--list` prints the scene names, `--only a,b` captures a subset, `--appearance
+light|dark` one mode. Each run drops a `manifest.txt` mapping every PNG back to
+the launch arguments that produced it.
+
+Then ask Claude Code to "audit the screens" — the `screenshot-audit` agent
+(`.claude/agents/screenshot-audit.md`) reads the PNGs, traces each symptom to
+`file.swift:line`, and writes `report_screens.md`: a prioritised **Changes** list
+and a **Features** list. It knows which artifacts are this VM's fault (no
+CoreLocation, no software keyboard, software-rendered Liquid Glass) and filters
+them out.
+
+This does not replace the device gate below — Liquid Glass, the keyboard, real
+iMessage delivery and extension memory are still device-only.
+
+---
+
 ## Phase 01 — Scaffold & core models
 - [ ] `xcodegen generate` succeeds; project opens with all four targets.
 - [ ] Both `TweenApp` and `TweenMessages` build with no warnings about missing

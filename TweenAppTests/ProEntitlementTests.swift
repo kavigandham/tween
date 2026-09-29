@@ -38,9 +38,7 @@ final class ProEntitlementTests: XCTestCase {
     func testRetiredLifetimePurchaseStillUnlocksPro() async throws {
         let session = try startSession()
         try await buy(ProEntitlement.lifetimeProductID, in: session)
-        let unlocked = await refreshUntilUnlocked()
-        XCTAssertTrue(unlocked)
-        XCTAssertTrue(ProEntitlement.isUnlocked)
+        try await requireUnlocked(by: ProEntitlement.lifetimeProductID, in: session)
     }
 
     // 2b. …and the paywall must not be able to OFFER it again. The two sets
@@ -57,21 +55,14 @@ final class ProEntitlementTests: XCTestCase {
     func testMonthlySubscriptionUnlocksPro() async throws {
         let session = try startSession()
         try await buy(ProEntitlement.monthlyProductID, in: session)
-        let unlocked = await refreshUntilUnlocked()
-        XCTAssertTrue(unlocked)
-        // Assert the App Group write, not just the return value: the cache is
-        // the only thing the extension can read, and it is what the two
-        // processes actually disagree about.
-        XCTAssertTrue(ProEntitlement.isUnlocked)
+        try await requireUnlocked(by: ProEntitlement.monthlyProductID, in: session)
     }
 
     // 3b. The yearly subscription unlocks Pro through the same path.
     func testYearlySubscriptionUnlocksPro() async throws {
         let session = try startSession()
         try await buy(ProEntitlement.yearlyProductID, in: session)
-        let unlocked = await refreshUntilUnlocked()
-        XCTAssertTrue(unlocked)
-        XCTAssertTrue(ProEntitlement.isUnlocked)
+        try await requireUnlocked(by: ProEntitlement.yearlyProductID, in: session)
     }
 
     // 4. A CANCELLED refresh must not clear an existing unlock.
@@ -102,6 +93,37 @@ final class ProEntitlementTests: XCTestCase {
         } catch {
             throw XCTSkip("StoreKit test purchases unavailable in this runner: \(error)")
         }
+    }
+
+    /// Asserts the purchase reached `ProEntitlement`, and decides what a miss
+    /// actually MEANS before failing the build over it.
+    ///
+    /// `buy` above only skips when `buyProduct` THROWS. On a cold simulator
+    /// storekitd fails to launch ("Connection init failed at lookup with
+    /// error 3"), `buyProduct` returns without throwing, and nothing is ever
+    /// recorded — which used to surface as three red tests that pass on the
+    /// next run. So: a session holding no transaction for this product is the
+    /// runner, and skips. A session that DOES hold one while `ProEntitlement`
+    /// stays locked is the regression these tests exist to catch, and fails.
+    private func requireUnlocked(by productID: String,
+                                 in session: SKTestSession) async throws {
+        if await refreshUntilUnlocked() {
+            // Assert the App Group write, not just the return value: the cache
+            // is the only thing the extension can read, and it is what the two
+            // processes actually disagree about.
+            XCTAssertTrue(ProEntitlement.isUnlocked,
+                          "refresh() said unlocked but never wrote the App Group cache")
+            return
+        }
+        let recorded = session.allTransactions()
+            .contains { $0.productIdentifier == productID }
+        guard recorded else {
+            throw XCTSkip("""
+                StoreKit test session recorded no transaction for \(productID) — \
+                storekitd is unavailable in this runner, so there is nothing to verify.
+                """)
+        }
+        XCTFail("\(productID) is purchased in the test session, but ProEntitlement never unlocked")
     }
 
     /// `Transaction.currentEntitlements` picks up a test purchase

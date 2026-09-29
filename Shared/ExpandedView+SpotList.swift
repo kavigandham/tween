@@ -64,6 +64,9 @@ extension ExpandedView {
                 // typed anyway.
                 if isUserIn {
                     leavingNowRow(state: state)
+                    // Directly beneath the departure row, because it is about
+                    // the same action: who has left, and who should leave when.
+                    arrivalSyncBlock
                 }
 
                 HStack(spacing: Tokens.Spacing.s2) {
@@ -127,12 +130,21 @@ extension ExpandedView {
     }
 
     /// The departure button, or the countdown once you've tapped it.
+    ///
+    /// ONE row, whether or not the user has Pro. For a Pro user it also starts
+    /// the Arrival Sync that tells everyone else when to leave; for everybody
+    /// else it does exactly what it always did — announce an ETA — so the free
+    /// feature is unchanged and the upsell lives in its own row below
+    /// (`arrivalSyncBlock`). Two competing "I left" buttons would be the
+    /// clutter this screen cannot afford.
     @ViewBuilder
     func leavingNowRow(state: TweenState) -> some View {
         if let mine = myEnRouteMark {
             directionRow(
                 title: "You're on the way",
-                subtitle: mine.summary,
+                // With a sync running, the ETA is the arrival everyone else is
+                // now aiming at, so name the time rather than the countdown.
+                subtitle: departedSubtitle(fallback: mine.summary),
                 systemImage: "figure.walk.motion",
                 foreground: Tokens.Palette.textPrimary,
                 background: Tokens.Palette.success.opacity(0.18)
@@ -142,21 +154,38 @@ extension ExpandedView {
                 sendTick += 1
                 onLeavingNow()
             }
-            .accessibilityHint("Sends everyone an updated ETA")
+            .accessibilityLabel("You're on the way. \(departedSubtitle(fallback: mine.summary))")
+            .accessibilityHint(isProUnlocked
+                ? "Sends everyone an updated ETA and recalculates when they should leave"
+                : "Sends everyone an updated ETA")
         } else {
             directionRow(
-                title: isSending ? (statusMessage ?? "Getting your ETA...") : "Leaving now",
-                subtitle: "Tells everyone when you'll get there",
-                systemImage: "figure.walk.motion",
+                title: isSending ? (statusMessage ?? "Getting your ETA...") : "I Left",
+                subtitle: isProUnlocked
+                    ? "Tells everyone when to leave so you arrive together"
+                    : "Tells everyone when you'll get there",
+                systemImage: "car.fill",
                 foreground: Tokens.Palette.textPrimary,
                 background: Tokens.Palette.surfaceSecondary
             ) {
                 sendTick += 1
                 onLeavingNow()
             }
+            // Re-entrancy: the controller also guards on `isSending`, so a
+            // rapid double tap can neither send twice nor start two syncs.
             .disabled(isSending)
-            .accessibilityHint("Sends a message with your ETA to \(state.text)")
+            .accessibilityLabel("I Left")
+            .accessibilityHint(isProUnlocked
+                ? "Marks yourself as departed and synchronizes arrival — tells everyone when to leave for \(state.text)"
+                : "Sends a message with your ETA to \(state.text)")
         }
+    }
+
+    /// The departed row's second line: the arrival everyone is aiming at when
+    /// a sync is running, else the plain countdown.
+    func departedSubtitle(fallback: String) -> String {
+        guard let arrivalSync, myArrivalEntry?.departureStatus == .departed else { return fallback }
+        return "ETA \(ArrivalSyncNotifier.timeFormatter.string(from: arrivalSync.targetArrivalTime))"
     }
 
     func directionRow(

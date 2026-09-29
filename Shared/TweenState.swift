@@ -120,6 +120,31 @@ struct TweenState: Equatable {
     /// 12 min away"). Nil everywhere else.
     var etaSeconds: Int? = nil
 
+    /// ARRIVAL SYNC. When the departing person expects to walk in, as an
+    /// absolute time. Present only on an `.enroute` bubble sent by a Pro
+    /// initiator; nil everywhere else, which is exactly how a receiver tells
+    /// a plain "leaving now" announcement from a synchronised departure.
+    ///
+    /// Absolute, NOT "now + etaSeconds". A bubble is only processed when
+    /// somebody taps it, which may be minutes after it was sent — deriving the
+    /// target from the receiver's clock would hand everyone a target as late
+    /// as they were slow to look, and the whole feature is arriving together.
+    var arrivalTarget: Date? = nil
+
+    /// ARRIVAL SYNC. Participant id → travel seconds, as measured by the
+    /// INITIATOR against the roster origins that already ride in this payload.
+    ///
+    /// Not required for correctness — every receiving device re-measures its
+    /// own leg fresh before arming anything (that is the spec's "never rely
+    /// solely on old ETAs"). It buys two things: a device that cannot route
+    /// right now still gets a usable departure time instead of nothing, and
+    /// every device can render the whole group's plan ("Shiraaz in 10, Khanna
+    /// in 5") rather than only the initiator's.
+    ///
+    /// Times, never places. The coordinates these were measured from are the
+    /// roster's, which this payload already carries in `p=`.
+    var travelSeconds: [String: Int] = [:]
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
@@ -347,6 +372,20 @@ struct TweenState: Equatable {
         if let etaSeconds {
             items.append(URLQueryItem(name: "eta", value: String(etaSeconds)))
         }
+        // Arrival Sync. `arr` is the whole feature in ~14 chars, so it never
+        // appears on the size ladder below; `tt` is indexed against
+        // `participants` (like the board) and is a convenience, so it goes
+        // early when the payload is tight.
+        if let arrivalTarget {
+            items.append(URLQueryItem(name: "arr",
+                                      value: String(Int(arrivalTarget.timeIntervalSince1970))))
+        }
+        if !travelSeconds.isEmpty, !participants.isEmpty {
+            let encoded = Self.encodeTravelSeconds(travelSeconds, participants: participants)
+            if encoded.contains(where: { $0 != "-" && $0 != "," }) {
+                items.append(URLQueryItem(name: "tt", value: encoded))
+            }
+        }
         components.queryItems = items
         guard let url = components.url else { return nil }
         if url.absoluteString.count <= 5000 { return url }
@@ -356,15 +395,24 @@ struct TweenState: Equatable {
         let noRef = items.filter { $0.name != "ref" }
         components.queryItems = noRef
         if let lean = components.url, lean.absoluteString.count <= 5000 { return lean }
+        // `tt` next: it is the ONE Arrival Sync field that costs per
+        // participant, and losing it costs nothing that matters — every
+        // receiving device re-measures its own leg anyway, so this degrades
+        // the group read-out and the offline fallback, never the reminder.
+        // `arr` stays on every rung: without it there is no synchronisation
+        // target at all, and it is a fixed ~14 characters.
+        let noTravel = noRef.filter { $0.name != "tt" }
+        components.queryItems = noTravel
+        if let leaner = components.url, leaner.absoluteString.count <= 5000 { return leaner }
         // Oversize (large groups / long names): drop the base64 JSON roster —
         // `p=` + `pids=` carry the same data far more compactly — instead of
         // hard-failing the whole send.
-        components.queryItems = noRef.filter { $0.name != "pj" }
+        components.queryItems = noTravel.filter { $0.name != "pj" }
         if let slim = components.url, slim.absoluteString.count <= 5000 { return slim }
         // Still oversize: sacrifice the departure gossip before failing the
         // send outright — tombstones also travel device-locally, so losing
         // the gossip degrades propagation, not correctness.
-        components.queryItems = noRef.filter { $0.name != "pj" && $0.name != "gone" }
+        components.queryItems = noTravel.filter { $0.name != "pj" && $0.name != "gone" }
         if let slimmer = components.url, slimmer.absoluteString.count <= 5000 { return slimmer }
         // Last rung: drop the board. It's the most valuable thing here, which
         // is why it goes last — but a bubble that can't be sent at all loses
@@ -373,7 +421,7 @@ struct TweenState: Equatable {
         // survives for peers to absorb.
         // `decs` goes with them — see the note at the `decs` append above for
         // what a generation without its board does to a settled meetup.
-        let leanest = noRef.filter {
+        let leanest = noTravel.filter {
             $0.name != "pj" && $0.name != "gone"
                 && $0.name != "opts" && $0.name != "votes"
                 && $0.name != "dec" && $0.name != "decs"
@@ -507,7 +555,9 @@ struct TweenState: Equatable {
         departed: [String] = [],
         referredBy: String? = nil,
         poll: MeetupPoll = .empty,
-        etaSeconds: Int? = nil
+        etaSeconds: Int? = nil,
+        arrivalTarget: Date? = nil,
+        travelSeconds: [String: Int] = [:]
     ) {
         self.text = text
         self.latitude = latitude
@@ -534,6 +584,8 @@ struct TweenState: Equatable {
         self.referredBy = referredBy
         self.poll = poll
         self.etaSeconds = etaSeconds
+        self.arrivalTarget = arrivalTarget
+        self.travelSeconds = travelSeconds
     }
 
     /// A parsed coordinate is trustworthy only if it is real. `Double.init`
@@ -545,6 +597,57 @@ struct TweenState: Equatable {
     static func validCoordinate(_ latitude: Double, _ longitude: Double) -> Bool {
         CLLocationCoordinate2DIsValid(
             CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
+    }
+
+    // MARK: - Arrival Sync codec
+
+    /// Longest travel time the codec will accept, matching `eta`'s own bound.
+    /// Past a day it is junk, and junk here would render as "leave in
+    /// 1440 min" or arm a reminder a day out.
+    static let maxTravelSeconds = 86_400
+
+    /// Epoch range the codec will accept for `arr` (2020-01-01 … 2100-01-01).
+    ///
+    /// Deliberately absolute rather than relative to the device clock: a
+    /// bubble may legitimately be tapped long after it was sent, and a
+    /// now-relative bound would make the codec's verdict depend on how quickly
+    /// the recipient looked. Staleness is the domain layer's job
+    /// (`ArrivalSyncState.isExpired`); this only rejects nonsense.
+    static let arrivalEpochRange: ClosedRange<Int> = 1_577_836_800...4_102_444_800
+
+    /// Positional over the roster, exactly like `MeetupPoll.encodeVotes`:
+    /// entry `i` is participant `i`'s travel seconds, or "-" when unknown.
+    ///
+    /// Indexed, not id-keyed, for the reason the board's wire note gives — a
+    /// participant id is a 36-char UUID, and repeating one per entry would eat
+    /// the 5000-char ceiling for a group.
+    static func encodeTravelSeconds(_ seconds: [String: Int],
+                                    participants: [Participant]) -> String {
+        participants.map { participant in
+            guard let value = seconds[participant.id],
+                  (0...maxTravelSeconds).contains(value) else { return "-" }
+            return String(value)
+        }.joined(separator: ",")
+    }
+
+    /// Decodes against the SAME roster the sender encoded against — so, like
+    /// the board, this is only meaningful alongside `participants`.
+    static func decodeTravelSeconds(_ raw: String,
+                                    participants: [Participant]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for (offset, token) in raw.split(separator: ",", omittingEmptySubsequences: false).enumerated() {
+            guard participants.indices.contains(offset),
+                  let value = Int(token),
+                  (0...maxTravelSeconds).contains(value)
+            else { continue }
+            let id = participants[offset].id
+            // An empty id is a failed lookup, not an identity (the same rule
+            // `MeetupPoll.identityKeys` applies) — admitting it would file
+            // every unattributable leg under one key.
+            guard !id.isEmpty else { continue }
+            result[id] = value
+        }
+        return result
     }
 
     init?(url: URL) {
@@ -718,7 +821,23 @@ struct TweenState: Equatable {
         // would render as "1440 min away". Negative reads as absent.
         self.etaSeconds = items.first(where: { $0.name == "eta" })?.value
             .flatMap(Int.init)
-            .flatMap { (0...86_400).contains($0) ? $0 : nil }
+            .flatMap { (0...Self.maxTravelSeconds).contains($0) ? $0 : nil }
+        // Arrival Sync. Bounded like every other counter the codec accepts:
+        // an out-of-range `arr` reads as absent, which degrades the bubble to
+        // a plain "leaving now" announcement rather than arming a reminder off
+        // a crafted timestamp.
+        self.arrivalTarget = items.first(where: { $0.name == "arr" })?.value
+            .flatMap(Int.init)
+            .flatMap { Self.arrivalEpochRange.contains($0) ? $0 : nil }
+            .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        // Indexed against the roster decoded above, so a payload whose roster
+        // failed to decode arrives with no legs rather than mis-indexed ones.
+        if let rawTravel = items.first(where: { $0.name == "tt" })?.value, !rawTravel.isEmpty {
+            self.travelSeconds = Self.decodeTravelSeconds(rawTravel,
+                                                          participants: self.participants)
+        } else {
+            self.travelSeconds = [:]
+        }
     }
 
     private static func inferMessageType(kind: Kind, action: Action) -> MessageType {

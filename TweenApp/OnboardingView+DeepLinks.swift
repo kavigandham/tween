@@ -35,6 +35,19 @@ extension OnboardingView {
             expandThenFocusSearch()
             return
         }
+        // The Messages extension's Arrival Sync upsell. StoreKit lives only in
+        // the host app (constraint 1), so the extension trampolines here.
+        if url.scheme == "tween", url.host == "pro" {
+            activeSheet = .paywall
+            return
+        }
+        // An Arrival Sync notification was tapped. Land on the meetup the
+        // reminder is about, so the answer to "when should I leave" — and the
+        // button that tells everyone you have — is on screen.
+        if url.scheme == "tween", url.host == "meetup" {
+            focusArrivalSyncMeetup()
+            return
+        }
         // Google Maps handoff from the Messages extension (which cannot open
         // other apps itself — extensionContext.open only launches THIS app).
         // Pure trampoline: bounce straight out to Google Maps and touch no
@@ -234,7 +247,16 @@ extension OnboardingView {
             }
             let who = state.senderName ?? "Your friend"
             if state.messageType == .enroute {
-                showToast("\(who) is leaving now — \(BubbleCaption.etaLine(state: state)).")
+                // ARRIVAL SYNC. A departure carrying an arrival target arms
+                // this device's own "time to go" and replaces the toast with
+                // the leave time, which is the actionable half. Falls through
+                // to the plain announcement for a bubble without one (a
+                // non-Pro sender, or an older build).
+                if state.arrivalTarget != nil {
+                    receiveArrivalSync(state)
+                } else {
+                    showToast("\(who) is leaving now — \(BubbleCaption.etaLine(state: state)).")
+                }
             } else {
                 showToast(state.isDecided
                           ? "Meeting at \(state.text) — \(who) is in."
@@ -270,6 +292,9 @@ extension OnboardingView {
                 // and no-ops for users who never planned (audit 2026-08-06).
                 MeetupPlanStore.endMeetup()
                 LeaveByReminder.cancel()
+                // Same rule as the host's own "I'm out": the meetup ended, so
+                // nothing may still be telling anyone when to leave for it.
+                cancelActiveArrivalSync()
             }
             // A proposal card from someone who just left is dead — dismiss
             // it rather than leaving it orphaned over the departure toast.
@@ -406,9 +431,12 @@ extension OnboardingView {
                         // MERGE, don't replace: the extension may have folded
                         // in a bubble while this composer was open, and a
                         // whole-blob write would discard it.
+                        // Re-scope after the union — see sendToChat.
                         ConversationMeetupStore.savePoll(
                             MeetupPoll.merged(local: ConversationMeetupStore.poll(key: key),
-                                              incoming: board),
+                                              incoming: board)
+                                .normalized(participants: participants,
+                                            departed: activeConversationDeparted()),
                             key: key)
                         if state.isDecided {
                             ConversationMeetupStore.saveAgreed(state, key: key)

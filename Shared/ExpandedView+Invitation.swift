@@ -132,6 +132,10 @@ extension ExpandedView {
                 .disabled(isSending)
                 .accessibilityHint("Shares where you are for this meetup")
 
+                // The reason Home exists: an invite arrives while you're on
+                // the sofa, and joining from there is one tap and no GPS wait.
+                fromHomeButton
+
                 Button(action: onOpenFullApp) {
                     Label("Open Tween", systemImage: "magnifyingglass")
                         .frame(maxWidth: .infinity)

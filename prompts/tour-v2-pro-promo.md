@@ -122,8 +122,9 @@ friend agreeing").
 
 ## 3. Pro promotion: it exists, nobody sees it
 
-**Problem.** Tween Pro (`Shared/ProEntitlement.swift`: lifetime
-`com.kavigandham.TweenApp.pro.lifetime`, monthly `…pro.monthly`) is gated
+**Problem.** Tween Pro (`Shared/ProEntitlement.swift`: yearly
+`com.kavigandham.TweenApp.pro.annual`, monthly `…pro.monthly`; the retired
+lifetime `…pro.lifetime` still grants Pro but is no longer sold) is gated
 behind features people only discover by accident: groups, saved home
 bases, per-person travel modes, and Plan (arrival time, calendar). The
 paywall (`TweenApp/PaywallSheet.swift`) is reached only from those gates
@@ -151,7 +152,7 @@ and Settings. Nothing ever *introduces* it.
      arrival times and calendar invites."
    - the third completed meetup (an agreed meetup written to
      `LocationCache.saveAgreedMeetup`, counted in a new App Group flag):
-     "You've planned three meetups. Pro is one-time $9.99 or $1.99/month."
+     "You've planned three meetups. Pro is $29.99 a year or $4.99/month."
    Each nudge has "See Pro" and "Not now". Tapping "Not now" twice on the
    same trigger retires that trigger permanently.
 3. **A quiet, persistent affordance:** a small "Pro" pill in the map

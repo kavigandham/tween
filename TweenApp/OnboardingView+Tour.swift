@@ -109,6 +109,10 @@ extension OnboardingView {
             activeSheet = nil
             setTourStep(.mapControls)
         case .mapControls:
+            setTourStep(nextAfterMapControls)
+        case .home:
+            // "Not now" — Home is an accelerator, never a gate. It can be
+            // added later from Friends, or from the origin sheet itself.
             setTourStep(ProEntitlement.isUnlocked ? .done : .pro)
         case .pro:
             // "Not now".
@@ -120,10 +124,25 @@ extension OnboardingView {
         }
     }
 
-    /// The card's second action: only the Pro step has one.
+    /// The card's second action — the Pro pitch, and the Home setup.
     func tourSecondaryAction() {
-        guard tourStep == .pro else { return }
-        activeSheet = .paywall
+        switch tourStep {
+        case .pro:
+            activeSheet = .paywall
+        case .home:
+            activeSheet = .setUpHome
+        default:
+            break
+        }
+    }
+
+    /// After the map controls: offer Home unless one is already saved, then
+    /// the Pro pitch unless Pro is already owned. Both steps are skipped for
+    /// anyone they'd be redundant for — a returning user replaying the tour
+    /// is never asked to set up something they have.
+    private var nextAfterMapControls: TourStep {
+        if MyPlaceStore.home() == nil { return .home }
+        return ProEntitlement.isUnlocked ? .done : .pro
     }
 
     func skipTour() { finishTour() }
@@ -178,6 +197,12 @@ extension OnboardingView {
             if case .friends = activeSheet { setTourStep(.friendsSheet) }
         case .friendsSheet:
             if activeSheet == nil { setTourStep(.mapControls) }
+        case .home:
+            // Saved from the picker the step opened: move on rather than
+            // leaving "Set Home" on screen for something already done.
+            if activeSheet == nil, MyPlaceStore.home() != nil {
+                setTourStep(ProEntitlement.isUnlocked ? .done : .pro)
+            }
         case .pro:
             // Bought from the paywall the step opened: nothing left to pitch.
             if activeSheet == nil, ProEntitlement.isUnlocked { setTourStep(.done) }

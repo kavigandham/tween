@@ -32,13 +32,17 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// INSIDE the Friends sheet, same rule.
     case friendsSheet
     case mapControls
+    /// Save Home once, so every later "I'm in" is one tap. Skipped entirely
+    /// when a Home already exists — an existing user is never walked back
+    /// through setup for something they've done (spec §3/§25).
+    case home
     /// One introduction to Tween Pro. Skipped entirely when unlocked.
     case pro
     case done
 
     var target: CoachTarget? {
         switch self {
-        case .welcome, .chatDemo, .pro, .done: return nil
+        case .welcome, .chatDemo, .home, .pro, .done: return nil
         case .imIn:           return .imInButton
         case .coffeeChip:     return .coffeeChip
         case .openSpot:       return .firstResultCard
@@ -60,6 +64,7 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .friends:      return "Your friends"
         case .friendsSheet: return "The Friends screen"
         case .mapControls:  return "Map controls"
+        case .home:         return "Where's home?"
         case .pro:          return "Tween Pro"
         case .done:         return "You're set"
         }
@@ -95,6 +100,8 @@ enum TourStep: Int, CaseIterable, Equatable {
             return "Add Friend saves someone from Contacts so you can ping them to join. Invite sends a Tween invite in Messages — when 3 friends join, you get 3 months of Pro free. Current meetup shows who's in right now, Groups remember your crew (Pro), and Rides tracks who needs a lift."
         case .mapControls:
             return "The top button (⋯) holds map styles, Settings, and this guide. The one below it brings the map back to you. Drag the panel down any time for more map, and up for the full list."
+        case .home:
+            return "Save your home address and joining a Tween is one tap — no waiting on GPS. Your address isn't shown to your friends; Tween only uses it to work out your travel time."
         case .pro:
             return "Groups save your crew for one-tap fair spots. Saved places cover friends who aren't on Tween yet. Plan sets a time, a leave-by reminder, and a calendar invite. Or get it free: invite 3 friends from the Friends screen."
         case .done:
@@ -111,6 +118,7 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .chatDemo:     return "Next"
         case .friendsSheet: return "Back to the map"
         case .mapControls:  return "Next"
+        case .home:         return "Not now"
         case .pro:          return "Not now"
         case .done:         return "Finish"
         default:            return nil
@@ -120,7 +128,11 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// A second, PRIMARY action some cards carry (the Pro step's "See
     /// Tween Pro"); `nextTitle` becomes the quiet alternative beside it.
     var secondaryTitle: String? {
-        self == .pro ? "See Tween Pro" : nil
+        switch self {
+        case .pro:  return "See Tween Pro"
+        case .home: return "Set Home"
+        default:    return nil
+        }
     }
 
     var showsChatIllustration: Bool { self == .chatDemo }

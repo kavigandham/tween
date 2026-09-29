@@ -50,6 +50,7 @@ extension OnboardingView {
             // Pro row) read as a wall of chrome (device feedback 2026-09-11).
             Group {
                 profileHeader
+                savedPlacesRow
                 friendActionTiles
                 if !ProEntitlement.isPurchased { referralStrip }
                 meetupStatusSection
@@ -157,6 +158,42 @@ extension OnboardingView {
         .onChange(of: nameFieldFocused) { _, focused in
             if !focused { saveProfileName() }
         }
+    }
+
+    /// Your own saved places, one row under your name — the Apple-ID-row
+    /// pattern the profile header already uses, not a second card.
+    ///
+    /// Free, unlike a FRIEND's saved addresses: Home is how you join your own
+    /// Tweens in one tap, and putting a paywall on that would gate the core
+    /// flow rather than the Pro one (which is knowing where OTHER people
+    /// start from).
+    var savedPlacesRow: some View {
+        Button { friendsSubSheet = .myPlaces } label: {
+            HStack(spacing: Tokens.Spacing.s3) {
+                TweenRowIcon(systemImage: MyPlaceKind.home.symbol,
+                             color: Tokens.Palette.brand, size: 36)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Home")
+                        .font(Tokens.Typography.headline)
+                        .foregroundStyle(Tokens.Palette.textPrimary)
+                    Text(homePlace?.address ?? "Save it once — then joining is one tap")
+                        .font(Tokens.Typography.caption)
+                        .foregroundStyle(Tokens.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.vertical, Tokens.Spacing.s2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(homePlace == nil ? "Set up Home" : "Home")
+        .accessibilityHint("Your saved home address. Only you can see it.")
     }
 
     /// The two things you do here, as equal tiles — Contacts-card style.
@@ -306,61 +343,102 @@ extension OnboardingView {
 
     func groupRow(_ group: FriendGroup) -> some View {
         let members = group.members(in: friends)
-        let based = members.filter { $0.homeBase != nil }.count
-        return Button {
-            openGroup(group)
-        } label: {
-            HStack(spacing: Tokens.Spacing.s3) {
-                TweenRowIcon(systemImage: "person.3.fill", color: Tokens.Palette.brand, size: 36)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group.name)
-                        .font(Tokens.Typography.headline)
-                        .foregroundStyle(Tokens.Palette.textPrimary)
-                    Text(based == members.count
-                         ? "\(members.count) people, all home bases set"
-                         : "\(members.count) people, \(based) home base\(based == 1 ? "" : "s") set")
-                        .font(Tokens.Typography.caption)
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
-                Spacer()
-                Button {
-                    guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
-                    friendsSubSheet = .groupEditor(group)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(Tokens.Palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Edit \(group.name)")
+        // Who's in it, in the row — Messages names a thread by its people, and
+        // "3 people, 2 home bases set" was an inventory, not a group.
+        let who = members.isEmpty
+            ? "No members yet"
+            : members.map { GroupNaming.firstName($0.name) }.joined(separator: " · ")
+        // A tap GESTURE, not a Button — the same shape the friend rows use one
+        // section down, and for the same reason. `groupsSection` is ONE List
+        // row that already contains the header's "New" button, and a List row
+        // holding more than one button routes the touch to neither: tapping a
+        // group did nothing at all, which is why there was no way to rename
+        // one or see who was in it (sim check 2026-09-21).
+        return HStack(spacing: Tokens.Spacing.s3) {
+            TweenRowIcon(systemImage: "person.3.fill", color: Tokens.Palette.brand, size: 36)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(Tokens.Typography.headline)
+                    .foregroundStyle(Tokens.Palette.textPrimary)
+                Text(who)
+                    .font(Tokens.Typography.caption)
+                    .foregroundStyle(Tokens.Palette.textSecondary)
+                    .lineLimit(1)
             }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(Tokens.Typography.caption)
+                .foregroundStyle(Tokens.Palette.textTertiary)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Finds fair spots between \(group.name)'s home bases")
+        .padding(.vertical, Tokens.Spacing.s1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Opens the group rather than firing the search. The search is
+            // one tap deeper, on a screen that can also show who's in the
+            // group and why it might come back empty — the same correction
+            // the friend row got in 2026-08 (a single tap must not be the
+            // only route, and must not be the irreversible one).
+            openGroup(group)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(group.name), \(who)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the group")
     }
 
-    /// Pro gate + the group-open flow: members' home bases become LOCAL
-    /// manual participants (the manual-location isolation applies — they are
-    /// never merged into an outgoing payload), the sheet drops to the map,
-    /// and the user picks a category to rank.
+    /// Opens the group's own screen. Deliberately NOT Pro-gated, for the same
+    /// reason the friend row isn't: the gate belongs on the thing Pro buys
+    /// (starting a group search from everyone's saved addresses), not on the
+    /// row's only tap — gating the tap leaves a locked user with no way to
+    /// see, rename, or fix the group they already made.
     func openGroup(_ group: FriendGroup) {
-        guard ProEntitlement.isUnlocked else { friendsSubSheet = .paywall; return }
-        let based = group.members(in: friends).compactMap { friend -> Participant? in
+        friendsSubSheet = .groupDetail(group.id)
+    }
+
+    /// START A TWEEN: members' saved addresses become LOCAL manual
+    /// participants (the manual-location isolation applies — they are never
+    /// merged into an outgoing payload), the sheets close, and the map is
+    /// framed on the group so the user can pick a category to rank.
+    ///
+    /// The meetup that follows is an ordinary Tween. It remembers which group
+    /// it came from in `activeGroupID`, device-side only — a group id means
+    /// nothing on anyone else's phone and the payload budget belongs to
+    /// coordinates (constraint 2).
+    func startTween(from group: FriendGroup) {
+        guard ProEntitlement.isUnlocked else {
+            activeSheet = .friends
+            friendsSubSheet = .paywall
+            return
+        }
+        // Re-read: the detail screen may have renamed the group or dropped a
+        // member since the row that opened it was drawn.
+        let current = GroupStore.group(id: group.id) ?? group
+        let roster = FriendRoster.load()
+        friends = roster
+        let based = current.members(in: roster).compactMap { friend -> Participant? in
             guard let coordinate = friend.homeBase else { return nil }
             return Participant.manual(label: friend.name, coordinate: coordinate)
         }
         guard !based.isEmpty else {
-            // NOT a toast: toastView is an overlay on the bottom sheet, which
-            // the Friends sheet covers — so this branch was a visibly dead tap.
-            // Open the editor instead, which is where the addresses are set.
-            // Save-as-group creates friends with no address by construction, so
-            // this is one tap downstream of that flow (audit 2026-08-04).
-            friendsSubSheet = .groupEditor(group)
+            // Nowhere to search FROM. Open the editor, which is where the
+            // addresses are set — save-as-group creates friends with no
+            // address by construction, so this is one tap downstream of that
+            // flow (audit 2026-08-04). Not a toast: `toastView` is an overlay
+            // on the bottom sheet, which the Friends sheet covers.
+            activeSheet = .friends
+            friendsSubSheet = .groupEditor(current)
             return
         }
+        activeGroupID = current.id
+        GroupStore.noteStarted(id: current.id)
+        groups = GroupStore.load()
         manualParticipants = based
         activeSheet = nil
+        friendsSubSheet = nil
         reframe()
-        showToast("\(group.name) is on the map — pick a category to find fair spots")
+        showToast("\(current.name) is on the map — pick a category to find fair spots")
     }
 
     /// Opens one friend: their saved addresses, and ping.
@@ -442,14 +520,30 @@ extension OnboardingView {
             ? MeetupGroupBuilder.build(participants: savable, existing: friends)
             : MeetupGroupBuilder.Result()
         if plan.memberIDs.count >= 2 {
+            // Already saved this exact crew? Offer THAT group instead of a
+            // second identical row (spec §17). A superset is a different
+            // crew, so this only fires on an exact membership match.
+            //
+            // Against the in-memory `groups`, not `GroupStore.group(matching:)`
+            // — this runs on every evaluation of the row, and a UserDefaults
+            // read plus a JSON decode in a view body is the anti-pattern
+            // already logged against `RankedSpot.score`.
+            let key = Set(plan.memberIDs)
+            let existing = key.isEmpty ? nil : groups.first { $0.membershipKey == key }
             Button {
                 guard ProEntitlement.isUnlocked else {
                     friendsSubSheet = .paywall
                     return
                 }
-                saveCurrentMeetupAsGroup(savable)
+                if let existing {
+                    friendsSubSheet = .groupDetail(existing.id)
+                } else {
+                    saveCurrentMeetupAsGroup(savable)
+                }
             } label: {
-                Label("Save these \(plan.memberIDs.count) as a group", systemImage: "person.3.fill")
+                Label(existing.map { "Open \($0.name)" }
+                        ?? "Save these \(plan.memberIDs.count) as a group",
+                      systemImage: "person.3.fill")
                     .font(Tokens.Typography.subheadline.weight(.semibold))
                     .foregroundStyle(Tokens.Palette.accent)
                     .frame(maxWidth: .infinity, minHeight: Tokens.Layout.minTapTarget)
@@ -493,8 +587,11 @@ extension OnboardingView {
         // behind when the user backs out is not the bargain (audit 2026-08-04).
         pendingGroupFriends.arm(plan.newFriends.map(\.id))
 
-        // Straight into the editor, unsaved, so the name is deliberate and
-        // addresses can be filled in before it's committed.
+        // Straight into the editor, unsaved, so addresses can be filled in
+        // before it's committed — but NAMED already, from the people in it
+        // ("Hassan, Shiraaz & Khanna"). Naming a group is not a decision
+        // worth blocking a save on (spec §15); the editor's field is there to
+        // override the suggestion, not to demand one.
         // group: nil — this one has never been saved, so the editor must open
         // as "New Group" without a destructive Delete section for something
         // that doesn't exist yet.
@@ -794,6 +891,28 @@ extension OnboardingView {
                 .accessibilityHint("Limits results to places that are open right now")
                 .accessibilityAddTraits(openNowOnly ? [.isButton, .isSelected] : .isButton)
 
+                // "I don't know what I want" — the chip for when none of the
+                // categories to its right is the answer yet. Same capsule as
+                // every other chip on this rail (subheadline, s4 horizontal,
+                // minTapTarget, brand fill when active); it opens a sheet
+                // instead of committing a search, which is the only thing
+                // that makes it behave differently.
+                Button { openMoodSheet() } label: {
+                    Label("What's the mood?", systemImage: "sparkles")
+                        .font(Tokens.Typography.subheadline)
+                        .padding(.horizontal, Tokens.Spacing.s4)
+                        .frame(minHeight: Tokens.Layout.minTapTarget)
+                        .background(
+                            activeMood != nil ? AnyShapeStyle(Tokens.Palette.brand) : AnyShapeStyle(Tokens.Palette.surfaceSecondary),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(activeMood != nil ? Tokens.Palette.onBrand : Tokens.Palette.textPrimary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("What's the mood?")
+                .accessibilityHint("Describe a vibe and Tween finds the kind of place that fits")
+                .accessibilityAddTraits(activeMood != nil ? [.isButton, .isSelected] : .isButton)
+
                 ForEach(CategoryPreset.allCases) { preset in
                     let selected = preset == selectedCategory
                     Button { selectCategory(preset) } label: {
@@ -818,6 +937,7 @@ extension OnboardingView {
         }
         .sensoryFeedback(.selection, trigger: selectedCategory)
         .sensoryFeedback(.selection, trigger: openNowOnly)
+        .sensoryFeedback(.selection, trigger: activeMood)
     }
 
     var resultsScroll: some View {
@@ -833,6 +953,10 @@ extension OnboardingView {
                     presenceControls
                     discoverySections
                 } else if searchState == .results || isSearchLoading {
+                    // "The mood: Something fun 🎳" + refinement chips. Renders
+                    // nothing when no mood is active, so a normal search is
+                    // byte-for-byte the list it was before.
+                    moodResultsHeader
                     resultsList
                 }
             }
@@ -1191,6 +1315,11 @@ extension OnboardingView {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, Tokens.Spacing.s3)
+        } else if displayedItems.isEmpty, let mood = activeMood {
+            // A mood that found nothing has ALREADY been retried over the
+            // wider metro box (see resolveMoodPlaces) — so the honest next
+            // move is a neighbouring vibe, not "No results" (spec §11).
+            moodEmptyState(mood)
         } else if displayedItems.isEmpty, openNowOnly {
             ContentUnavailableView(
                 "Nothing Open Right Now",
@@ -1220,6 +1349,11 @@ extension OnboardingView {
                     bestWorstETA: rankedSpots.map(\.worstETA).min(),
                     soloETA: soloRanked.first(where: { $0.item == item })?.etas.first?.eta,
                     soloMode: soloMode,
+                    // One short line derived from the place's POI category
+                    // within the active mood ("Competitive, good for a
+                    // group"). Nil for every non-mood search, which is what
+                    // keeps the card identical to what it was.
+                    moodNote: activeMood?.note(for: item),
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
@@ -1565,6 +1699,17 @@ extension OnboardingView {
     var statusText: String {
         if !monitor.isOnline {
             return "You're offline. Reconnect to find meetup spots."
+        }
+        // A DECLARED origin (Home, or "I'll be at…") needs no GPS at all, so a
+        // location failure is not this user's problem and saying "couldn't get
+        // your location" under a successful join reads as a bug. The declared
+        // line outranks the provider's — but only while genuinely in, so the
+        // GPS branches below still own the not-in case (sim check 2026-09-21).
+        if isUserIn, selfIsManual {
+            let from = selfManualLabel.map { "from \($0)" } ?? "from where you said you'd be"
+            return peerCoordinate != nil
+                ? "You're in \(from). Search for a fair spot between you."
+                : "You're in \(from). Waiting for your friend to share their location…"
         }
         switch provider.status {
         case .denied:

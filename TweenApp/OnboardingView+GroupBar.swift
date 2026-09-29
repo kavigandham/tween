@@ -83,15 +83,12 @@ extension OnboardingView {
 
     /// The first whitespace-separated token, with a possessive stripped so a
     /// manual point called "Kavi's place" reads as "Kavi" rather than "Kavi's".
-    static func firstName(_ raw: String) -> String {
-        let sanitised = UserName.peerDisplayName(raw)
-        guard let token = sanitised.split(separator: " ").first else { return sanitised }
-        var first = String(token)
-        for suffix in ["'s", "\u{2019}s"] where first.lowercased().hasSuffix(suffix) {
-            first = String(first.dropLast(suffix.count))
-        }
-        return first.isEmpty ? sanitised : first
-    }
+    ///
+    /// Forwards to `GroupNaming.firstName`, which is the one implementation:
+    /// auto-generated group names ("Hassan, Shiraaz & Khanna") shorten names
+    /// by exactly this rule, and a second copy of a name-laundering rule is
+    /// how a fallback name survives at one call site and not its siblings.
+    static func firstName(_ raw: String) -> String { GroupNaming.firstName(raw) }
 
     /// First letter of the SECOND token, when there is one.
     static func surnameInitial(_ raw: String) -> String? {

@@ -279,6 +279,16 @@ extension OnboardingView {
             selfIsManual = cachedIsManual
             if !cachedIsManual { selfManualLabel = nil }
         }
+        // A join from HOME can name itself again after a relaunch (or when the
+        // extension made it): the blob records the origin KIND, and the label
+        // for that kind is a local lookup. Guarded tight — only a declared,
+        // currently-unlabelled home join reads the store — so this is not a
+        // decode on every poll tick.
+        if cachedIsManual, selfManualLabel == nil,
+           cachedSelfBlob?.joinOrigin == .home,
+           let home = MyPlaceStore.home() {
+            selfManualLabel = home.label
+        }
         // Presence tracks the opt-in flag, NOT coordinate freshness — the old
         // `isActive` read silently flipped "I'm in" back off five minutes
         // after the last fix while peers still counted this user in.
@@ -300,6 +310,15 @@ extension OnboardingView {
             : LocationCache.loadAgreedMeetup()
         if agreedMeetup != cachedAgreedMeetup {
             agreedMeetup = cachedAgreedMeetup
+            // ARRIVAL SYNC. The place the group is meeting at just changed, so
+            // a sync aimed at the old one is dead: every departure time in it
+            // was subtracted from an arrival measured somewhere else. Driven
+            // from the TRANSITION, not every tick, and from `cachedAgreedMeetup`
+            // rather than the @State we just wrote. The extension does this on
+            // its own decode path; this is the host's half, and it covers every
+            // route in (received bubble, local pick, extension write) instead
+            // of one deep-link branch.
+            invalidateArrivalSyncIfDestinationChanged(against: cachedAgreedMeetup)
             // Poll-driven deselect: latch the detent restore off (read the
             // defer-scoped flag NOW, while it's still true — the onChange
             // that consumes the latch runs after the defer resets it).
@@ -336,6 +355,29 @@ extension OnboardingView {
             if cachedProposal != nil, !suppressPollDetentWrites {
                 selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             }
+        }
+
+        // Arrival Sync mirror. The banner renders from this, never from the
+        // store — see the `arrivalSync` declaration. Cheap when idle: the
+        // store returns nil for a missing key without decoding anything, and
+        // a sync only exists for the couple of hours around a real departure.
+        //
+        // Deliberately NOT folded into `didChange`: that drives `reframe()`,
+        // and a departure landing must not yank the camera out from under
+        // someone who has panned.
+        let cachedArrivalSync = ConversationMeetupStore.lastActiveConversationKey
+            .flatMap { ArrivalSyncStore.load(key: $0) }
+        if arrivalSync != cachedArrivalSync {
+            arrivalSync = cachedArrivalSync
+        }
+
+        // Plan mirror, same contract as `arrivalSync` and for the same reason
+        // — `plannedMeetupBanner` renders from this, never from the store.
+        // Also kept off `didChange`: a plan edit made in the sheet must not
+        // reframe the map.
+        let cachedPlan = MeetupPlanStore.current
+        if currentPlan != cachedPlan {
+            currentPlan = cachedPlan
         }
 
         lastReplyAt = PingLog.lastIncomingReplyAt

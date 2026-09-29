@@ -331,6 +331,26 @@ enum FairnessRanker {
         return seconds
     }
 
+    /// One leg, WITH the provenance of the number.
+    ///
+    /// Same deadlined MKDirections path as `travelTime`, but it says whether
+    /// the answer came from a real route or from the straight-line fallback.
+    /// Arrival Sync needs the distinction and ranking does not: every
+    /// candidate in a ranking is estimated the same way, so a guess only moves
+    /// spots relative to each other — whereas telling somebody to walk out of
+    /// the door at 6:10 off a crow-flies guess is a wrong instruction with
+    /// nothing to compare it against. The initiator refuses to depart on
+    /// `fromRoute == false` (the spec's "Couldn't calculate your ETA"), while
+    /// a RECEIVER still uses it, because a rough departure time beats none.
+    static func routedTravelTime(from origin: CLLocationCoordinate2D,
+                                 to destination: CLLocationCoordinate2D,
+                                 mode: TravelMode = .driving)
+    async -> (seconds: TimeInterval, fromRoute: Bool) {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        let (seconds, fromRoute, _) = await eta(from: origin, to: item, mode: mode)
+        return (seconds, fromRoute)
+    }
+
     /// Returns the ETA in seconds and whether it came from a real route.
     /// On any failure, estimates from straight-line distance at the mode's
     /// own speed. Defaults reproduce the original driving-now behaviour.

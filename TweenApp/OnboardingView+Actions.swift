@@ -11,7 +11,109 @@ import os
 extension OnboardingView {
     // MARK: - Actions
 
+    /// The "I'm in" tap. Asks where from BEFORE touching CoreLocation, so a
+    /// user with a saved Home never waits on a GPS fix they didn't need
+    /// (spec §9).
+    ///
+    /// The tour drives this button itself and its overlay hides while a sheet
+    /// is up, so a tour tap joins live directly — a picker there would park
+    /// the tour on a step whose target is behind a sheet.
     func imIn() {
+        guard tourStep == nil else {
+            joinFromCurrentLocation()
+            return
+        }
+        ensureNamed {
+            homePlace = MyPlaceStore.home()
+            joiningFrom = nil
+            activeSheet = .origin
+        }
+    }
+
+    /// Acts on the origin the user picked.
+    func chooseOrigin(_ choice: OriginPickerSheet.JoinChoice) {
+        // One choice at a time: the rows disable while a join runs, and this
+        // guard covers the taps already in flight when that happened.
+        guard joiningFrom == nil else { return }
+        switch choice {
+        case .home:
+            guard let home = MyPlaceStore.home() else {
+                // Deleted from another surface while the sheet was open.
+                homePlace = nil
+                showToast("Your saved home is gone — pick another starting point")
+                return
+            }
+            joiningFrom = .home
+            activeSheet = nil
+            joinFromSavedPlace(home)
+        case .currentLocation:
+            joiningFrom = .currentLocation
+            activeSheet = nil
+            joinFromCurrentLocation()
+        case .somewhereElse:
+            activeSheet = nil
+            // Next runloop: presenting while this sheet is still dismissing
+            // drops on iOS (the sheet-item-swap trap).
+            Task { @MainActor in activeSheet = .whereIllBe }
+        case .setUpHome:
+            joinAfterSavingHome = true
+            activeSheet = nil
+            Task { @MainActor in activeSheet = .setUpHome }
+        }
+    }
+
+    /// Joins with a saved place's coordinate — no GPS, no wait.
+    ///
+    /// The coordinate is COPIED here and never read back from the store: a
+    /// participation's origin is a snapshot, so changing Home tomorrow leaves
+    /// today's meetup exactly as it was (spec §11). Reuses the declared-
+    /// location primitive ("I'll be at…") wholesale, which is what keeps the
+    /// live movement stream from overwriting it — no new rule, and nothing
+    /// about the en-route/ETA path changes.
+    func joinFromSavedPlace(_ place: MyPlace) {
+        ensureNamed {
+            awaitingImIn = false
+            pendingLocationAction = nil
+            let coord = place.coordinate
+            selfIsManual = true
+            selfManualLabel = place.label
+            savedCoordinate = coord
+            savedCoordinateAt = Date()
+            isUserIn = true
+            noteEngagement(.imIn)
+            LocationCache.save(coord, isActive: true, isManual: true, origin: place.origin)
+            saveLocalParticipant(coord)
+            joiningFrom = nil
+            withAnimation(Tokens.Motion.spring) {
+                position = Self.cameraPosition(for: [coord])
+            }
+            showToast("You're in — from \(place.label)")
+        }
+    }
+
+    /// Saves Home from the address picker, then joins from it in the same
+    /// gesture when that is what the user came here to do.
+    func saveHome(_ item: MKMapItem, thenJoin: Bool) {
+        // Consume the intent whichever way this ends, so a later save from
+        // Your Places can't inherit a stale "and join".
+        joinAfterSavingHome = false
+        let coordinate = item.placemark.coordinate
+        guard CLLocationCoordinate2DIsValid(coordinate) else {
+            showToast("That address didn't resolve — try another one")
+            return
+        }
+        let place = MyPlaceStore.setHome(coordinate: coordinate,
+                                         address: item.placemark.cleanLine ?? item.name)
+        homePlace = place
+        if thenJoin {
+            joinFromSavedPlace(place)
+        } else {
+            showToast("Home saved")
+        }
+    }
+
+    /// The live-GPS join: the original "I'm in" behaviour, unchanged.
+    func joinFromCurrentLocation() {
         ensureNamed {
             // A live GPS join clears any declared "I'll be at…" so the fresh fix
             // takes over.
@@ -50,6 +152,8 @@ extension OnboardingView {
         }
         noteEngagement(.imIn)
         awaitingImIn = false
+        // The origin picker's in-flight marker, whichever route started it.
+        joiningFrom = nil
         reframe()
         if let action = pendingLocationAction {
             pendingLocationAction = nil
@@ -74,8 +178,9 @@ extension OnboardingView {
             savedCoordinateAt = Date()
             isUserIn = true
             noteEngagement(.imIn)
-            LocationCache.save(coord, isActive: true, isManual: true)
+            LocationCache.save(coord, isActive: true, isManual: true, origin: .custom)
             saveLocalParticipant(coord)   // this is what travels to the group
+            joiningFrom = nil
             withAnimation(Tokens.Motion.spring) {
                 position = Self.cameraPosition(for: [coord])
             }
@@ -367,6 +472,9 @@ extension OnboardingView {
         // the "preserved" modes were an empty dictionary (audit 2026-08-06).
         MeetupPlanStore.endMeetup()
         LeaveByReminder.cancel()
+        // Arrival Sync goes with the meetup. A "time to go" for something the
+        // user just left is a wrong instruction, not a stale notification.
+        cancelActiveArrivalSync()
         _ = refreshFromAppGroup()
     }
 

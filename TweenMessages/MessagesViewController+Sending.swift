@@ -9,11 +9,30 @@ import os
 extension MessagesViewController {
     // MARK: - Sending
 
+    /// Joins with the user's saved Home rather than a live fix.
+    ///
+    /// Deliberately routes through `handleImIn` rather than duplicating the
+    /// send: the only difference between the two is which coordinate the
+    /// bubble carries, and a second copy of the join would be a second place
+    /// for the roster/tombstone/revision rules to drift.
+    func handleImInFromHome() {
+        guard let home = MyPlaceStore.home() else {
+            // Removed in the host app since this drawer was drawn.
+            sendStatusMessage = MessagesViewController.missingHomeStatus
+            presentUI(for: presentationStyle)
+            return
+        }
+        handleImIn(from: home)
+    }
+
     /// Shares the user's location. Uses a fresh cached fix when one is fresh;
     /// otherwise requests one before composing. Sent as an `.invite` bubble
     /// carrying the full participant roster so any recipient can reconstruct
     /// who's in.
-    func handleImIn() {
+    ///
+    /// `savedPlace` short-circuits all of that: its coordinate is already
+    /// known, so the join is instant and CoreLocation is never touched.
+    func handleImIn(from savedPlace: MyPlace? = nil) {
         // Same re-entrancy guard as handleImOut — a double-tap must not emit
         // two .invite bubbles (post-push audit).
         guard !isSending else { return }
@@ -25,7 +44,17 @@ extension MessagesViewController {
         let sendKey = conversationKey
         sendTask = Task { @MainActor in
             isSending = true
-            sendStatusMessage = "Sharing your location..."
+            // Honest copy per route: a saved-place join shares an address the
+            // user already chose, not "your location".
+            //
+            // Held in a local because the success path below clears the status
+            // by comparing against it. The From-Home variant interpolates the
+            // place label, so the literal comparison there could never match
+            // and "Joining from Home..." stayed pinned over the map for good.
+            let progressStatus = savedPlace == nil
+                ? "Sharing your location..."
+                : "Joining from \(savedPlace?.label ?? "home")..."
+            sendStatusMessage = progressStatus
             presentUI(for: presentationStyle)
 
             // Force a fresh fix on every explicit "I'm in" so the bubble
@@ -34,7 +63,21 @@ extension MessagesViewController {
             // the fallback when CoreLocation can't deliver a fresh fix in
             // time — and even then we'll have warned the user via the status.
             let coordinate: CLLocationCoordinate2D
-            if let manual = LocationCache.loadSelf(), manual.isManual == true, LocationCache.isActive {
+            if let savedPlace {
+                // "From Home": the coordinate is already known, so this path
+                // never touches CoreLocation — no permission prompt, no
+                // 20-second wait on a cold extension launch. It is written as
+                // a DECLARED location, exactly like "I'll be at…", which is
+                // what stops a later background fix from overwriting it.
+                //
+                // A COPY, taken now: this participation's origin is a
+                // snapshot, so editing Home tomorrow leaves this meetup as it
+                // was (spec §11).
+                coordinate = savedPlace.coordinate
+                LocationCache.save(coordinate, isActive: LocationCache.isActive,
+                                   isManual: true, origin: savedPlace.origin)
+                logger.debug("Joined from a saved place")
+            } else if let manual = LocationCache.loadSelf(), manual.isManual == true, LocationCache.isActive {
                 // The user declared a future location ("I'll be at…") in the app
                 // AND is still active — join with THAT, don't overwrite it with a
                 // live GPS fix. A deactivated declaration (after leaving) must NOT
@@ -109,8 +152,9 @@ extension MessagesViewController {
             isSending = false
             if didSend {
                 // Preserve the insert-fallback's "tap send to deliver" hint —
-                // only clear the status when it's still our in-progress copy.
-                if sendStatusMessage == "Sharing your location..." { sendStatusMessage = nil }
+                // only clear the status when it's still our in-progress copy,
+                // whichever route set it.
+                if sendStatusMessage == progressStatus { sendStatusMessage = nil }
             } else if !Task.isCancelled {
                 // A backgrounding-cancelled task must not stamp a failure
                 // banner for a send the user never saw fail (post-push audit).
@@ -219,6 +263,16 @@ extension MessagesViewController {
         // this is a harmless no-op and LeaveByRefresher still collects it.
         MeetupPlanStore.endMeetup()
         LeaveByReminder.cancel()
+        // Arrival Sync goes the same way, and for the same reason: leaving
+        // from inside iMessage must not leave a "time to go" armed for a
+        // meetup this user just walked out of. `cancel` retires the pending
+        // requests and clears the stored sync, so neither process can re-arm
+        // it. Cancelling needs no authorization, so the extension may do it.
+        if let conversationKey {
+            ArrivalSyncService.cancel(meetingID: conversationKey)
+        }
+        arrivalSyncTask?.cancel()
+        arrivalSync = nil
         // Tombstone: peers who never tap this leave bubble will keep
         // sending rosters that include this user — decode filters
         // those entries until an explicit rejoin. Any staged-send marker
@@ -506,18 +560,60 @@ extension MessagesViewController {
                 origin = LocationCache.loadSelf()?.coordinate
             }
 
+            let participants = origin.map {
+                self.nextParticipantList(myCoord: $0, conversation: self.activeConversation)
+            } ?? self.currentParticipants
+
+            // ARRIVAL SYNC (Pro). One calculation, right here: my fresh drive
+            // becomes an arrival time, and everyone else's departure is derived
+            // from it on their own device. Nothing is tracked afterwards.
+            //
+            // A non-Pro departure keeps the original free behaviour exactly —
+            // announce my ETA, no synchronisation — so this is purely additive
+            // and a lapsed subscriber loses coordination, not the button.
+            var sync: ArrivalSyncState?
             var seconds: Int?
-            if let origin {
+            if ProEntitlement.isUnlocked, let conversationKey = self.conversationKey {
+                sendStatusMessage = "Working out when everyone should leave..."
+                presentUI(for: presentationStyle)
+                let result = await ArrivalSyncService.initiate(
+                    meetingID: conversationKey,
+                    destinationName: destination.name,
+                    destination: destination.coordinate,
+                    participants: participants,
+                    departingID: self.localParticipantID(),
+                    departingName: Self.localParticipantName(),
+                    origin: origin,
+                    departed: self.departedForActiveConversation(),
+                    revision: self.nextOutgoingRevision() ?? 0)
+                guard !Task.isCancelled else { return }
+                switch result {
+                case .success(let state):
+                    sync = state
+                    seconds = state.participant(self.localParticipantID())?
+                        .estimatedTravelTime.map { Int($0.rounded()) }
+                case .routeUnavailable:
+                    // Do NOT depart on a fabricated arrival time: every other
+                    // person's departure is subtracted from it, so a
+                    // straight-line guess here is a wrong instruction for the
+                    // whole group. Tapping again is the retry.
+                    isSending = false
+                    sendStatusMessage = "Couldn't calculate your ETA. Try again."
+                    self.presentUI(for: self.presentationStyle)
+                    return
+                case .noOrigin:
+                    isSending = false
+                    sendStatusMessage = "Tween needs your location to work out when everyone should leave."
+                    self.presentUI(for: self.presentationStyle)
+                    return
+                }
+            } else if let origin {
                 let mode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
                 let travel = await FairnessRanker.travelTime(
                     from: origin, to: destination.coordinate, mode: mode)
                 seconds = Int(travel.rounded())
             }
             guard !Task.isCancelled else { return }
-
-            let participants = origin.map {
-                self.nextParticipantList(myCoord: $0, conversation: self.activeConversation)
-            } ?? self.currentParticipants
             // Legacy builds read `.enroute` as a full agreement, which it is —
             // you only leave for a place the group settled on. Excludes ME
             // because `isFullyAgreed` excludes the sender (see sendBoardUpdate).
@@ -540,7 +636,17 @@ extension MessagesViewController {
                 revision: self.nextOutgoingRevision(),
                 poll: self.poll.normalized(participants: participants,
                                            departed: self.departedForActiveConversation()),
-                etaSeconds: seconds
+                etaSeconds: seconds,
+                // Arrival Sync rides on the bubble that was already being
+                // sent — no second message, no new message type. Nil for a
+                // non-Pro departure, which is exactly how the receiver tells
+                // a plain announcement from a synchronised one.
+                arrivalTarget: sync?.targetArrivalTime,
+                travelSeconds: sync.map { state in
+                    Dictionary(uniqueKeysWithValues: state.participants.compactMap { entry in
+                        entry.estimatedTravelTime.map { (entry.participantID, Int($0.rounded())) }
+                    })
+                } ?? [:]
             )
             let didSend = await sendBubbleNow(for: state)
             isSending = false
@@ -548,16 +654,36 @@ extension MessagesViewController {
                 self.currentParticipants = participants
                 LocationCache.saveParticipantSnapshot(participants, localContext: localParticipantContext())
                 self.noteEnRoute(participantID: self.localParticipantID(), seconds: seconds)
-                if sendStatusMessage == "Getting your ETA..." {
-                    sendStatusMessage = seconds.map {
-                        "On your way — about \(max(Int((Double($0) / 60).rounded()), 1)) min"
-                    } ?? "On your way"
+                // Persist only once the bubble is actually out. A sync stored
+                // for a message nobody received would tell this device that
+                // peers had been told when to leave when they hadn't — the
+                // same rule every other `onDelivered` commit here follows.
+                if let sync, let conversationKey = self.conversationKey {
+                    ArrivalSyncStore.save(sync, key: conversationKey)
+                    self.arrivalSync = sync
+                    // I have left, so any reminder telling ME to leave for this
+                    // meetup is now wrong.
+                    ArrivalSyncNotifier.cancelReminder(meetingID: conversationKey,
+                                                       participantID: self.localParticipantID())
+                }
+                if sendStatusMessage == "Getting your ETA..."
+                    || sendStatusMessage == "Working out when everyone should leave..." {
+                    sendStatusMessage = ArrivalSyncNotifier.departureStatus(sync: sync, seconds: seconds)
                 }
             } else if !Task.isCancelled {
                 sendStatusMessage = "Couldn't send the Tween message. Try again."
             }
             self.presentUI(for: self.presentationStyle)
         }
+    }
+
+    /// Non-Pro tapped the Arrival Sync upsell. StoreKit is deliberately absent
+    /// from the extension (constraint 1 — the ~120 MB ceiling), so the paywall
+    /// lives in the host app and this trampolines to it, the same way
+    /// `openFullAppSearch` hands off search.
+    func openProUpgrade() {
+        guard let url = URL(string: "tween://pro") else { return }
+        extensionContext?.open(url, completionHandler: nil)
     }
 
     /// Where "Leaving now" would send you: the settled option, or the decided

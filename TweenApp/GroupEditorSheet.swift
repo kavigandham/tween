@@ -11,6 +11,10 @@ struct GroupEditorSheet: View {
     /// Members for a group being created from an existing meetup. Used only
     /// when `group` is nil, so the sheet still reads as "New Group".
     var draftMemberIDs: [UUID] = []
+    /// A suggested name for a NEW group, pre-filled in the field so Save is
+    /// reachable immediately. Ignored when editing an existing group, whose
+    /// own name always wins.
+    var draftName: String = ""
     var onSave: (FriendGroup) -> Void = { _ in }
     var onDelete: (UUID) -> Void = { _ in }
     /// Backing out. The parent uses this to undo friends it created just to
@@ -39,6 +43,7 @@ struct GroupEditorSheet: View {
 
     init(group: FriendGroup? = nil,
          draftMemberIDs: [UUID] = [],
+         draftName: String = "",
          friends: [TweenFriend],
          onSave: @escaping (FriendGroup) -> Void = { _ in },
          onDelete: @escaping (UUID) -> Void = { _ in },
@@ -50,6 +55,7 @@ struct GroupEditorSheet: View {
          resolvePlace: @escaping (String, MKCoordinateRegion) async -> [MKMapItem] = { _, _ in [] }) {
         self.group = group
         self.draftMemberIDs = draftMemberIDs
+        self.draftName = draftName
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -57,7 +63,7 @@ struct GroupEditorSheet: View {
         self.searchRegion = searchRegion
         self.resolvePlace = resolvePlace
         _friends = State(initialValue: friends)
-        _name = State(initialValue: group?.name ?? "")
+        _name = State(initialValue: group?.name ?? draftName)
         _selected = State(initialValue: Set(group?.memberIDs ?? draftMemberIDs))
     }
 
@@ -196,7 +202,21 @@ struct GroupEditorSheet: View {
                         let trimmed = name.trimmingCharacters(in: .whitespaces)
                         // Keep the roster's order so the group renders stably.
                         let members = resolvedMembers
-                        onSave(FriendGroup(id: group?.id ?? UUID(), name: trimmed, memberIDs: members))
+                        // Carry the group's metadata across. Rebuilding it from
+                        // id+name+members alone silently ERASED its history and
+                        // creation date on every edit — the same class of
+                        // "every carried field has to be listed here" bug
+                        // FriendRoster.add documents.
+                        // A NEW group is created now; an existing one keeps
+                        // whatever it had, nil included. Defaulting an old
+                        // group's missing date to `Date()` would stamp
+                        // "created today" on a group made months ago the
+                        // first time anyone edited it.
+                        onSave(FriendGroup(id: group?.id ?? UUID(),
+                                           name: trimmed,
+                                           memberIDs: members,
+                                           createdAt: group == nil ? Date() : group?.createdAt,
+                                           history: group?.history))
                         dismiss()
                     }
                     .disabled(!canSave)

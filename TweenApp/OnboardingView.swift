@@ -119,6 +119,36 @@ struct OnboardingView: View {
     /// and drives the "You'll be at X" labels. `selfManualLabel` is the place.
     @State var selfIsManual = false
     @State var selfManualLabel: String? = nil
+    /// The user's own saved Home, cached here so no view body reads the App
+    /// Group (a UserDefaults read plus a JSON decode per render is the
+    /// anti-pattern already logged against `RankedSpot.score`). Refreshed on
+    /// every App Group tick and after any write from the places editor.
+    @State var homePlace: MyPlace? = MyPlaceStore.home()
+    /// The live Arrival Sync for the active chat, mirrored here for exactly
+    /// the reason `homePlace` is: `arrivalSyncBanner` lives in the bottom
+    /// sheet and must not decode App Group JSON on every drag frame. Worse
+    /// than a plain read, `ArrivalSyncStore.load` reaps an expired sync —
+    /// a write and a `MeetupSync` post — which has no business happening
+    /// inside view evaluation. Refreshed on every App Group tick.
+    @State var arrivalSync: ArrivalSyncState?
+    /// The saved plan, mirrored for the same reason. `MeetupPlanStore.current`
+    /// is a UserDefaults read, a JSON decode and a staleness check; the banner
+    /// that renders it lives in the sheet's always-resident stack and was
+    /// paying all three on every drag frame. Refreshed on the App Group tick
+    /// and immediately after any local plan write.
+    @State var currentPlan: MeetupPlan = MeetupPlanStore.current
+    /// The origin the user picked while the join runs, so the picker's row
+    /// can show its own spinner and a second tap can't start a second join.
+    @State var joiningFrom: OriginPickerSheet.JoinChoice?
+    /// True when the Home picker was opened FROM the origin sheet, i.e. the
+    /// user is mid-join and saving Home is the first half of it. The same
+    /// picker reached from the tour or from Your Places just saves.
+    @State var joinAfterSavingHome = false
+    /// The group whose members are currently seeded on the map, so a spot
+    /// picked during this session can be recorded against it. LOCAL only —
+    /// a group id is never broadcast (it means nothing on anyone else's
+    /// device, and the payload budget is for coordinates; constraint 2).
+    @State var activeGroupID: UUID?
     @State var currentParticipants: [Participant] = []
     @State var peerDisplayName = "Friend"
     @State var peerNeedsRide = false
@@ -242,6 +272,21 @@ struct OnboardingView: View {
     /// to honor the filter; if Apple ever stops honoring it, results quietly
     /// widen back to unfiltered — never an error.
     @State var openNowOnly = false
+    /// The active "What's the mood?" intent, or nil for an ordinary search.
+    /// Mutually exclusive with `selectedCategory` — a chip and a mood are two
+    /// answers to the same question — but ORTHOGONAL to `openNowOnly`, which
+    /// keeps filtering whatever the mood found (spec §15).
+    @State var activeMood: MoodIntent?
+    /// Ticket source for mood searches. `searchTask` cancellation already
+    /// stops a superseded search, but a mood fans out into several concurrent
+    /// MapKit requests and switching moods quickly is the headline
+    /// interaction here — the publish step takes a ticket so an older result
+    /// set can never land over a newer one.
+    @State var moodSequence = MoodRequestSequence()
+    /// True when the visible mood results came from the widened metro rung
+    /// rather than the meetup corridor, so the header can say so instead of
+    /// letting them pose as fair midpoint picks.
+    @State var moodBroadened = false
     @State var completer = SearchCompleter()
     /// Set when we mutate `searchText` programmatically (committing a suggestion
     /// or a category) so the field's `onChange` doesn't treat it as fresh typing
@@ -416,6 +461,20 @@ struct OnboardingView: View {
         case spot(SpotSelection)
         case addPoint
         case whereIllBe
+        /// "Where are you leaving from?" — Home, current location, or an
+        /// address. Stands between the I'm in tap and the join itself.
+        case origin
+        /// The address picker for saving Home, reached from the origin sheet
+        /// when there isn't one yet. A TOP-LEVEL sheet rather than a child of
+        /// `.origin`, because the origin sheet dismisses first: re-pointing
+        /// the same `.sheet(item:)` while it is presented is the iOS 26
+        /// silent drop.
+        case setUpHome
+        /// "What's the mood?" — natural-language discovery. A plain
+        /// top-level sheet: it dismisses itself before the search starts, so
+        /// it never re-points `activeSheet` while presented (the iOS 26
+        /// silent drop the cases above document).
+        case mood
         case settings
         /// The Tween Pro pop-up `NudgePolicy` raises after a random number of
         /// good moments.
@@ -430,6 +489,9 @@ struct OnboardingView: View {
             case .spot(let s):       return "spot-\(s.id)"
             case .addPoint:          return "addPoint"
             case .whereIllBe:        return "whereIllBe"
+            case .origin:            return "origin"
+            case .setUpHome:         return "setUpHome"
+            case .mood:              return "mood"
             case .settings:          return "settings"
             case .proNudge:          return "proNudge"
             case .paywall:           return "paywall"
@@ -447,6 +509,14 @@ struct OnboardingView: View {
         case message(PendingMessage)
         /// One friend's saved addresses — Home, Work, anywhere — plus ping.
         case friendPlaces(TweenFriend)
+        /// Your own saved places (Home). Lives inside the Friends sheet
+        /// alongside the profile row it belongs to.
+        case myPlaces
+        /// One group, opened: members, Start a Tween, recent Tweens, settings.
+        /// Carries the ID rather than the struct so the sheet always renders
+        /// the STORED group — a captured copy goes stale the moment the
+        /// detail screen renames or drops a member.
+        case groupDetail(UUID)
         /// Pro: create (nil) or edit a group.
         case groupEditor(FriendGroup?)
         /// Pro: a group pre-populated from the current meetup but NEVER saved.
@@ -463,6 +533,8 @@ struct OnboardingView: View {
             case .invite:            return "invite"
             case .message(let m):    return "message-\(m.id)"
             case .friendPlaces(let f): return "friendPlaces-\(f.id)"
+            case .myPlaces:          return "myPlaces"
+            case .groupDetail(let id): return "groupDetail-\(id)"
             case .groupEditor(let g): return "groupEditor-\(g?.id.uuidString ?? "new")"
             case .groupEditorDraft:  return "groupEditorDraft"
             case .paywall:           return "paywall"
@@ -1153,6 +1225,39 @@ struct OnboardingView: View {
                                     onPing: { pendingFriendSheetAction = { pingFriend(friend) } },
                                     onUpgrade: { pendingFriendSheetAction = { friendsSubSheet = .paywall } },
                                     onChanged: { friends = FriendRoster.load() })
+                            case .myPlaces:
+                                MyPlacesSheet(searchRegion: searchRegion,
+                                              resolvePlace: resolvePlace,
+                                              onChanged: { homePlace = MyPlaceStore.home() })
+                            case .groupDetail(let id):
+                                GroupDetailSheet(
+                                    groupID: id,
+                                    roster: friends,
+                                    proUnlocked: ProEntitlement.isUnlocked,
+                                    // Parked, not run: starting a Tween closes
+                                    // the Friends sheet too, and doing that
+                                    // from inside this child is the iOS 26
+                                    // item-swap drop.
+                                    onStart: { group in
+                                        pendingFriendSheetAction = { startTween(from: group) }
+                                        friendsSubSheet = nil
+                                    },
+                                    onUpgrade: {
+                                        pendingFriendSheetAction = { friendsSubSheet = .paywall }
+                                        friendsSubSheet = nil
+                                    },
+                                    onEditMembers: { group in
+                                        pendingFriendSheetAction = { friendsSubSheet = .groupEditor(group) }
+                                        friendsSubSheet = nil
+                                    },
+                                    onDelete: { id in
+                                        GroupStore.delete(id: id)
+                                        groups = GroupStore.load()
+                                    },
+                                    onChanged: {
+                                        groups = GroupStore.load()
+                                        friends = FriendRoster.load()
+                                    })
                             case .groupEditor(let group):
                                 groupEditorSheet(group)
                             case .groupEditorDraft(let memberIDs):
@@ -1185,6 +1290,27 @@ struct OnboardingView: View {
                                       region: searchRegion,
                                       resolvePlace: resolvePlace,
                                       onAdd: setManualSelf)
+                    case .origin:
+                        OriginPickerSheet(home: homePlace,
+                                          busy: joiningFrom,
+                                          onChoose: chooseOrigin)
+                    case .setUpHome:
+                        AddPointSheet(title: "Where's home?",
+                                      prompt: "Enter your home address",
+                                      region: searchRegion,
+                                      resolvePlace: resolvePlace,
+                                      // Saving Home from the origin sheet is
+                                      // the user saying "I want to join from
+                                      // here", so it joins in the same gesture
+                                      // rather than bouncing them back to the
+                                      // picker they just came from. Reached
+                                      // from the tour or Your Places, it just
+                                      // saves.
+                                      onResolve: { saveHome($0, thenJoin: joinAfterSavingHome) })
+                    case .mood:
+                        MoodSheet(current: activeMood) { intent, _ in
+                            startMoodSearch(intent)
+                        }
                     case .settings:
                         SettingsSheet()
                     case .proNudge:
@@ -1309,6 +1435,12 @@ struct OnboardingView: View {
                 // without asking for Always location — you open Tween on the
                 // way out, which is exactly when a stale estimate matters.
                 Task { await LeaveByRefresher.refresh(from: savedCoordinate) }
+                // Arrival Sync's repair pass: arms a reminder the Messages
+                // extension stored but could not schedule (it never requests
+                // notification permission — a permission alert must not appear
+                // over a conversation). Gated on a stored sync existing, so a
+                // user with no live departure pays one App Group read.
+                reconcileArrivalSync()
             } else {
                 provider.stopContinuous()
                 // Cancel the in-flight solo routing ONLY — never the displayed

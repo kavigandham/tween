@@ -46,6 +46,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// had to leave and rejoin to update"). Cancelled in willResignActive
     /// like every other task.
     var locationRefreshTask: Task<Void, Never>?
+    /// Arrival Sync's re-measurement of THIS device's leg after a departure
+    /// bubble is decoded. Cancelled in `willResignActive` like every other
+    /// task here — the extension ceiling is ~120 MB (constraint 1).
+    var arrivalSyncTask: Task<Void, Never>?
     var isRanking = false
     var isSending = false
     var sendStatusMessage: String?
@@ -68,6 +72,10 @@ final class MessagesViewController: MSMessagesAppViewController {
     var poll: MeetupPoll = .empty
     /// Who has said "leaving now" in this chat, newest first. See `EnRouteLog`.
     var enRouteMarks: [EnRouteLog.Mark] = []
+    /// The live Arrival Sync for this chat: who left, when they arrive, and
+    /// when everyone else should leave. Nil until somebody taps I Left.
+    /// See `ArrivalSyncState`.
+    var arrivalSync: ArrivalSyncState?
 
     let locationProvider = LocationProvider()
     let networkMonitor = NetworkMonitor()
@@ -106,8 +114,14 @@ final class MessagesViewController: MSMessagesAppViewController {
     static let errorStatuses: Set<String> = [
         "Couldn't send the Tween message. Try again.",
         "Location unavailable. Check permission and try again.",
-        "Google Maps isn't installed."
+        "Google Maps isn't installed.",
+        missingHomeStatus
     ]
+
+    /// "From Home" tapped after Home was removed in the host app — the two
+    /// processes share a suite, not a lifetime, so the drawer can be holding
+    /// a place that no longer exists.
+    static let missingHomeStatus = "Your saved home is gone. Tap I'm in to share where you are."
 
     var sendStatusIsError: Bool {
         sendStatusMessage.map { Self.errorStatuses.contains($0) } ?? false
@@ -191,6 +205,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             openNowOnly = true
             poll = .empty
             enRouteMarks = []
+            arrivalSync = nil
             isRanking = false
             rankingTask?.cancel()
             // An in-flight send belongs to the chat it started in — abandon it so
@@ -275,6 +290,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         // of clobbering a just-decoded state — the leave-clears empty the
         // snapshot, which erased the "X left" banner.
         enRouteMarks = EnRouteLog.marks(key: key)
+        // Arrival Sync survives relaunch as a plain App Group preference, so
+        // reopening the chat restores whether a sync was initiated, its target
+        // arrival, and this user's own departure state — no rehydration work.
+        arrivalSync = ArrivalSyncStore.load(key: key)
         if !decodedIncoming, received == nil, let snapshot {
             currentParticipants = snapshot.participants
             // A user who left this meetup must NOT be restored into its agreed/
@@ -527,6 +546,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         rankingTask?.cancel()
         sendTask?.cancel()
         locationRefreshTask?.cancel()
+        arrivalSyncTask?.cancel()
         isSending = false
         // The cancelled task can't run its own reset — without this,
         // reactivating mid-rank shows a stuck "Finding fair spots...".
@@ -564,9 +584,20 @@ final class MessagesViewController: MSMessagesAppViewController {
                     recentlySentSpotName: recentlySentSpotName,
                     poll: poll,
                     enRouteMarks: enRouteMarks,
+                    arrivalSync: arrivalSync,
+                    // The cached App Group flag, never StoreKit — the
+                    // extension must not pay the purchase machinery's memory
+                    // under the ~120 MB ceiling (constraint 1).
+                    isProUnlocked: ProEntitlement.isUnlocked,
                     departed: departedForActiveConversation(),
                     openNowOnly: openNowOnly,
                     onImIn: { [weak self] in self?.handleImIn() },
+                    // Resolved once per presentation, not inside a view body:
+                    // the drawer re-renders on every send tick and a
+                    // UserDefaults read plus a JSON decode per frame is the
+                    // pattern the extension's lag audit already caught.
+                    savedHome: MyPlaceStore.home(),
+                    onImInFromHome: { [weak self] in self?.handleImInFromHome() },
                     onImOut: { [weak self] in self?.handleImOut() },
                     // One path for every place send now: it goes on the board.
                     // The old fork ("is there already a proposal? then this is
@@ -576,6 +607,7 @@ final class MessagesViewController: MSMessagesAppViewController {
                     onVote: { [weak self] option in self?.sendVote(for: option) },
                     onLockIn: { [weak self] option in self?.lockIn(option) },
                     onLeavingNow: { [weak self] in self?.sendLeavingNow() },
+                    onUpgradeToPro: { [weak self] in self?.openProUpgrade() },
                     onToggleOpenNow: { [weak self] in self?.toggleOpenNow() },
                     onSendDraft: { [weak self] in self?.sendDraft() },
                     onOpenFullApp: { [weak self] in self?.openFullAppSearch() },
