@@ -62,9 +62,15 @@ extension MessagesViewController {
         //   - a new pick → clear (a place on the board reopens the question)
         //   - others → leave the cache alone
         if state.isDecided {
-            LocationCache.saveAgreedMeetup(state)
+            // The CONVERSATION store reconciles the place against the merged
+            // board; the global cache must store the same answer or the two
+            // copies of the agreed meetup disagree (post-push audit
+            // 2026-10-13).
             if let conversationKey {
-                ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+                LocationCache.saveAgreedMeetup(
+                    ConversationMeetupStore.saveAgreed(state, key: conversationKey))
+            } else {
+                LocationCache.saveAgreedMeetup(state)
             }
         } else if state.messageType == .counter || state.messageType == .pick {
             LocationCache.clearAgreedMeetup()

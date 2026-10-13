@@ -286,6 +286,62 @@ final class HostilePayloadTests: XCTestCase {
                                     "so the settled check can actually become true")
     }
 
+    /// The screens must converge, not just the board.
+    ///
+    /// `MeetupPoll.merged` settles two same-generation lock-ins
+    /// deterministically — but nothing renders the poll. The map annotation,
+    /// "Open in Maps", the plan, the leave-by reminder and the Arrival Sync
+    /// destination all read `agreedState`, which `saveAgreed` stored verbatim
+    /// from whichever bubble arrived last. So the devices SWAPPED places:
+    /// each one adopted the other's choice, which is worse than the stand-off
+    /// the tie-break change replaced.
+    func testConcurrentLockInsSettleTheSameWayOnBothDevicesScreens() throws {
+        let a = Participant(id: "id-a", name: "Ann", latitude: 37.78, longitude: -122.41)
+        let b = Participant(id: "id-b", name: "Bo", latitude: 37.76, longitude: -122.43)
+        let hers = PollOption(name: "Hey Tea", latitude: 37.770, longitude: -122.420,
+                              proposerID: a.id)
+        let his = PollOption(name: "Kung Fu Tea", latitude: 37.765, longitude: -122.425,
+                             proposerID: b.id)
+        var board = MeetupPoll.empty
+        board.pick(hers)
+        board.pick(his)
+
+        func lockIn(_ option: PollOption, by participant: Participant) -> TweenState {
+            var mine = board
+            mine.lockIn(option.id)
+            return TweenState(text: option.name, latitude: option.latitude,
+                              longitude: option.longitude, senderID: participant.id,
+                              kind: .place, messageType: .decided,
+                              participants: [a, b], poll: mine)
+        }
+        let fromAnn = lockIn(hers, by: a)
+        let fromBo = lockIn(his, by: b)
+
+        // Ann's device holds her own lock-in, then receives Bo's…
+        let annKey = "converge-ann"
+        ConversationMeetupStore.saveAgreed(fromAnn, key: annKey)
+        let onAnnsScreen = ConversationMeetupStore.saveAgreed(fromBo, key: annKey)
+
+        // …and Bo's device the mirror image.
+        let boKey = "converge-bo"
+        ConversationMeetupStore.saveAgreed(fromBo, key: boKey)
+        let onBosScreen = ConversationMeetupStore.saveAgreed(fromAnn, key: boKey)
+
+        XCTAssertEqual(onAnnsScreen.text, onBosScreen.text,
+                       "both devices must show the SAME agreed place")
+        XCTAssertEqual(onAnnsScreen.latitude, onBosScreen.latitude, accuracy: 1e-6)
+        XCTAssertEqual(onAnnsScreen.longitude, onBosScreen.longitude, accuracy: 1e-6)
+
+        // And the stored state each screen reads back agrees with the board.
+        for k in [annKey, boKey] {
+            let snapshot = try XCTUnwrap(ConversationMeetupStore.load(key: k))
+            let agreed = try XCTUnwrap(snapshot.agreedState)
+            let decided = try XCTUnwrap(snapshot.poll?.decidedOption)
+            XCTAssertEqual(agreed.latitude, decided.latitude, accuracy: 1e-6,
+                           "the screen and the board must name one place")
+        }
+    }
+
     /// A place name is not a roster name. Roster names are multiplied by the
     /// group size and are what the 5000-char ceiling is actually about; the
     /// spot name appears ONCE. Sharing one 90-character ENCODED budget cut

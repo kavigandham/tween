@@ -523,9 +523,11 @@ extension MessagesViewController {
         LocationCache.saveParticipantSnapshot(state.participants, localContext: localParticipantContext())
         mergePoll(state.poll, from: .localDevice)
         if state.isDecided {
-            LocationCache.saveAgreedMeetup(state)
             if let conversationKey {
-                ConversationMeetupStore.saveAgreed(state, key: conversationKey)
+                LocationCache.saveAgreedMeetup(
+                    ConversationMeetupStore.saveAgreed(state, key: conversationKey))
+            } else {
+                LocationCache.saveAgreedMeetup(state)
             }
         } else if let conversationKey {
             ConversationMeetupStore.saveProposed(state, key: conversationKey)

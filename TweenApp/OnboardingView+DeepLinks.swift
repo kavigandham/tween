@@ -244,12 +244,13 @@ extension OnboardingView {
 
         case .agree, .decided, .enroute:
             if state.isDecided {
-                LocationCache.saveAgreedMeetup(state)
-                if let activeConversationKey {
-                    ConversationMeetupStore.saveAgreed(state, key: activeConversationKey)
-                }
-                agreedMeetup = state
-                recentSpots = SpotLibrary.recordRecent(storedSpot(for: selection(for: state)))
+                let agreed = activeConversationKey
+                    .map { ConversationMeetupStore.saveAgreed(state, key: $0) } ?? state
+                LocationCache.saveAgreedMeetup(agreed)
+                agreedMeetup = agreed
+                // `agreed`, not `state`: the recents list must record the place
+                // actually settled on, not the one this bubble proposed.
+                recentSpots = SpotLibrary.recordRecent(storedSpot(for: selection(for: agreed)))
                 selectedResult = nil
                 // URL-presented proposal sheets carry no selection, so the
                 // deselect above can't close them — dismiss explicitly or

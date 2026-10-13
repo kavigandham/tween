@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Cross-process change signal for App Group meetup state.
 ///
@@ -327,8 +328,57 @@ enum ConversationMeetupStore {
         save(snapshot, key: key)
     }
 
-    static func saveAgreed(_ state: TweenState, key: String) {
+    /// The agreed place, RECONCILED against the merged board.
+    ///
+    /// `agreedState` is what every screen actually renders — the map
+    /// annotation, "Open in Maps", the plan, the leave-by reminder and the
+    /// Arrival Sync destination all key off it — but it was stored verbatim
+    /// from whichever bubble arrived last. So when two people locked in
+    /// different places at the same revision, `MeetupPoll.merged` settled them
+    /// on one answer and the SCREENS settled on the other: each device adopted
+    /// the other's place and the two swapped, which is worse than the stand-off
+    /// it replaced (post-push audit 2026-10-13).
+    ///
+    /// The board is the convergent thing, so the board wins. Only the PLACE is
+    /// substituted — roster, sender, revision and tombstones still come from
+    /// the bubble — and `etaSeconds` is dropped, because it was measured
+    /// against the place being replaced.
+    static func reconciledAgreed(_ state: TweenState, with poll: MeetupPoll) -> TweenState {
+        guard let decided = poll.decidedOption,
+              abs(decided.latitude - state.latitude) >= 1e-4
+                || abs(decided.longitude - state.longitude) >= 1e-4
+        else { return state }
+        let senderCoordinate = state.senderLatitude.flatMap { lat in
+            state.senderLongitude.map { CLLocationCoordinate2D(latitude: lat, longitude: $0) }
+        }
+        return TweenState(text: decided.name,
+                          latitude: decided.latitude,
+                          longitude: decided.longitude,
+                          senderName: state.senderName,
+                          senderID: state.senderID,
+                          kind: state.kind,
+                          senderCoordinate: senderCoordinate,
+                          action: state.action,
+                          messageType: state.messageType,
+                          participants: state.participants,
+                          agreedNames: state.agreedNames,
+                          agreedIDs: state.agreedIDs,
+                          revision: state.revision,
+                          departed: state.departed,
+                          referredBy: state.referredBy,
+                          poll: poll,
+                          etaSeconds: nil,
+                          arrivalTarget: state.arrivalTarget,
+                          travelSeconds: state.travelSeconds)
+    }
+
+    /// Returns the state actually STORED — callers must write that to
+    /// `LocationCache.saveAgreedMeetup` and to any view state, or the two
+    /// copies of the agreed meetup disagree again one layer up.
+    @discardableResult
+    static func saveAgreed(_ state: TweenState, key: String) -> TweenState {
         var snapshot = load(key: key) ?? MeetupSnapshot(conversationKey: key)
+        var stored = state
         snapshot.participants = stillHere(state.participants, key: key)
         snapshot.proposedState = state
         // `isDecided`, not `isFullyAgreed`: a lock-in is terminal on its own,
@@ -336,7 +386,6 @@ enum ConversationMeetupStore {
         // proposer is empty — so a decided meetup in a shrunken group failed
         // to persist and the terminal screen vanished on relaunch.
         if state.isDecided {
-            snapshot.agreedState = state
             // MERGE and re-scope — do NOT replace. On the send path
             // `mergePoll` has already stored a tombstone-scoped board by the
             // time this runs, and a wholesale replace threw that away, so a
@@ -347,12 +396,18 @@ enum ConversationMeetupStore {
             // here — the roster rides in the state, the tombstones in sync
             // state — so there is no reason for this writer to be the one
             // that skips the scoping every other writer does.
-            snapshot.poll = MeetupPoll
+            let merged = MeetupPoll
                 .merged(local: snapshot.poll ?? .empty, incoming: state.absorbedPoll)
                 .normalized(participants: snapshot.participants,
                             departed: departedParticipants(key: key))
+            snapshot.poll = merged
+            // The board decides the place, not whoever's bubble landed last.
+            stored = reconciledAgreed(state, with: merged)
+            snapshot.agreedState = stored
+            snapshot.proposedState = stored
         }
         save(snapshot, key: key)
+        return stored
     }
 
     // MARK: - Pending draft (own key; cleared with the TTL, never with sync)
