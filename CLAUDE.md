@@ -38,6 +38,9 @@ Files in `Shared/` must be listed under BOTH `TweenApp` and `TweenMessages` sour
 1. **Extension memory ceiling ~120 MB.** `MKMapSnapshotter` only — NEVER `MKMapView`, in every extension surface (`ExpandedView`, `CompactView`, `BubbleImageRenderer`). Cap ranking at 5 in extension, 8 in app. Cancel all Tasks in `willResignActive`. (A flag-disabled interactive `Map` once lived in `ExpandedView`; deleted 2026-07-14 — resurrect only from git history WITH on-device memory profiling.)
 
 2. **`MSMessage.url` ≤ 5000 chars, `https`/`file` scheme only.** Coordinates + spot name only. Never route geometry.
+   - Every wire string is BOUNDED, and bounded by its ENCODED length, not its grapheme count — `participantNameAllowed` is ASCII-only, so one 60-grapheme emoji name is ~4500 encoded chars and makes every send in that conversation fail (`TweenState.boundedName` / `boundedKey`, pen-test 2026-10-13). That includes `t` (the spot name), `from`, `p`, `pids`, `pj`, `agreed`, `agreedIds` and `gone`.
+   - Every wire LIST is bounded too: `maxParticipants = 32` (the iMessage group maximum) and `maxNameListCount = 64`. An unbounded roster was a one-bubble extension DoS.
+   - `encodedURL()` filters `isManual` participants once, at the top, because `p=`/`pids=`/`pj=`/`opts`/`votes`/`tt` are all indexed against that same array.
 
 3. **Compact view = keyboard height.** No first responder, no keyboard, no text input.
 
@@ -52,6 +55,20 @@ Files in `Shared/` must be listed under BOTH `TweenApp` and `TweenMessages` sour
 7. **`@Observable`**, not `ObservableObject`. `@State` owns, `@Bindable` for two-way.
 
 8. **No server, no accounts, no backend.**
+
+## Product shape (decided 2026-10-13)
+
+- **Free is bare bones; Pro is everything else.** Free: Tween finds a fair place,
+  you share it in the chat, and everyone sees the travel times that prove it is
+  fair. Pro: mood search, saved places (yours AND a friend's), favourites,
+  declared locations, groups, day/time planning, per-person travel modes,
+  leave-by reminders, calendar, Arrival Sync. The paywall's comparison table in
+  `PaywallSheet.comparisonRows` must stay a truthful mirror of the real
+  `ProEntitlement.isUnlocked` gates — every Pro row names a gate that exists.
+- **The first-run tour is the DEMONSTRATION, not a tour of the app.** Five steps
+  plus the Pro card: welcome → I'm in → search → open a spot → send it to the
+  chat. It was twelve and people skipped it, which meant they skipped the part
+  that matters. Do not re-add "here is another screen" steps.
 
 ## Conventions
 - Atomic single-key JSON writes to App Group (prevents torn reads)

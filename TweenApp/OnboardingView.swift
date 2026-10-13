@@ -1197,6 +1197,20 @@ struct OnboardingView: View {
                                     FriendRoster.add(friend)
                                     friends = FriendRoster.load()
                                     friendsSubSheet = nil
+                                    // …and then actually DO something with
+                                    // them. Adding a friend used to end in a
+                                    // row in a list and nothing else: the
+                                    // saved friend sat there inert until you
+                                    // found the swipe gesture that pings
+                                    // them, so the feature read as broken
+                                    // ("you add the friend and it does
+                                    // nothing"). Saving someone is only ever
+                                    // the first half of wanting to meet them,
+                                    // so the add flow now ends in the ping.
+                                    // Next runloop: presenting while this
+                                    // sheet is still dismissing drops on iOS
+                                    // (the sheet-item-swap trap).
+                                    Task { @MainActor in pingFriend(friend) }
                                 }
                             case .invite:
                                 ActivityView(items: [ReferralInvite.shareText]) { friendsSubSheet = nil }

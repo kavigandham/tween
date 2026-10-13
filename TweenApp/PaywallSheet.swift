@@ -137,9 +137,9 @@ struct PaywallSheet: View {
             Image(systemName: "sparkles")
                 .font(Tokens.Typography.heroIcon)
                 .foregroundStyle(Tokens.Palette.brand)
-            Text("Plan meetups ahead")
+            Text("Everything but the basics")
                 .font(Tokens.Typography.display)
-            Text("Meeting right now stays free, forever. Pro adds planning power for the meetups you set up in advance.")
+            Text("Finding a fair place to meet stays free, forever. Pro is every way of making that easier — searching by mood, saved places, groups, and knowing exactly when to leave.")
                 .font(Tokens.Typography.subheadline)
                 .foregroundStyle(Tokens.Palette.textSecondary)
         }
@@ -148,12 +148,20 @@ struct PaywallSheet: View {
     /// What Free already does versus what Pro adds.
     ///
     /// EVERY Pro row is a real `ProEntitlement.isUnlocked` gate in the code —
-    /// groups and saved addresses (OnboardingView+FriendsPanel), the plan sheet
-    /// (OnboardingView+SpotSheet), per-person travel modes
-    /// (OnboardingView+GroupBar), and the reminder/calendar actions inside the
-    /// plan. The group panel that shows everyone's ETA renders for free users,
-    /// so it appears in the FREE column ("See everyone's travel time") —
-    /// claiming it as Pro would be selling something they already have.
+    /// mood search (OnboardingView+Mood.openMoodSheet), your own saved places
+    /// and a friend's (OnboardingView+FriendsPanel), favourites
+    /// (toggleFavorite), declared locations (`.whereIllBe`), groups, the plan
+    /// sheet (OnboardingView+SpotSheet), per-person travel modes
+    /// (OnboardingView+GroupBar), Arrival Sync (MeetupPlan/ExpandedView), and
+    /// the reminder/calendar actions inside the plan.
+    ///
+    /// The three FREE rows are the whole argument of the app and stay free
+    /// forever: Tween finds a fair place, you share it in the chat, and
+    /// everyone can see the travel times that prove it is fair. The group
+    /// panel that shows everyone's ETA renders for free users, so it belongs
+    /// in the FREE column — claiming it as Pro would be selling something they
+    /// already have (product decision 2026-10-13: free is bare bones, Pro is
+    /// everything else).
     private var comparisonTable: some View {
         VStack(spacing: 0) {
             comparisonHeader
@@ -235,11 +243,13 @@ struct PaywallSheet: View {
         .init(title: "Fair spots between everyone", free: true),
         .init(title: "Share and agree right in your chat", free: true),
         .init(title: "See everyone's travel time", free: true),
-        .init(title: "Groups and saved addresses", free: false),
+        .init(title: "Say what you're in the mood for", free: false),
+        .init(title: "Saved places — yours and theirs", free: false),
+        .init(title: "Groups", free: false),
+        .init(title: "Arrival Sync — when to leave", free: false),
         .init(title: "Pick a day and time", free: false),
         .init(title: "Transit and walking per person", free: false),
-        .init(title: "Leave-by reminders", free: false),
-        .init(title: "Add the meetup to your calendar", free: false),
+        .init(title: "Leave-by reminders and calendar", free: false),
     ]
 
     // MARK: - Purchase

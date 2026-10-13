@@ -342,9 +342,19 @@ extension OnboardingView {
 
                     Spacer(minLength: 0)
 
-                    Image(systemName: "chevron.right")
-                        .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(Tokens.Palette.textTertiary)
+                    // A PILL THAT NAMES ITSELF, not a chevron. A trailing
+                    // chevron means disclosure, and this row's tap is an
+                    // irreversible broadcast — it tells everyone you have
+                    // left and re-aims their reminders. The row's own comment
+                    // above admitted it was "not a navigation affordance"
+                    // while still drawing one (screenshot audit 2026-10-13).
+                    Text("I left")
+                        .font(Tokens.Typography.caption.weight(.semibold))
+                        .foregroundStyle(Tokens.Palette.onBrand)
+                        .padding(.horizontal, Tokens.Spacing.s3)
+                        .padding(.vertical, Tokens.Spacing.s1)
+                        .background(tint, in: Capsule())
+                        .fixedSize()
                 }
                 .padding(Tokens.Spacing.s3)
                 .background(Tokens.Palette.elevated,

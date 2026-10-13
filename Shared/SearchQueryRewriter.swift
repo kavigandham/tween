@@ -53,13 +53,21 @@ enum SearchQueryRewriter {
         return collapsed
     }
 
+    /// One checker for the process. `UITextChecker`'s first use loads the
+    /// language dictionaries from disk, and `rewrites` constructs one up to
+    /// TWICE per call — on the main actor, inside the zero-results rescue
+    /// ladder, i.e. at the exact moment a search comes back empty. That read
+    /// as a hang, not a spinner (lag audit 2026-10-13).
+    private static let sharedChecker = UITextChecker()
+    private static let language = Locale.preferredLanguages.first?
+        .replacingOccurrences(of: "-", with: "_") ?? "en_US"
+
     /// The query with misspelled words replaced by the spell checker's top
     /// guess, or nil when nothing changed. Catches the typos Apple's
     /// server-side correction misses.
     static func spellCorrected(_ query: String) -> String? {
-        let checker = UITextChecker()
-        let language = Locale.preferredLanguages.first?
-            .replacingOccurrences(of: "-", with: "_") ?? "en_US"
+        let checker = sharedChecker
+        let language = Self.language
         var corrected = query
         var offset = 0
         while true {

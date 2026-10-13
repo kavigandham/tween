@@ -98,12 +98,21 @@ extension OnboardingView {
     }
 
     /// The rows currently on screen.
+    /// Reads the MIRRORED plan (`currentPlan`), never the store.
+    ///
+    /// `MeetupPlanStore.current` is a UserDefaults read plus a fresh
+    /// `JSONDecoder` and decode, and this property is evaluated from
+    /// `topMapChrome` — inside the map screen's body. For a Pro user that was
+    /// a full decode on every body pass: per keystroke in the search field,
+    /// and per location tick. `homePlace`, `arrivalSync` and `currentPlan`
+    /// were all mirrored into `@State` for exactly this reason; this one was
+    /// missed (lag audit 2026-10-13).
     var groupBarMembers: [GroupMemberStatus] {
         guard let participants = searchRankingParticipants else { return [] }
         return Self.groupMembers(
             participants: participants,
             focused: focusedRankedSpot,
-            plan: MeetupPlanStore.current,
+            plan: currentPlan,
             localID: TweenIdentity.stableID,
             localName: UserProfile.displayName ?? UserName.fallback)
     }

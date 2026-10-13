@@ -56,10 +56,12 @@ extension OnboardingView {
             selectCategory(.coffee)
         case .firstResultCard:
             if let first = displayedItems.first { selectedResult = first }
-        case .friendsButton:
-            activeSheet = .friends
-        case .mapToolbar, .sendToChat, .addFriend:
-            break   // informational steps — the card's button moves on
+        case .sendToChat, .friendsButton, .addFriend, .mapToolbar:
+            // Informational, or no longer part of the tour: the card's own
+            // button moves on. The targets themselves stay declared because
+            // the controls still mark themselves — they are simply never
+            // spotlit now that the tour ends at the place sheet.
+            break
         }
     }
 
@@ -102,18 +104,7 @@ extension OnboardingView {
             // "Back to the map": close the sheet the step explained and move
             // on in the same transaction, so the observer can't race it.
             activeSheet = nil
-            setTourStep(.chatDemo)
-        case .chatDemo:
-            setTourStep(.friends)
-        case .friendsSheet:
-            activeSheet = nil
-            setTourStep(.mapControls)
-        case .mapControls:
-            setTourStep(nextAfterMapControls)
-        case .home:
-            // "Not now" — Home is an accelerator, never a gate. It can be
-            // added later from Friends, or from the origin sheet itself.
-            setTourStep(ProEntitlement.isUnlocked ? .done : .pro)
+            setTourStep(afterTheDemo)
         case .pro:
             // "Not now".
             setTourStep(.done)
@@ -124,25 +115,24 @@ extension OnboardingView {
         }
     }
 
-    /// The card's second action — the Pro pitch, and the Home setup.
+    /// The card's second action — the Pro pitch.
     func tourSecondaryAction() {
-        switch tourStep {
-        case .pro:
-            activeSheet = .paywall
-        case .home:
-            activeSheet = .setUpHome
-        default:
-            break
-        }
+        if tourStep == .pro { activeSheet = .paywall }
     }
 
-    /// After the map controls: offer Home unless one is already saved, then
-    /// the Pro pitch unless Pro is already owned. Both steps are skipped for
-    /// anyone they'd be redundant for — a returning user replaying the tour
-    /// is never asked to set up something they have.
-    private var nextAfterMapControls: TourStep {
-        if MyPlaceStore.home() == nil { return .home }
-        return ProEntitlement.isUnlocked ? .done : .pro
+    /// Where the tour goes once the demonstration is finished — one Pro
+    /// card, unless Pro is already owned.
+    ///
+    /// The tour was TWELVE steps until 2026-10-13 and it walked the user
+    /// through every screen in the app: the chat illustration, the Friends
+    /// sheet, the map toolbar, saving a Home. People skipped it, which meant
+    /// they skipped the part that actually matters. What survives is the
+    /// demonstration — join, search, see the fair spots, open one, send it —
+    /// because that IS the product, and you cannot understand Tween by
+    /// reading about it. Everything cut was a label pointing at a control the
+    /// user can find on their own (product decision 2026-10-13).
+    private var afterTheDemo: TourStep {
+        ProEntitlement.isUnlocked ? .done : .pro
     }
 
     func skipTour() { finishTour() }
@@ -177,32 +167,22 @@ extension OnboardingView {
                 // Only after the user's OWN tap failed. A stream error or a
                 // stale denial arriving before any tap must not whisk the
                 // "Tap I'm in" card away unpressed (audit 2026-09-08).
-                setTourStep(.friends)
+                setTourStep(afterTheDemo)
             }
         case .coffeeChip:
             if searchState == .results, !isSearchLoading {
                 // Nothing nearby (offline, a remote area): skip the card step
                 // rather than spotlight a card that doesn't exist.
-                setTourStep(displayedItems.isEmpty ? .friends : .openSpot)
+                setTourStep(displayedItems.isEmpty ? afterTheDemo : .openSpot)
             } else if !monitor.isOnline || !hasSearchAnchor {
-                setTourStep(.friends)
+                setTourStep(afterTheDemo)
             }
         case .openSpot:
             if case .spot = activeSheet { setTourStep(.spotSheet) }
         case .spotSheet:
             // Closed by the X or a swipe instead of the card's button: the
             // explanation was on screen, so carry on.
-            if activeSheet == nil { setTourStep(.chatDemo) }
-        case .friends:
-            if case .friends = activeSheet { setTourStep(.friendsSheet) }
-        case .friendsSheet:
-            if activeSheet == nil { setTourStep(.mapControls) }
-        case .home:
-            // Saved from the picker the step opened: move on rather than
-            // leaving "Set Home" on screen for something already done.
-            if activeSheet == nil, MyPlaceStore.home() != nil {
-                setTourStep(ProEntitlement.isUnlocked ? .done : .pro)
-            }
+            if activeSheet == nil { setTourStep(afterTheDemo) }
         case .pro:
             // Bought from the paywall the step opened: nothing left to pitch.
             if activeSheet == nil, ProEntitlement.isUnlocked { setTourStep(.done) }
@@ -283,7 +263,7 @@ extension OnboardingView {
     /// screen (tour restarted from the menu), else to the chip — or past
     /// both when a search can't run (offline, no anchor).
     private var nextAfterJoin: TourStep {
-        guard monitor.isOnline, hasSearchAnchor else { return .friends }
+        guard monitor.isOnline, hasSearchAnchor else { return afterTheDemo }
         return searchState == .results && !displayedItems.isEmpty ? .openSpot : .coffeeChip
     }
 
@@ -310,13 +290,11 @@ extension OnboardingView {
                 // Full height: at the half detent the first card sits below
                 // the fold on small phones, with scrolling disabled.
                 selectedSheetDetent = Self.fullDetent
-            case .friends:
-                // The place sheet's dismiss restores peek, where a pending
-                // meetup swaps the header and unmounts the Friends button.
+            case .pro:
+                // The place sheet's dismiss restores peek; bring the panel
+                // back up so the card has room to render.
                 if isMinimalDetent { selectedSheetDetent = .fraction(0.45) }
-            case .mapControls:
                 searchFocused = false
-                selectedSheetDetent = .height(Tokens.Layout.sheetPeekHeight)
             default:
                 break
             }

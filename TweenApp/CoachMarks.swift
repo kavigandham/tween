@@ -21,35 +21,20 @@ enum TourStep: Int, CaseIterable, Equatable {
     case imIn
     case coffeeChip
     case openSpot
-    /// INSIDE the place sheet: what every control on it does, then a way
-    /// back. The tour must never leave the user on a screen it hasn't
-    /// explained (product feedback 2026-09-08: "fully immersive, A to Z").
+    /// INSIDE the place sheet: what the spot gives you, and how it reaches
+    /// the chat. The last step of the demonstration.
     case spotSheet
-    /// What happens after Send: the iMessage side, and that both apps
-    /// update on their own.
-    case chatDemo
-    case friends
-    /// INSIDE the Friends sheet, same rule.
-    case friendsSheet
-    case mapControls
-    /// Save Home once, so every later "I'm in" is one tap. Skipped entirely
-    /// when a Home already exists — an existing user is never walked back
-    /// through setup for something they've done (spec §3/§25).
-    case home
     /// One introduction to Tween Pro. Skipped entirely when unlocked.
     case pro
     case done
 
     var target: CoachTarget? {
         switch self {
-        case .welcome, .chatDemo, .home, .pro, .done: return nil
+        case .welcome, .pro, .done: return nil
         case .imIn:           return .imInButton
         case .coffeeChip:     return .coffeeChip
         case .openSpot:       return .firstResultCard
         case .spotSheet:      return .sendToChat
-        case .friends:        return .friendsButton
-        case .friendsSheet:   return .addFriend
-        case .mapControls:    return .mapToolbar
         }
     }
 
@@ -59,12 +44,7 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .imIn:         return "Tap I'm in"
         case .coffeeChip:   return "Find fair spots"
         case .openSpot:     return "Open a spot"
-        case .spotSheet:    return "The place sheet"
-        case .chatDemo:     return "Send it to the chat"
-        case .friends:      return "Your friends"
-        case .friendsSheet: return "The Friends screen"
-        case .mapControls:  return "Map controls"
-        case .home:         return "Where's home?"
+        case .spotSheet:    return "Send it to the chat"
         case .pro:          return "Tween Pro"
         case .done:         return "You're set"
         }
@@ -91,21 +71,11 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .openSpot:
             return "Each card shows a place and everyone's travel time — yours and Sam's. Tap the top card to open it."
         case .spotSheet:
-            return "Everything about one spot. The tiles give you directions in your travel mode, a call, and the website. Send to chat drops the spot into iMessage so your friends can tap Agree — or suggest somewhere else. Add to Favorites keeps it handy; Plan sets a time and a calendar invite (Tween Pro)."
-        case .chatDemo:
-            return "Send drops the spot into your iMessage. Your friend taps Agree — or suggests somewhere else — and both of your apps update on their own. No accounts, nothing to sign up for."
-        case .friends:
-            return "This circle is your Friends button. Your people, your invites, and your groups all live behind it."
-        case .friendsSheet:
-            return "Add Friend saves someone from Contacts so you can ping them to join. Invite sends a Tween invite in Messages — when 3 friends join, you get 3 months of Pro free. Current meetup shows who's in right now, Groups remember your crew (Pro), and Rides tracks who needs a lift."
-        case .mapControls:
-            return "The top button (⋯) holds map styles, Settings, and this guide. The one below it brings the map back to you. Drag the panel down any time for more map, and up for the full list."
-        case .home:
-            return "Save your home address and joining a Tween is one tap — no waiting on GPS. Your address isn't shown to your friends; Tween only uses it to work out your travel time."
+            return "Send to chat drops the spot into iMessage. Your friend taps Agree — or suggests somewhere else — and both of your apps update on their own. No accounts, nothing to sign up for."
         case .pro:
-            return "Groups save your crew for one-tap fair spots. Saved places cover friends who aren't on Tween yet. Plan sets a time, a leave-by reminder, and a calendar invite. Or get it free: invite 3 friends from the Friends screen."
+            return "Pro is everything beyond the basics: search by mood, saved places, groups, and Arrival Sync — one person taps I left and everyone learns when to leave. Or get it free: invite 3 friends from the Friends screen."
         case .done:
-            return "Search any place from the bar, or open Tween from the + in an iMessage chat to plan right there. This guide is always in the ⋯ menu."
+            return "That's it. Your friends, invites and groups live behind the circle button; map styles and this guide live under ⋯. Or open Tween from the + in any iMessage chat and plan right there."
         }
     }
 
@@ -115,10 +85,6 @@ enum TourStep: Int, CaseIterable, Equatable {
         switch self {
         case .welcome:      return "Start the tour"
         case .spotSheet:    return "Back to the map"
-        case .chatDemo:     return "Next"
-        case .friendsSheet: return "Back to the map"
-        case .mapControls:  return "Next"
-        case .home:         return "Not now"
         case .pro:          return "Not now"
         case .done:         return "Finish"
         default:            return nil
@@ -129,18 +95,13 @@ enum TourStep: Int, CaseIterable, Equatable {
     /// Tween Pro"); `nextTitle` becomes the quiet alternative beside it.
     var secondaryTitle: String? {
         switch self {
-        case .pro:  return "See Tween Pro"
-        case .home: return "Set Home"
-        default:    return nil
+        case .pro: return "See Tween Pro"
+        default:   return nil
         }
     }
 
-    var showsChatIllustration: Bool { self == .chatDemo }
-
     /// Steps whose Next button also CLOSES the sheet they live in.
-    var closesSheetOnNext: Bool {
-        self == .spotSheet || self == .friendsSheet
-    }
+    var closesSheetOnNext: Bool { self == .spotSheet }
 
     /// Where the callout (or the card, for target-less steps) renders.
     var layer: CoachLayer {
@@ -159,7 +120,6 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .imIn:       return "Tap I'm in"
         case .coffeeChip: return "Tap Coffee"
         case .openSpot:   return "Tap the top card"
-        case .friends:    return "Tap your Friends button"
         default:          return nil
         }
     }
@@ -446,9 +406,6 @@ struct CoachMarkOverlay: View {
     @ViewBuilder
     private func explainer(for step: TourStep) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s3) {
-            if step.showsChatIllustration {
-                ChatIllustration()
-            }
             Text(step.title)
                 .font(Tokens.Typography.headline)
                 .foregroundStyle(Tokens.Palette.textPrimary)
@@ -467,9 +424,16 @@ struct CoachMarkOverlay: View {
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
                 Spacer(minLength: 0)
+                // 44pt minimum, like every other button on this card. Skip
+                // is the ONLY exit from the tour and it was the smallest
+                // target on screen — about 20pt (screenshot audit
+                // 2026-10-13).
                 Button("Skip", action: onSkip)
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.accent)
+                    .padding(.horizontal, Tokens.Spacing.s2)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+                    .contentShape(Rectangle())
                     .accessibilityHint("Ends the tour")
             }
             // The whole explanation when it fits; a scrolling one when it
@@ -526,7 +490,12 @@ struct CoachMarkOverlay: View {
             }
         }
         .padding(Tokens.Spacing.s4)
-        .background(Tokens.Palette.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        // `elevatedStrong`, not `surface`: the card sits on a 62%-black
+        // scrim over a dark map, and `.systemBackground` in dark mode is
+        // near-black — so the callout read as a hole punched through the
+        // screen, with its own black shadow invisible against it (screenshot
+        // audit 2026-10-13). This is the trap `Tokens.swift` documents.
+        .background(Tokens.Palette.elevatedStrong, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .tweenElevation(.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tour step \(step.ordinal) of \(TourStep.count): \(step.title). \(step.body)")

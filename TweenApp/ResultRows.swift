@@ -289,7 +289,14 @@ struct ResultCard: View {
         }
         .padding(Tokens.Spacing.s4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Palette.surface)
+        // `elevatedStrong`, not `surface`: `.systemBackground` is EXACTLY the
+        // colour the iOS 26 sheet paints at the large detent, so a card drawn
+        // in it was invisible — card interior and the gap between cards
+        // sampled identical in both light and dark, and the whole spot list
+        // read as one slab with buttons floating in it (screenshot audit
+        // 2026-10-13). `Tokens.swift` documents this trap for `elevated`;
+        // this is the surface it was written for.
+        .background(Tokens.Palette.elevatedStrong)
         .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card))
         // Flatten before shadowing so the blur pass runs once per card, not
         // once per subview — cards resize live with the sheet drag and the

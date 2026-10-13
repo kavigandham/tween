@@ -164,12 +164,9 @@ enum FairnessRanker {
         // two UserDefaults suite constructions plus a JSON decode per
         // candidate — 2N-cap decodes per search (audit 2026-08-02).
         let plan = MeetupPlanStore.current
-        return candidates
-            .map { estimatedSpot($0, participants: participants, plan: plan) }
-            .sorted {
-                rankedScore($0, participants: participants)
-                    < rankedScore($1, participants: participants)
-            }
+        return sortedByFairness(
+            candidates.map { estimatedSpot($0, participants: participants, plan: plan) },
+            participants: participants)
     }
 
     /// Replaces the matching estimates with route-backed rankings, while
@@ -186,10 +183,27 @@ enum FairnessRanker {
             routed.first(where: { $0.item == item })
                 ?? estimatedSpot(item, participants: participants, plan: plan)
         }
-        return completed.sorted {
-            rankedScore($0, participants: participants)
-                < rankedScore($1, participants: participants)
-        }
+        return sortedByFairness(completed, participants: participants)
+    }
+
+    /// Decorate–sort–undecorate, because `rankedScore` is expensive and
+    /// `sorted(by:)` calls it TWICE PER COMPARISON.
+    ///
+    /// One `rankedScore` does a UserDefaults read (the drive-time preference,
+    /// via `spot.score`) plus two `MapGeometry.centroid` passes and one
+    /// `CLLocation` per participant. At 40 candidates and 4 people that is
+    /// ~430 comparisons → ~860 defaults reads and ~5000 `CLLocation`
+    /// allocations, synchronously on the main actor, and it runs twice per
+    /// search (estimate pass, then complete pass) plus once per re-rank.
+    /// Scoring each spot ONCE makes it O(N) (lag audit 2026-10-13).
+    ///
+    /// `estimatedSpot` was already fixed for exactly this shape — see the
+    /// "ONE plan read for the whole pass" note above.
+    private static func sortedByFairness(_ spots: [RankedSpot],
+                                         participants: [Participant]) -> [RankedSpot] {
+        spots.map { ($0, rankedScore($0, participants: participants)) }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
     }
 
     /// Ranks `candidates` (first `cap` only) by fairness across all
@@ -203,8 +217,13 @@ enum FairnessRanker {
     /// happened to rank lower (audit 2026-08-08).
     static func mostCentral(_ candidates: [MKMapItem], participants: [Participant], cap: Int) -> [MKMapItem] {
         guard !participants.isEmpty else { return Array(candidates.prefix(cap)) }
+        // Distance computed ONCE per candidate: `centralityDistance` builds a
+        // centroid and two CLLocations, and a comparator pays it twice per
+        // comparison (lag audit 2026-10-13).
         return Array(candidates
-            .sorted { centralityDistance(for: $0, participants: participants) < centralityDistance(for: $1, participants: participants) }
+            .map { ($0, centralityDistance(for: $0, participants: participants)) }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
             .prefix(cap))
     }
 
@@ -229,9 +248,7 @@ enum FairnessRanker {
             return results
         }
 
-        return spots.sorted {
-            rankedScore($0, participants: participants) < rankedScore($1, participants: participants)
-        }
+        return sortedByFairness(spots, participants: participants)
     }
 
     /// Legacy 2-person adapter. Existing callers (kickOffRanking, autoRank)

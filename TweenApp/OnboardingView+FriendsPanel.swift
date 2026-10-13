@@ -72,7 +72,7 @@ extension OnboardingView {
                 ContentUnavailableView(
                     "No Saved Friends",
                     systemImage: "person.2",
-                    description: Text("Add contacts here, or open a Tween iMessage to see the live meetup roster above."))
+                    description: Text("Save the people you meet up with and you can pull them into a Tween with one tap — no app needed on their side. Or open a Tween iMessage to see the live meetup roster above."))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else {
@@ -168,7 +168,12 @@ extension OnboardingView {
     /// flow rather than the Pro one (which is knowing where OTHER people
     /// start from).
     var savedPlacesRow: some View {
-        Button { friendsSubSheet = .myPlaces } label: {
+        Button {
+            // Pro, for the same reason a FRIEND's saved addresses already are:
+            // saved places is one feature, and half of it being free made the
+            // split read as arbitrary (product decision 2026-10-13).
+            friendsSubSheet = ProEntitlement.isUnlocked ? .myPlaces : .paywall
+        } label: {
             HStack(spacing: Tokens.Spacing.s3) {
                 TweenRowIcon(systemImage: MyPlaceKind.home.symbol,
                              color: Tokens.Palette.brand, size: 36)
@@ -1104,7 +1109,11 @@ extension OnboardingView {
 
             // Join with a place you're HEADING to instead of where you are now
             // (a plan for later while you're driving).
-            Button { activeSheet = .whereIllBe } label: {
+            Button {
+                // Pro: declaring where you'll BE is planning ahead, which is
+                // the line Pro is drawn on.
+                activeSheet = ProEntitlement.isUnlocked ? .whereIllBe : .paywall
+            } label: {
                 Text("or share where you'll be")
                     .font(Tokens.Typography.footnote.weight(.medium))
                     .foregroundStyle(Tokens.Palette.accent)
@@ -1339,14 +1348,20 @@ extension OnboardingView {
         } else {
             // One plan read for the whole list, not one per card body.
             let soloMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
-            let firstItem = displayedItems.first
-            ForEach(displayedItems, id: \.self) { item in
+            // …and one of each of these, for the same reason. `displayedItems`
+            // rebuilds an array AND a Set of MKMapItem every time it is read,
+            // and `bestWorstETA` allocated a fresh [TimeInterval] PER ROW to
+            // compute a value identical for every row (lag audit 2026-10-13).
+            let items = displayedItems
+            let bestWorst = rankedSpots.map(\.worstETA).min()
+            let firstItem = items.first
+            ForEach(items, id: \.self) { item in
                 ResultCard(
                     item: item,
                     rankedSpot: rankedMatch(for: item),
                     userCoord: savedCoordinate,
                     isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
-                    bestWorstETA: rankedSpots.map(\.worstETA).min(),
+                    bestWorstETA: bestWorst,
                     soloETA: soloRanked.first(where: { $0.item == item })?.etas.first?.eta,
                     soloMode: soloMode,
                     // One short line derived from the place's POI category
@@ -1483,6 +1498,8 @@ extension OnboardingView {
     }
 
     func toggleFavorite(_ selection: SpotSelection) {
+        // Pro. Keeping a list of places you meet at is a planning feature.
+        guard ProEntitlement.isUnlocked else { spotSubSheet = .paywall; return }
         let spot = storedSpot(for: selection)
         let wasFavorite = isFavorite(selection)
         favoriteSpots = SpotLibrary.toggleFavorite(spot)

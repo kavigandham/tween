@@ -190,7 +190,15 @@ struct SpotETAChip: View {
             if !label.isEmpty {
                 Text(label).foregroundStyle(Tokens.Palette.textSecondary)
             }
-            Text(value).foregroundStyle(tint).fontWeight(.bold)
+            // The NUMBER is drawn in the primary text colour, not in the
+            // fairness tint. `tint` is a system fill colour (systemYellow /
+            // systemGreen / systemOrange); as bold 11pt text on its own 16%
+            // wash it measured 1.23:1 in light mode — the per-person drive
+            // times are the app's entire payload and they were the least
+            // legible pixels on the screen, four times harder to read than
+            // the grey name beside them (screenshot audit 2026-10-13). The
+            // capsule keeps the tint, so the ramp still signals.
+            Text(value).foregroundStyle(Tokens.Palette.textPrimary).fontWeight(.bold)
         }
         .font(Tokens.Typography.captionBold)
         .lineLimit(1)

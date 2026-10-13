@@ -12,9 +12,20 @@ import CoreLocation
 /// and a branded footer onto it. Every failure mode falls back to a fully
 /// offline, network-free image so a bubble always has artwork.
 enum BubbleImageRenderer {
-    /// 600×400 points — a 3:2 bubble — rendered @3x for Retina crispness.
+    /// 600×400 points — a 3:2 bubble.
+    ///
+    /// @2x, not @3x. At scale 3 one bitmap is 1800×1200px ≈ 8.6 MB, and
+    /// `composite` holds three at once (the snapshot, the renderer's backing
+    /// store, the returned image) — a ~26 MB transient on the SEND path,
+    /// inside the extension's ~120 MB ceiling, concurrently with
+    /// `TweenMapSnapshotView`'s 24 MB cache. `TweenMapSnapshotView` already
+    /// made exactly this call the other way, with the reasoning written down:
+    /// the map imagery is indistinguishable at @2x. The bubble renders about
+    /// 250pt wide in the transcript, so @2x is already oversampled for it.
+    /// Peak transient drops to ~11.5 MB and the render roughly halves
+    /// (lag/memory audit 2026-10-13).
     private static let size = CGSize(width: 600, height: 400)
-    private static let scale: CGFloat = 3
+    private static let scale: CGFloat = 2
     private static let footerHeight: CGFloat = 56
 
     // MARK: - Public

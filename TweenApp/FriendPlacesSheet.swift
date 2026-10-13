@@ -73,7 +73,8 @@ struct FriendPlacesList: View {
                     : "\(friend.name)'s \(pending.text.lowercased())",
                 prompt: "Search for the place",
                 region: searchRegion,
-                resolvePlace: resolvePlace) { point in
+                resolvePlace: resolvePlace,
+                onAdd: { point in
                     // An unlabelled add takes the place's own name, so a
                     // row is never just "Address".
                     let label = pending.text.isEmpty ? point.name : pending.text
@@ -83,7 +84,7 @@ struct FriendPlacesList: View {
                         .first { $0.id == friend.id }?.places ?? places
                     onChanged()
                     addingLabel = nil
-                }
+                })
         }
     }
 

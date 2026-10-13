@@ -13,6 +13,7 @@
 		033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */; };
 		040991AF812140B9F79CBD1A /* OnboardingView+Nudges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBA92BC3B0BE733344E52E7 /* OnboardingView+Nudges.swift */; };
 		04D50BB87F1DAE3A58E33362 /* OnboardingView+Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517AC2F7FE686C8F57B50468 /* OnboardingView+Mood.swift */; };
+		05581688B3A2DB44FC5149BE /* HostilePayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3511EC0713063967E89E54EC /* HostilePayloadTests.swift */; };
 		062709ED92EE4A83DEC6638F /* PinRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B07ACA4F93EAFFF43F704C4 /* PinRenderer.swift */; };
 		0ACD975698BB3763B9DBA6C0 /* PingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AC6DCA8FACA0CA0C71A96D /* PingLog.swift */; };
 		0BB801FEA82175D72FD4E5F2 /* TweenPro.storekit in Resources */ = {isa = PBXBuildFile; fileRef = C7D8D73856CB283078AE1359 /* TweenPro.storekit */; };
@@ -297,6 +298,7 @@
 		2E7B97D314FAF0A88342CAAE /* MoodSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoodSheet.swift; sourceTree = "<group>"; };
 		31774B86CC587B67A1B6CB6A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		32924B4A54F474D511ED1002 /* ProEntitlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProEntitlement.swift; sourceTree = "<group>"; };
+		3511EC0713063967E89E54EC /* HostilePayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostilePayloadTests.swift; sourceTree = "<group>"; };
 		381612D9C7DEFDA4B7B0A0C6 /* GroupStatusBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStatusBarTests.swift; sourceTree = "<group>"; };
 		3F567374DBC169C337527410 /* EnRouteLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnRouteLog.swift; sourceTree = "<group>"; };
 		42A18E4436E3EDF67035DCFE /* CoachMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMarks.swift; sourceTree = "<group>"; };
@@ -493,6 +495,7 @@
 				5F6E282CCED22FDC2848B58C /* FriendGroupTests.swift */,
 				45B98D35E4A254B22EB10A55 /* FriendRosterTests.swift */,
 				381612D9C7DEFDA4B7B0A0C6 /* GroupStatusBarTests.swift */,
+				3511EC0713063967E89E54EC /* HostilePayloadTests.swift */,
 				5BF3CD3C0B846D30DE9D4308 /* ManualLocationTests.swift */,
 				FA88C7716379EC5283F4FCE6 /* MapGeometryTests.swift */,
 				80EF3F6816D4B76E7BA0822C /* MapRegionDriftTests.swift */,
@@ -1053,6 +1056,7 @@
 				2E470EF5697C6A87AD218BEE /* FriendGroupTests.swift in Sources */,
 				49B2D158398A6AB1D70AA8E8 /* FriendRosterTests.swift in Sources */,
 				95943D67D47F5F77FE1A8C96 /* GroupStatusBarTests.swift in Sources */,
+				05581688B3A2DB44FC5149BE /* HostilePayloadTests.swift in Sources */,
 				033F566D8752A4A2A180801E /* ManualLocationTests.swift in Sources */,
 				434594E61772E4722EA9B81B /* MapGeometryTests.swift in Sources */,
 				57C845AEF3D58DE1E696993E /* MapRegionDriftTests.swift in Sources */,

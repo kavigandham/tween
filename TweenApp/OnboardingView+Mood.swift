@@ -15,6 +15,10 @@ extension OnboardingView {
     /// Open Now, the participants, and the camera exactly where they are
     /// (spec §15: never silently reset an unrelated filter).
     func openMoodSheet() {
+        // Pro. Free keeps the fair-spot ranking and everyone's travel times —
+        // the argument the app is built on. Saying what you're in the mood for
+        // is the thing worth paying for (product decision 2026-10-13).
+        guard ProEntitlement.isUnlocked else { activeSheet = .paywall; return }
         activeSheet = .mood
     }
 
