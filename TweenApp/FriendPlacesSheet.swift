@@ -220,6 +220,13 @@ struct FriendPlacesSheet: View {
                 }
         }
         .presentationDetents([.medium, .large])
+        // An OPAQUE background. These are modal task sheets presented ON TOP
+        // OF another sheet, and without this they inherit iOS 26 glass over an
+        // undimmed parent — the Friends list rendered legibly THROUGH "Your
+        // places" and "Where's home?", avatars, addresses and all, which reads
+        // as a rendering glitch rather than a material (screenshot audit
+        // 2026-10-13). Never stack a light translucent surface on another.
+        .presentationBackground(Tokens.Palette.surface)
         .presentationDragIndicator(.visible)
     }
 }

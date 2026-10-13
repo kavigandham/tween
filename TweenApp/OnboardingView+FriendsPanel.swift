@@ -287,10 +287,14 @@ extension OnboardingView {
     func sectionHeader<Trailing: View>(_ title: String, systemImage: String,
                                         @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: Tokens.Spacing.s2) {
+            // `sectionTitle`, not a small grey eyebrow: the Friends panel
+            // carried THREE header styles at once, and the all-caps one also
+            // truncated to "CURRENT ME…" at accessibility sizes (screenshot
+            // audit 2026-10-13). Matches "Suggested"/"Favorites" below it,
+            // and the rule written at Tokens.swift:198.
             Label(title, systemImage: systemImage)
-                .font(Tokens.Typography.captionBold)
-                .foregroundStyle(Tokens.Palette.textSecondary)
-                .textCase(.uppercase)
+                .font(Tokens.Typography.sectionTitle)
+                .foregroundStyle(Tokens.Palette.textPrimary)
             Spacer(minLength: 0)
             trailing()
         }
@@ -742,7 +746,6 @@ extension OnboardingView {
             Text(title)
                 .font(Tokens.Typography.captionBold)
                 .foregroundStyle(Tokens.Palette.textSecondary)
-                .textCase(.uppercase)
 
             if participants.isEmpty, let emptyText {
                 Text(emptyText)
@@ -1021,7 +1024,6 @@ extension OnboardingView {
                         Text(eyebrow)
                             .font(Tokens.Typography.captionBold)
                             .foregroundStyle(Tokens.Palette.textSecondary)
-                            .textCase(.uppercase)
                         Text(name)
                             .font(Tokens.Typography.headline)
                             .foregroundStyle(Tokens.Palette.textPrimary)
@@ -1073,7 +1075,6 @@ extension OnboardingView {
             Text("Current meetup")
                 .font(Tokens.Typography.captionBold)
                 .foregroundStyle(Tokens.Palette.textSecondary)
-                .textCase(.uppercase)
             spotCardInner(selection: selection, isAgreedMeetup: true)
         }
         .padding(Tokens.Spacing.s4)
@@ -1587,7 +1588,6 @@ extension OnboardingView {
                      : (proposal.messageType == .counter ? "\(proposer) suggests instead" : "\(proposer) suggests"))
                     .font(Tokens.Typography.captionBold)
                     .foregroundStyle(Tokens.Palette.textSecondary)
-                    .textCase(.uppercase)
                 Text(proposal.text)
                     .font(Tokens.Typography.headline)
                     .lineLimit(1)
