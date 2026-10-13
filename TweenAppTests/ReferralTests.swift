@@ -150,13 +150,27 @@ final class ReferralPolicyTests: XCTestCase {
     func testRefIsTheFirstThingDroppedWhenAPayloadIsJustOverTheLimit() throws {
         let roster = [Participant(id: a, name: "Ann", latitude: 37, longitude: -122),
                       Participant(id: b, name: "Bo", latitude: 37.1, longitude: -122.1)]
-        // Grow the spot name until the ref-less payload sits just under 5000.
-        var text = String(repeating: "x", count: 3000)
+        // Pad with `agreed` names until the ref-less payload sits just under
+        // 5000.
+        //
+        // This used to grow the SPOT NAME, which stopped working on
+        // 2026-10-13 when `t` became bounded like every other wire string —
+        // an unbounded place name is ~4500 encoded characters of emoji and
+        // made every send in that conversation fail (see HostilePayloadTests).
+        // With `t` bounded the loop could never reach 4975 and the whole suite
+        // hung here. `agreed` is the right padding: it is not on any rung of
+        // the size ladder, so it cannot steal the `pj=` this test is about,
+        // and one-character names give fine enough granularity to land in the
+        // narrow window where adding `ref=` is what tips the payload over.
+        var agreed: [String] = []
         func url(_ ref: String?) -> String? {
-            TweenState(text: text, latitude: 37, longitude: -122, senderID: b,
-                       participants: roster, referredBy: ref).encodedURL()?.absoluteString
+            TweenState(text: "Hey Tea", latitude: 37, longitude: -122, senderID: b,
+                       participants: roster, agreedNames: agreed,
+                       referredBy: ref).encodedURL()?.absoluteString
         }
-        while let plain = url(nil), plain.count < 4975, plain.contains("pj=") { text += "x" }
+        while let plain = url(nil), plain.count < 4975, plain.contains("pj=") {
+            agreed.append("x")
+        }
         let plain = try XCTUnwrap(url(nil))
         XCTAssertTrue(plain.contains("pj="), "precondition: the roster still fits without ref")
         let withRef = try XCTUnwrap(url(a), "never fails the send over a referral")
@@ -209,7 +223,8 @@ final class ReferralPolicyTests: XCTestCase {
     func testInviteUpgradeIsSavedSoTheBannerShows() {
         ReferralStore.save(newUser)
         // An ordinary bubble from A first (inferred), then A's invite.
-        _ = Referrals.noteInbound(TweenState(text: "I'm in", latitude: 1, longitude: 1, senderID: a), myID: me)
+        _ = Referrals.noteInbound(TweenState(text: "I'm in", latitude: 1, longitude: 1, senderID: a),
+                                  myID: me, senderKey: "vouched-\(a)")
         _ = Referrals.noteInbound(ReferralMessage(kind: .invite, senderID: a, senderName: "Ann"), myID: me)
         XCTAssertEqual(ReferralPolicy.owesReply(ReferralStore.load()), a,
                        "the upgrade reached the store, so the extension shows Tell Ann")

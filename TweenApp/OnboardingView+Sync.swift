@@ -222,10 +222,10 @@ extension OnboardingView {
         if !same(peerCoordinate, newPeer) {
             peerCoordinate = newPeer
             didChange = true
-            if let newPeer {
-                logger.debug("Main app loaded peer coordinate lat=\(newPeer.latitude, privacy: .public) lon=\(newPeer.longitude, privacy: .public)")
-            } else {
+            if newPeer == nil {
                 logger.debug("Main app cleared inactive peer coordinate")
+            } else {
+                logger.debug("Main app loaded peer coordinate")
             }
         }
         if additionalParticipants != newExtras {

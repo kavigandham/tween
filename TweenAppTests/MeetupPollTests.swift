@@ -297,14 +297,29 @@ final class MeetupPollTests: XCTestCase {
     // MARK: - Concurrency guard
 
     /// Two people picking at the same revision is the NORMAL opening of a
-    /// vote. The revision tie-break must let both in; a terminal decision
-    /// still has to lose the tie.
+    /// vote, so the tie-break must let both in.
+    ///
+    /// `.leave` and `.decided` JOINED them on 2026-10-13, and this test used
+    /// to assert the opposite — it encoded the old tie-break's own assumption,
+    /// which is how both bugs survived. A `.leave` is monotone (it only adds a
+    /// tombstone and removes its own sender), and rejecting one at a tie threw
+    /// the departure away whole, so in a two-person chat the leaver was gone
+    /// while the other kept ranking against their location. A `.decided` is
+    /// NOT monotone, which is exactly why it has to reach `MeetupPoll.merged`:
+    /// that settles two same-generation decisions deterministically, where
+    /// rejecting the second left two devices settled on two different places.
+    /// Only the legacy place-replacing types stay strict.
     func testConcurrentPicksAreBothAdditiveButDecisionsAreNot() {
         XCTAssertTrue(TweenState.MessageType.pick.isAdditive)
         XCTAssertTrue(TweenState.MessageType.vote.isAdditive)
         XCTAssertTrue(TweenState.MessageType.invite.isAdditive)
-        XCTAssertFalse(TweenState.MessageType.decided.isAdditive)
-        XCTAssertFalse(TweenState.MessageType.leave.isAdditive)
+        XCTAssertTrue(TweenState.MessageType.leave.isAdditive,
+                      "a leave is monotone — rejecting one at a tie loses the departure entirely")
+        XCTAssertTrue(TweenState.MessageType.decided.isAdditive,
+                      "a decision must reach the board merge, which breaks the tie deterministically")
+        XCTAssertFalse(TweenState.MessageType.propose.isAdditive)
+        XCTAssertFalse(TweenState.MessageType.counter.isAdditive)
+        XCTAssertFalse(TweenState.MessageType.agree.isAdditive)
     }
 }
 
@@ -439,9 +454,62 @@ final class MeetupPollAuditTests: XCTestCase {
             revision: 4, senderID: belal.id, messageType: .pick, key: key))
         XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
             revision: 4, senderID: belal.id, messageType: .vote, key: key))
-        // A terminal decision keeps the strict rule: two concurrent lock-ins
-        // must not both stick.
-        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+        // A terminal decision is admitted at the tie too, since the BOARD
+        // MERGE is the right arbiter and settles it the same way on every
+        // device. Rejecting it here is what left two people locked in to two
+        // different places with no way to reconcile.
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
             revision: 4, senderID: belal.id, messageType: .decided, key: key))
+        // And a leave: monotone, so a departure concurrent with any other
+        // send must not be discarded.
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 4, senderID: belal.id, messageType: .leave, key: key))
+        // The legacy place-REPLACING types keep the strict tie-break.
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 4, senderID: belal.id, messageType: .propose, key: key))
+    }
+
+    /// CRITICAL 2 (protocol audit 2026-10-13): two people locking in different
+    /// places at the same revision must CONVERGE, not split the group.
+    ///
+    /// `merged` breaks an equal-generation tie toward the lower option id, so
+    /// the answer does not depend on who merges whose bubble first — which is
+    /// the only property that can work without a server. Before `.decided` was
+    /// admitted at a tie, both bubbles were rejected and each device simply
+    /// kept its own lock-in forever.
+    func testTwoConcurrentLockInsConvergeOnBothDevices() {
+        var mine = MeetupPoll.empty
+        mine.pick(heyTea(by: hassan.id))
+        mine.pick(kungFuTea(by: belal.id))
+        var theirs = mine
+
+        mine.lockIn(heyTea(by: hassan.id).id)
+        theirs.lockIn(kungFuTea(by: belal.id).id)
+        XCTAssertEqual(mine.decisionSeq, theirs.decisionSeq,
+                       "both lock-ins are the same generation — that is what makes this a tie")
+        XCTAssertNotEqual(mine.decidedOptionID, theirs.decidedOptionID)
+        XCTAssertNotNil(theirs.decidedOptionID)
+
+        let onMyDevice = MeetupPoll.merged(local: mine, incoming: theirs,
+                                           preservingVoteOf: hassan.id)
+        let onTheirDevice = MeetupPoll.merged(local: theirs, incoming: mine,
+                                              preservingVoteOf: belal.id)
+        XCTAssertNotNil(onMyDevice.decidedOptionID)
+        XCTAssertEqual(onMyDevice.decidedOptionID, onTheirDevice.decidedOptionID,
+                       "divergent lock-ins must settle to the SAME place on both devices")
+    }
+
+    /// CRITICAL 1 (protocol audit 2026-10-13): a leave minted concurrently
+    /// with another send must still take effect. The guard is the whole fix —
+    /// a rejected leave never reaches the tombstone write at all.
+    func testLeaveAtATiedRevisionIsStillAdopted() {
+        ConversationMeetupStore.noteRevision(1, sender: hassan.id, key: key)
+        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 1, senderID: belal.id, messageType: .leave, key: key),
+            "a leave concurrent with a pick was discarded whole — no tombstone, no removal")
+        // Below the floor it still rejects: a STALE leave must not tear down
+        // a newer agreement, and its sender may since have rejoined.
+        XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
+            revision: 0, senderID: belal.id, messageType: .leave, key: key))
     }
 }

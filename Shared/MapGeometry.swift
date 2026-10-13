@@ -66,8 +66,16 @@ enum MapGeometry {
         }
         let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
                                             longitude: (minLon + maxLon) / 2)
-        let latDelta = max((maxLat - minLat) * padding, minSpan)
-        let lonDelta = max((maxLon - minLon) * padding, minSpan)
+        // Clamped to MapKit's domain. Every INPUT coordinate is validated
+        // (`TweenState.validCoordinate`), but the DERIVED span was not: two
+        // individually-valid participants at opposite corners of the world
+        // give a 251° latitude delta and a 503° longitude delta, which then
+        // reach `MKMapSnapshotterOptions.region` and `MKLocalSearch.Request
+        // .region` — the same class of input as the `lat=nan` crash that
+        // validation was added for, one derivation downstream (pen-test
+        // 2026-10-13, finding 8).
+        let latDelta = min(max((maxLat - minLat) * padding, minSpan), 180)
+        let lonDelta = min(max((maxLon - minLon) * padding, minSpan), 360)
         return MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))

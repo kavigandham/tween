@@ -47,11 +47,14 @@ extension MessagesViewController {
 
         let center = MapGeometry.centroid(of: participants)
         // Search radius widens as the group spreads out.
-        let span = participants.reduce(0.04) { acc, p in
+        // `min(_, 180)`: the span is DERIVED from validated coordinates but
+        // was never itself bounded, and it is used as BOTH deltas — see the
+        // clamp in `MapGeometry.region` (pen-test 2026-10-13, finding 8).
+        let span = min(participants.reduce(0.04) { acc, p in
             let dLat = abs(p.latitude - center.latitude)
             let dLon = abs(p.longitude - center.longitude)
             return max(acc, max(dLat, dLon) * 2.0)
-        }
+        }, 180)
         // recommendedCap scales with group size (10 for two people) — inside
         // the extension the ~120 MB ceiling caps candidates at 5 regardless.
         let cap = min(Self.rankCap, FairnessRanker.recommendedCap(for: participants.count))

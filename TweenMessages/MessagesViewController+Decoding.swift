@@ -97,10 +97,20 @@ extension MessagesViewController {
         // an explicit `.leave` removes (its sender), and departure tombstones
         // keep the removal sticky against rosters from peers who never
         // processed the leave — until that person's own rejoin lifts theirs.
-        let senderKeys = RosterMerge.senderKeys(senderID: state.senderID, senderName: state.senderName)
         // Absorb gossiped departures — minus the local user, whose own
         // presence is governed solely by the localUserLeft tombstone.
         let myKeys: Set<String> = [localParticipantID(), Self.localParticipantName()]
+        // `senderKeys` comes from the payload's SELF-ASSERTED `fromId`/`from`,
+        // which nothing vouches for. A bubble claiming to be from this device
+        // would otherwise tombstone the reader out of their own meetup, and
+        // permanently: `clearDeparted` only ever runs for the sender of an
+        // inbound NON-leave bubble, so nothing the victim does lifts a
+        // self-tombstone, and ConversationSyncState is TTL-exempt by design.
+        // Filtered through `myKeys` for exactly the reason the gossip line
+        // above already is (pen-test 2026-10-13, finding 1).
+        let senderKeys = RosterMerge.senderKeys(senderID: state.senderID,
+                                                senderName: state.senderName)
+            .filter { !myKeys.contains($0) }
         ConversationMeetupStore.noteDeparted(state.departed.filter { !myKeys.contains($0) },
                                              key: revisionKey)
         if state.messageType == .leave {
@@ -197,7 +207,7 @@ extension MessagesViewController {
         let myId = localParticipantID()
         if let peer = state.participants.first(where: { !$0.matches(id: myId, name: myName) }) {
             LocationCache.savePeer(peer.coordinate, isActive: true)
-            logger.debug("Saved peer coordinate lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+            logger.debug("Saved peer coordinate")
             return true
         } else if !state.participants.isEmpty || state.messageType == .leave {
             LocationCache.setPeerActive(false)
@@ -364,7 +374,12 @@ extension MessagesViewController {
     /// silently dropped. Nil (legacy semantics) when no conversation is known.
     func nextOutgoingRevision() -> Int? {
         guard let conversationKey else { return nil }
-        return ConversationMeetupStore.lastRevision(key: conversationKey) + 1
+        // Clamped: a mint above `maxRevision` is rejected as out-of-range by
+        // every receiver's decoder, which turns the ordering guard off for the
+        // whole conversation. `noteRevision` keeps the floor plausible, so
+        // this is belt-and-braces (pen-test 2026-10-13, finding 4).
+        let next = ConversationMeetupStore.lastRevision(key: conversationKey) + 1
+        return min(next, TweenState.maxRevision)
     }
 
     func activeSnapshotParticipants() -> [Participant] {

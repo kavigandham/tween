@@ -49,10 +49,30 @@ struct TweenState: Equatable {
         /// tie-break used to be right because a place message REPLACED the
         /// proposal; on a board where two picks are supposed to coexist,
         /// rejecting one is the bug.
+        ///
+        /// `.leave` is additive in the sense that matters here: it only ever
+        /// ADDS a tombstone and removes its own sender, so it is monotone and
+        /// order-independent. Rejecting one at a tie meant that a leave minted
+        /// concurrently with any other send was discarded WHOLESALE — no
+        /// tombstone, no roster removal — so in a two-person chat the leaver
+        /// was gone while the other person kept ranking against their location
+        /// forever, with no third party whose gossip could repair it
+        /// (protocol audit 2026-10-13, CRITICAL 1).
+        ///
+        /// `.decided` is admitted at a tie for the opposite reason: it is NOT
+        /// monotone, which is exactly why it must reach the board merge.
+        /// `MeetupPoll.merged` settles two decisions of the same generation
+        /// deterministically and without agreeing on merge order (lower option
+        /// id wins). Rejecting the second lock-in instead left two devices
+        /// permanently settled on two different places — and an `.enroute`
+        /// from one of them then aimed the others' leave-by reminders at a
+        /// destination their own screens never showed (CRITICAL 2). The
+        /// below-floor reject stays strict in both cases; that is what blocks
+        /// stale bubbles and leaver resurrection.
         var isAdditive: Bool {
             switch self {
-            case .invite, .pick, .vote, .enroute: return true
-            case .leave, .propose, .agree, .counter, .decided: return false
+            case .invite, .pick, .vote, .enroute, .leave, .decided: return true
+            case .propose, .agree, .counter: return false
             }
         }
     }
@@ -286,10 +306,26 @@ struct TweenState: Equatable {
         components.scheme = scheme
         components.host = host
         components.path = "/m"
+        // Manual / declared participants are LOCAL planning data (constraint
+        // 6): a group's home-base seeds and "where I'll be" points must never
+        // ride a payload. That held only because no send path happened to pass
+        // one — nothing in the codec enforced it, and the single `!isManual`
+        // guard lived at one call site whose own comment called itself
+        // "load-bearing even though no path reaches it today" (protocol audit
+        // 2026-10-13). Enforced HERE, once: `p=`, `pids=`, `pj=`, `opts`,
+        // `votes`, `dec` and `tt` are all indexed against this same array, so
+        // filtering anywhere else would shift a vote onto the wrong person.
+        let participants = self.participants.filter { !$0.isManual }
         // Legacy params — kept so bubbles from this build still decode in
         // older clients. New clients prefer the additions below.
         var items = [
-            URLQueryItem(name: "t", value: text),
+            // Bounded like every other name on the wire. `t` is the SPOT NAME,
+            // and it was the one string with no cap at all on either side — a
+            // 60-grapheme emoji place name is ~4500 encoded characters on its
+            // own, and no rung of the size ladder can drop `t`, because it is
+            // the message. Found by the emoji regression test, not by either
+            // audit (2026-10-13).
+            URLQueryItem(name: "t", value: Self.boundedName(text)),
             URLQueryItem(name: "lat", value: Self.coordinateString(latitude)),
             URLQueryItem(name: "lon", value: Self.coordinateString(longitude)),
             URLQueryItem(name: "kind", value: kind.rawValue)
@@ -298,7 +334,12 @@ struct TweenState: Equatable {
             items.append(URLQueryItem(name: "action", value: action.rawValue))
         }
         if let senderName {
-            items.append(URLQueryItem(name: "from", value: senderName))
+            // `outgoingName` + bound, like every other name path. `from=` was
+            // the one display name that shipped raw, so "You" went out on the
+            // wire and an unbounded name rode every reply (audit 2026-10-13,
+            // the name-sanitization sibling lesson again).
+            items.append(URLQueryItem(name: "from",
+                                      value: Self.boundedName(Self.outgoingName(senderName))))
         }
         if let senderID {
             items.append(URLQueryItem(name: "fromId", value: senderID))
@@ -323,7 +364,7 @@ struct TweenState: Equatable {
         }
         if !agreedNames.isEmpty {
             items.append(URLQueryItem(name: "agreed",
-                                      value: Self.encodeNames(agreedNames)))
+                                      value: Self.encodeDisplayNames(agreedNames)))
         }
         if !agreedIDs.isEmpty {
             items.append(URLQueryItem(name: "agreedIds",
@@ -427,8 +468,26 @@ struct TweenState: Equatable {
                 && $0.name != "dec" && $0.name != "decs"
         }
         components.queryItems = leanest
-        guard let last = components.url, last.absoluteString.count <= 5000 else { return nil }
-        return last
+        if let last = components.url, last.absoluteString.count <= 5000 { return last }
+        // Absolute last rung: shorten the DISPLAY names in `p=`. Until now
+        // nothing on the ladder could touch `p=`/`pids=`, so a roster whose
+        // names were merely long made `encodedURL()` return nil — and that
+        // nil is indistinguishable from a send failure, so the user saw
+        // "Couldn't send. Try again." on every pick, vote, lock-in and even
+        // "I'm out", forever (protocol audit 2026-10-13, HIGH). Identity
+        // (`pids`) is preserved; only the cosmetic name is cut, and every
+        // receiver already prefers its own roster's name for a known id.
+        let shortRoster = participants.map {
+            Participant(id: $0.id, name: String(Self.boundedName($0.name).prefix(8)),
+                        latitude: $0.latitude, longitude: $0.longitude, needsRide: $0.needsRide)
+        }
+        components.queryItems = leanest.map {
+            $0.name == "p"
+                ? URLQueryItem(name: "p", value: Self.encodeParticipants(shortRoster))
+                : $0
+        }
+        guard let shortest = components.url, shortest.absoluteString.count <= 5000 else { return nil }
+        return shortest
     }
 
     private static func coordinateString(_ value: Double) -> String {
@@ -454,7 +513,7 @@ struct TweenState: Equatable {
 
     static func encodeParticipants(_ participants: [Participant]) -> String {
         participants.map { p in
-            let outgoing = outgoingName(p.name)
+            let outgoing = boundedName(outgoingName(p.name))
             let name = outgoing.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? outgoing
             let base = "\(name):\(coordinateString(p.latitude)):\(coordinateString(p.longitude))"
             return p.needsRide ? "\(base):ride" : base
@@ -462,7 +521,7 @@ struct TweenState: Equatable {
     }
 
     static func decodeParticipants(_ raw: String) -> [Participant] {
-        raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry in
+        raw.split(separator: ",", omittingEmptySubsequences: true).prefix(maxParticipants).compactMap { entry in
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
             guard (parts.count == 3 || parts.count == 4),
                   let lat = Double(parts[1]),
@@ -480,7 +539,7 @@ struct TweenState: Equatable {
         // Blank the "You" fallback here too (audit F2); the stable `id` is
         // preserved so cross-device identity is unaffected.
         let sanitized = participants.map { p in
-            Participant(id: p.id, name: outgoingName(p.name),
+            Participant(id: boundedKey(p.id), name: boundedName(outgoingName(p.name)),
                         latitude: p.latitude, longitude: p.longitude, needsRide: p.needsRide)
         }
         guard let data = try? JSONEncoder().encode(sanitized) else { return nil }
@@ -497,6 +556,7 @@ struct TweenState: Equatable {
     static func decodeParticipantJSON(_ raw: String) -> [Participant]? {
         guard let data = Data(base64Encoded: raw),
               let decoded = try? JSONDecoder().decode([Participant].self, from: data),
+              decoded.count <= maxParticipants,
               decoded.allSatisfy({ validCoordinate($0.latitude, $0.longitude) }),
               decoded.allSatisfy({ $0.id.count <= maxIDLength })
         else { return nil }
@@ -512,14 +572,71 @@ struct TweenState: Equatable {
     static let maxRevision = 1_000_000_000
     static let maxNameLength = 60
 
+    /// Roster ceiling. `decodeParticipants` bounded each NAME but never the
+    /// number of records, and ~700 entries fit in one 5000-char payload. One
+    /// such bubble was persisted as the conversation roster, then fanned out
+    /// one `MKDirections` request per participant per candidate inside the
+    /// ~120 MB extension, and wedged every subsequent send in that chat
+    /// because `p=`/`pids=` are on no rung of the size ladder (pen-test
+    /// 2026-10-13, finding 3). 32 is the iMessage group-chat maximum, so this
+    /// is generous for every real conversation.
+    static let maxParticipants = 32
+
+    /// Element ceiling for the comma lists that are not the roster —
+    /// `agreed`, `agreedIds`, `gone`. `gone` is the one that matters: it is
+    /// persisted into the TTL-exempt tombstone set, so ~1000 entries from one
+    /// bubble grew that set forever (pen-test 2026-10-13, finding 15).
+    static let maxNameListCount = 64
+
+    /// Percent-encoding budget for ONE name. `maxNameLength` bounds GRAPHEMES,
+    /// but `participantNameAllowed` is ASCII-only, so every non-ASCII scalar
+    /// becomes 3 characters per byte: 60 graphemes of multi-scalar emoji is
+    /// ~4500 encoded characters — on its own enough to push every send in that
+    /// conversation past 5000, which fails the send with no escape from the UI
+    /// and silently erases the stored proposal and settled meetup too
+    /// (protocol audit 2026-10-13, HIGH). Bound the ENCODED length as well.
+    static let maxEncodedNameLength = 90
+    static let maxEncodedKeyLength = 140
+
     static func boundedName(_ name: String) -> String {
-        name.count <= maxNameLength ? name : String(name.prefix(maxNameLength))
+        bounded(name, graphemes: maxNameLength, encoded: maxEncodedNameLength)
     }
 
+    /// Identity keys get their own, wider bound: an install id is a 36-char
+    /// UUID and a legacy id is a display name, and truncating one to the
+    /// NAME budget would stop it matching the same person on another device.
+    static func boundedKey(_ key: String) -> String {
+        bounded(key, graphemes: maxIDLength, encoded: maxEncodedKeyLength)
+    }
+
+    private static func bounded(_ value: String, graphemes: Int, encoded: Int) -> String {
+        var result = value.count <= graphemes ? value : String(value.prefix(graphemes))
+        while encodedLength(result) > encoded, !result.isEmpty {
+            result = String(result.dropLast())
+        }
+        return result
+    }
+
+    /// How many characters one name costs ON THE WIRE once percent-encoded.
+    /// Internal rather than private so a test can pin the bound.
+    static func encodedLength(_ value: String) -> Int {
+        (value.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? value).count
+    }
+
+    /// Identity keys (`pids`, `agreedIds`, `gone`). Bounded for length but
+    /// NEVER passed through `outgoingName`: blanking a legacy id that happens
+    /// to equal the fallback name would downgrade a usable name-key to "",
+    /// which is the collapse the positional `pids` decode exists to prevent.
     static func encodeNames(_ names: [String]) -> String {
         names.map { name in
-            name.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? name
+            let bounded = boundedKey(name)
+            return bounded.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? bounded
         }.joined(separator: ",")
+    }
+
+    /// DISPLAY names (`agreed`). Sanitized like every other display-name path.
+    static func encodeDisplayNames(_ names: [String]) -> String {
+        encodeNames(names.map { boundedName(outgoingName($0)) })
     }
 
     /// `decodeNames` for POSITIONAL lists: keeps empty fields so index i of
@@ -532,9 +649,9 @@ struct TweenState: Equatable {
     }
 
     static func decodeNames(_ raw: String) -> [String] {
-        raw.split(separator: ",", omittingEmptySubsequences: true).map { raw in
+        raw.split(separator: ",", omittingEmptySubsequences: true).prefix(maxNameListCount).map { raw in
             let s = String(raw)
-            return s.removingPercentEncoding ?? s
+            return boundedKey(s.removingPercentEncoding ?? s)
         }
     }
 
@@ -660,10 +777,16 @@ struct TweenState: Equatable {
               Self.validCoordinate(lat, lon),
               url.absoluteString.count <= 5000
         else { return nil }
-        self.text = t
+        // Bounded on decode too, and with the SAME bound, so a name-equality
+        // guard still matches the name this device would have encoded.
+        self.text = Self.boundedName(t)
         self.latitude = lat
         self.longitude = lon
-        let senderName = items.first(where: { $0.name == "from" })?.value
+        // Bounded like every sibling: `senderName` was the one wire string
+        // with no cap, and it becomes a PERSISTED tombstone key when the
+        // payload carries no `fromId` — in a TTL-exempt store (pen-test
+        // 2026-10-13, finding 7).
+        let senderName = items.first(where: { $0.name == "from" })?.value.map(Self.boundedName)
         self.senderName = senderName
         // Bounded: an id is a 36-char UUID. An unbounded one would ride back
         // out in every reply (`ref=`) and could push payloads past 5000.

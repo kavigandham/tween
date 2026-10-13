@@ -828,8 +828,11 @@ final class ParticipantCodecTests: XCTestCase {
             revision: 1, senderID: "B", messageType: .invite, key: key),
             "Concurrent independent joins must union, not reject each other")
 
-        // A place mint at the same revision from another device stays strict.
-        for placeType in [TweenState.MessageType.propose, .counter, .agree, .leave] {
+        // A place-REPLACING mint at the same revision from another device
+        // stays strict. `.leave` left this list on 2026-10-13: it is monotone,
+        // and rejecting it at a tie lost the departure entirely (protocol
+        // audit CRITICAL 1) — covered in MeetupPollTests.
+        for placeType in [TweenState.MessageType.propose, .counter, .agree] {
             XCTAssertFalse(ConversationMeetupStore.shouldAcceptInbound(
                 revision: 1, senderID: "B", messageType: placeType, key: key),
                 "\(placeType) at the floor from another sender must still reject")

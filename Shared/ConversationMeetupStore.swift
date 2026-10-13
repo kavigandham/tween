@@ -492,6 +492,10 @@ enum ConversationMeetupStore {
         loadSync(key: key).lastRevisionSender
     }
 
+    /// How far above the current floor an inbound revision may plausibly sit.
+    /// One bubble is +1; a thousand is a very long conversation.
+    static let maxRevisionJump = 1_000
+
     /// Records the highest payload revision seen for this conversation, and
     /// who set it. Both directions go through here: decode notes inbound
     /// revisions, delivery notes the ones this device mints — so a bubble
@@ -499,6 +503,18 @@ enum ConversationMeetupStore {
     static func noteRevision(_ revision: Int, sender: String? = nil, key: String) {
         var sync = loadSync(key: key)
         let floor = sync.lastRevision ?? 0
+        // A revision is a per-conversation counter that moves by one per
+        // bubble, so a jump of millions is never real. The decoder bounded the
+        // FIELD (0...maxRevision) but not the FLOOR, so one `rev=1000000000`
+        // bubble became the floor and every honest peer bubble after it was
+        // rejected as stale — silently, permanently (the sync state is
+        // TTL-exempt by design), and the next mint from this device then
+        // carried a revision every receiver's own bound rejected, disabling
+        // the stale-bubble guard for the whole thread (pen-test 2026-10-13,
+        // finding 4). An implausible revision simply does not move the floor;
+        // the bubble itself is still adopted, it just carries no ordering.
+        guard revision <= floor + Self.maxRevisionJump,
+              revision < TweenState.maxRevision else { return }
         if revision > floor {
             sync.lastRevision = revision
             sync.lastRevisionSender = sender

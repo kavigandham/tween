@@ -37,17 +37,27 @@ extension OnboardingView {
         }
     }
 
+    /// The board, scoped to who is still here — "scope the board to
+    /// departures EVERYWHERE it is rebuilt" (commit 2b9d25e). These two
+    /// readers were the sites that kept reading it raw, so a person who
+    /// picked a place and then left still appeared on an incoming spot card
+    /// as a live rival with a vote (protocol audit 2026-10-13).
+    private func scopedBoard() -> MeetupPoll {
+        activeConversationBoard().normalized(participants: scopedFirstRoster(),
+                                             departed: activeConversationDeparted())
+    }
+
     /// Every OTHER place currently on the board, most-voted first — what the
     /// incoming card has to show before it asks you to settle anything.
     func boardRivals(excluding coordinate: CLLocationCoordinate2D) -> [(name: String, votes: Int)] {
-        activeConversationBoard().standings
+        scopedBoard().standings
             .filter { abs($0.option.latitude - coordinate.latitude) >= 1e-4
                    || abs($0.option.longitude - coordinate.longitude) >= 1e-4 }
             .map { (name: $0.option.name, votes: $0.votes) }
     }
 
     func boardVotes(for coordinate: CLLocationCoordinate2D) -> Int {
-        activeConversationBoard().standings
+        scopedBoard().standings
             .first { abs($0.option.latitude - coordinate.latitude) < 1e-4
                   && abs($0.option.longitude - coordinate.longitude) < 1e-4 }?
             .votes ?? 0

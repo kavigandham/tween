@@ -1,5 +1,11 @@
 import Foundation
-import MapKit
+// `@preconcurrency`: MKLocalSearch and MKDirections are not annotated Sendable,
+// and this file captures one of each in the @Sendable cancellation/deadline
+// closures below. That is safe HERE and only here: `ContinuationBox.take()` is
+// lock-guarded and hands the continuation to exactly one of the three racers
+// (callback, deadline, task cancellation), so `cancel()` is called at most once,
+// from one thread, and never concurrently with itself.
+@preconcurrency import MapKit
 
 /// `MKLocalSearch.start()` can stall FOREVER under geod throttling (observed
 /// 2026-07-31: a throttled request simply never called back — the extension's

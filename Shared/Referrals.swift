@@ -79,7 +79,10 @@ extension ReferralState {
         repliedTo = try c.decodeIfPresent([String].self, forKey: .repliedTo) ?? []
         invitesSent = try c.decodeIfPresent(Int.self, forKey: .invitesSent) ?? 0
         referrals = try c.decodeIfPresent([String].self, forKey: .referrals) ?? []
+        // Re-clamped on read: a grant date written while the device clock was
+        // wrong (or a hand-edited blob) must not outlive the horizon.
         grantedUntil = try c.decodeIfPresent(Date.self, forKey: .grantedUntil)
+            .map { min($0, Date().addingTimeInterval(ReferralPolicy.maxGrantHorizon)) }
         grantsAwarded = try c.decodeIfPresent(Int.self, forKey: .grantsAwarded) ?? 0
         announcedReferralCount = try c.decodeIfPresent(Int.self, forKey: .announcedReferralCount) ?? 0
         announcedGrantUntil = try c.decodeIfPresent(Date.self, forKey: .announcedGrantUntil)
@@ -184,6 +187,20 @@ struct ReferralMessage: Equatable {
 enum ReferralPolicy {
     static let required = 3
     static let grantDuration: TimeInterval = 90 * 86_400
+
+    /// Ceiling on a single stored grant. The grant is a stored `Date` compared
+    /// against the device clock, with no trusted anchor: setting the clock
+    /// forward BEFORE the third referral landed wrote `grantedUntil` ≈ 2099,
+    /// and nothing ever re-validated it, so correcting the clock left a
+    /// permanent unlock (pen-test 2026-10-13, finding 16). Clamped at write
+    /// AND at decode, so a already-poisoned blob heals itself on next read.
+    static let maxGrantHorizon: TimeInterval = 400 * 86_400
+
+    /// Ceiling on the referral ledgers. Both arrays gain an entry per new
+    /// conversation, are written on bubble ARRIVAL (no user interaction), and
+    /// had no bound at all — each write doing an O(n) `contains` and
+    /// rewriting the whole blob (finding 12).
+    static let maxLedgerEntries = 60
     /// How long a new user's bubbles carry their introducer's id.
     static let attributionWindow: TimeInterval = 30 * 86_400
     /// How long after install someone can still be introduced.
@@ -247,14 +264,22 @@ enum ReferralPolicy {
         // per-device sender key, so a reinstall (fresh install id) of a friend
         // already counted doesn't count again.
         let alreadyCountedKey = senderKey.map { state.referralSenderKeys.contains($0) } ?? false
-        if referredBy == myID, !state.referrals.contains(senderID), !alreadyCountedKey {
+        // Bounded by REFUSING entries past the cap, not by dropping the
+        // oldest: `referrals.count % required` is what awards a grant, so
+        // truncating the array would rewind that counter and mint a spurious
+        // 90 days. 60 referrals is 20 grants — far past `maxGrantHorizon`.
+        if referredBy == myID, !state.referrals.contains(senderID), !alreadyCountedKey,
+           state.referrals.count < maxLedgerEntries {
             state.referrals.append(senderID)
-            if let senderKey { state.referralSenderKeys.append(senderKey) }
+            if let senderKey, state.referralSenderKeys.count < maxLedgerEntries {
+                state.referralSenderKeys.append(senderKey)
+            }
             events.append(.referral(count: state.referrals.count))
             if state.referrals.count % required == 0 {
                 // Stack onto an active grant rather than restarting it.
                 let base = max(now, state.grantedUntil ?? now)
-                let until = base.addingTimeInterval(grantDuration)
+                let until = min(base.addingTimeInterval(grantDuration),
+                                now.addingTimeInterval(maxGrantHorizon))
                 state.grantedUntil = until
                 state.grantsAwarded += 1
                 events.append(.granted(until: until))
@@ -312,7 +337,12 @@ enum Referrals {
     /// Decode-side hook for an ordinary Tween bubble. EXTENSION ONLY — that
     /// is where iMessage vouches the sender is someone else.
     @discardableResult
-    static func noteInbound(_ state: TweenState, myID: String, senderKey: String? = nil,
+    /// `senderKey` is REQUIRED and has no default: it must be the identity
+    /// iMessage vouches for (`MSMessage.senderParticipantIdentifier`), which
+    /// only the Messages extension has. A payload's own `fromId=` proves
+    /// nothing — see the comment where the host app deliberately does not
+    /// call this (pen-test 2026-10-13, finding 5).
+    static func noteInbound(_ state: TweenState, myID: String, senderKey: String,
                             now: Date = Date()) -> [ReferralPolicy.Event] {
         apply { stored in
             ReferralPolicy.noteInbound(senderID: state.senderID, referredBy: state.referredBy,

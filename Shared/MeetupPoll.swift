@@ -152,12 +152,21 @@ struct MeetupPoll: Equatable, Codable {
         return participants.allSatisfy { votes[$0.id] != nil }
     }
 
+    /// Progress against the ROSTER, not against the vote dictionary.
+    ///
+    /// `total` used to be `max(participants.count, votes.count)`, which let an
+    /// unresolvable vote key inflate it. `normalized` deliberately KEEPS a key
+    /// it can neither place nor tombstone (deleting on it wiped settled
+    /// meetups, 2026-09-20), so a legacy name-keyed bubble in the thread adds
+    /// a second key for the same person: a two-person chat read "2 of 3
+    /// voted", and `settled` — `voted >= total` — never became true, so the
+    /// "Lock in" escape hatch for a plurality or an unbroken tie never
+    /// appeared (protocol audit 2026-10-13). The roster is the only thing that
+    /// knows how many people are actually here.
     func voteProgress(participants: [Participant]) -> (voted: Int, total: Int) {
-        let total = max(participants.count, votes.count)
-        let voted = participants.isEmpty
-            ? votes.count
-            : participants.filter { votes[$0.id] != nil }.count
-        return (voted, total)
+        guard !participants.isEmpty else { return (votes.count, votes.count) }
+        let voted = participants.filter { votes[$0.id] != nil }.count
+        return (voted, participants.count)
     }
 
     /// Everyone in, voting the same way. The happy path of a two-person
@@ -277,7 +286,24 @@ struct MeetupPoll: Equatable, Codable {
     /// could still win a vote they are not attending.
     func normalized(participants: [Participant],
                     departed: Set<String>) -> MeetupPoll {
-        guard !participants.isEmpty else { return self }
+        // An empty roster is TWO different situations and they must not be
+        // treated alike:
+        //
+        //   * everyone LEFT — a tombstone explains the emptiness, so there is
+        //     no board. Returning `self` let a `decidedOptionID` survive, and
+        //     a device that processed only one of the two final leaves still
+        //     rendered a settled meetup for a group of nobody. The extension
+        //     patched this imperatively on its own decode path; every other
+        //     rebuild site — `saveAgreed`, the host's
+        //     `activeConversationBoard()` — did not (protocol audit
+        //     2026-10-13).
+        //
+        //   * the roster has not HYDRATED yet — a snapshot-restore render
+        //     (drawer opened from the app icon, own bubble selected, a decode
+        //     rejected by the revision guard) reaches here with no
+        //     participants and no tombstones. Clearing there would blink the
+        //     board out of the UI for a meetup that is perfectly alive.
+        guard !participants.isEmpty else { return departed.isEmpty ? self : .empty }
         let live = Self.identityKeys(of: participants)
         // Roster ids VERBATIM, empty string included. An unnamed participant
         // still holds a vote, and `identityKeys` deliberately refuses "" as a

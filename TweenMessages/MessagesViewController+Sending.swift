@@ -643,9 +643,17 @@ extension MessagesViewController {
                 // a plain announcement from a synchronised one.
                 arrivalTarget: sync?.targetArrivalTime,
                 travelSeconds: sync.map { state in
-                    Dictionary(uniqueKeysWithValues: state.participants.compactMap { entry in
+                    // `uniquingKeysWith`, never `uniqueKeysWithValues`: that
+                    // initialiser TRAPS on a duplicate key, and participant
+                    // ids genuinely collide — an `ArrivalSyncState` decoded
+                    // from a hand-edited or torn App Group blob defaults
+                    // `participantID` to "" on an absent key, so two such rows
+                    // would crash the extension on "I'm leaving". Same rule
+                    // `MeetupPoll.encodeOptions` already follows, and for the
+                    // same reason (pen-test 2026-10-13, finding 14).
+                    Dictionary(state.participants.compactMap { entry in
                         entry.estimatedTravelTime.map { (entry.participantID, Int($0.rounded())) }
-                    })
+                    }, uniquingKeysWith: { first, _ in first })
                 } ?? [:]
             )
             let didSend = await sendBubbleNow(for: state)

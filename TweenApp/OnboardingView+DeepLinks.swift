@@ -88,7 +88,7 @@ extension OnboardingView {
         if !openedOwnProposal, !departedHere, let peer = state.participantCoordinate {
             LocationCache.savePeer(peer, isActive: true)
             peerCoordinate = peer
-            logger.debug("Host saved peer from URL lat=\(peer.latitude, privacy: .public) lon=\(peer.longitude, privacy: .public)")
+            logger.debug("Host saved peer from URL")
         }
         // Roster adoption mirrors the extension's decode path — revision
         // guard, self-tombstone filter, and MERGE instead of verbatim
@@ -110,11 +110,18 @@ extension OnboardingView {
         }
         if adoptRoster, !state.participants.isEmpty || state.messageType == .leave {
             let localContext = LocalParticipantContext(id: TweenIdentity.stableID, name: myName)
-            let senderKeys = RosterMerge.senderKeys(senderID: state.senderID, senderName: state.senderName)
+            // Absorb gossiped departures — minus the local user, whose
+            // presence is governed solely by localUserLeft.
+            let myKeys: Set<String> = [TweenIdentity.stableID, myName]
+            // Self-asserted sender identity cannot depart the local user —
+            // same filter, same reason as the gossip line below (pen-test
+            // 2026-10-13, finding 1). A crafted `tween://…&type=leave&fromId=
+            // <this install's own id>` tombstoned the reader out of their own
+            // meetup with no way back.
+            let senderKeys = RosterMerge.senderKeys(senderID: state.senderID,
+                                                    senderName: state.senderName)
+                .filter { !myKeys.contains($0) }
             if let activeConversationKey {
-                // Absorb gossiped departures — minus the local user, whose
-                // presence is governed solely by localUserLeft.
-                let myKeys: Set<String> = [TweenIdentity.stableID, myName]
                 ConversationMeetupStore.noteDeparted(state.departed.filter { !myKeys.contains($0) },
                                                      key: activeConversationKey)
                 if state.messageType == .leave {
@@ -154,16 +161,14 @@ extension OnboardingView {
                 peerCoordinate = nil
             }
         }
-        // Referral credit. This ran ONLY in the Messages extension, so a
-        // bubble opened through the app — which is where the tween:// links in
-        // every plain-text body land — proved an install that was never
-        // counted. Independent of the revision guard for the same reason it is
-        // in the extension: a stale bubble still proves the sender installed.
-        // Deduped by install id inside (`ReferralPolicy.noteInbound`).
-        if !openedOwnProposal {
-            Referrals.noteInbound(state, myID: TweenIdentity.stableID)
-            refreshReferrals()
-        }
+        // NO REFERRAL CREDIT HERE. This path is reachable by any app, web
+        // page, Shortcut or note that can open a `tween://` URL, so nothing
+        // vouches that the `fromId=` in the payload is a real other person —
+        // three crafted links were 90 days of Pro (audit 2026-09-11). The fix
+        // landed once, then came back here; `Referrals.noteInbound(_ state:)`
+        // now REQUIRES a vouched `senderKey`, so this cannot be reintroduced
+        // without the iMessage-supplied sender identity the extension has and
+        // the host does not (pen-test 2026-10-13, finding 5).
 
         // Only stamp the inbound-reply timestamp for ACTUAL replies — invites,
         // proposals, and agrees from a peer. Plain `tween://search` deep links
@@ -176,6 +181,20 @@ extension OnboardingView {
             PingLog.lastIncomingReplyAt = Date()
             lastReplyAt = PingLog.lastIncomingReplyAt
         }
+
+        // The revision guard governs the WHOLE state machine, not just the
+        // roster. It was added to `.leave` alone and the sibling cases kept
+        // the bug: a stale (or crafted) `.pick` below the floor had its roster
+        // correctly rejected above, then fell into its case anyway and ran
+        // `clearAgreedMeetup()` + `saveProposed(state)` — so a settled meetup
+        // vanished from the app behind a stale proposal card while the stored
+        // `poll.decidedOptionID` still named the real place. The mirror case
+        // re-saved an abandoned `.decided`. Same sibling-site lesson as the
+        // name sanitization and the board scoping (protocol audit 2026-10-13).
+        //
+        // `openedOwnProposal` is exempt: those branches only re-show this
+        // device's own bubble and return.
+        guard adoptRoster || openedOwnProposal else { return }
 
         switch state.messageType {
         // A poll-era place bubble that ISN'T terminal is a pick or a vote —
