@@ -486,8 +486,20 @@ struct TweenState: Equatable {
                 ? URLQueryItem(name: "p", value: Self.encodeParticipants(shortRoster))
                 : $0
         }
-        guard let shortest = components.url, shortest.absoluteString.count <= 5000 else { return nil }
-        return shortest
+        if let shortest = components.url, shortest.absoluteString.count <= 5000 { return shortest }
+        // Truly last: trim the spot name itself. `t` is the message, so no
+        // earlier rung touches it — but it now carries a PLACE budget (540
+        // encoded characters, deliberately, so non-Latin names survive), and
+        // at the 32-person maximum that extra slack is what tips a full roster
+        // over the line. Better a shortened name than a message that cannot be
+        // sent at all (post-push verification 2026-10-13).
+        components.queryItems = components.queryItems?.map {
+            $0.name == "t"
+                ? URLQueryItem(name: "t", value: Self.boundedName(text))
+                : $0
+        }
+        guard let last = components.url, last.absoluteString.count <= 5000 else { return nil }
+        return last
     }
 
     private static func coordinateString(_ value: Double) -> String {
@@ -657,6 +669,19 @@ struct TweenState: Equatable {
             let bounded = boundedKey(name)
             return bounded.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? bounded
         }.joined(separator: ",")
+    }
+
+    /// A PLACE name, for the one field that carries it inside a record
+    /// (`opts`). `encodeNames` would bound it as an identity KEY (140), and
+    /// the decode bounded it as a roster NAME (90), so one field had three
+    /// budgets — and `PollOption.id` embeds the name, so sender and receiver
+    /// computed DIFFERENT ids for the same place as soon as a non-Latin name
+    /// passed ~10 graphemes. Votes then pointed at an id the other device's
+    /// board did not contain and were dropped (post-push verification
+    /// 2026-10-13: the same sibling-site miss, one site over from the fix).
+    static func encodePlaceName(_ name: String) -> String {
+        let bounded = boundedPlaceName(name)
+        return bounded.addingPercentEncoding(withAllowedCharacters: participantNameAllowed) ?? bounded
     }
 
     /// DISPLAY names (`agreed`). Sanitized like every other display-name path.

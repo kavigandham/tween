@@ -187,7 +187,7 @@ struct ArrivalSyncState: Codable, Equatable, Sendable {
          participants: [ArrivalParticipantState] = [],
          version: Int = 0) {
         self.meetingID = meetingID
-        self.destinationName = TweenState.boundedName(destinationName)
+        self.destinationName = TweenState.boundedPlaceName(destinationName)
         self.destinationLatitude = destinationCoordinate.latitude
         self.destinationLongitude = destinationCoordinate.longitude
         self.targetArrivalTime = targetArrivalTime
@@ -246,7 +246,7 @@ struct ArrivalSyncState: Codable, Equatable, Sendable {
     /// measured against somewhere else, so every departure time derived from
     /// it is wrong, and only a fresh I Left can fix that.
     func matches(destinationName name: String, coordinate: CLLocationCoordinate2D) -> Bool {
-        destinationID == PollOption.key(name: TweenState.boundedName(name),
+        destinationID == PollOption.key(name: TweenState.boundedPlaceName(name),
                                         latitude: coordinate.latitude,
                                         longitude: coordinate.longitude)
     }

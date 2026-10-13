@@ -84,7 +84,6 @@ enum TourStep: Int, CaseIterable, Equatable {
     var nextTitle: String? {
         switch self {
         case .welcome:      return "Start the tour"
-        case .spotSheet:    return "Back to the map"
         case .pro:          return "Not now"
         case .done:         return "Finish"
         default:            return nil
@@ -110,6 +109,14 @@ enum TourStep: Int, CaseIterable, Equatable {
 
     /// Steps the user must perform show a small "Tap it" hint instead of a
     /// Next button — the spotlit control IS the next button.
+    ///
+    /// This is also what decides whether the spotlight gets a TAP TARGET at
+    /// all (`CoachMarkOverlay`), which makes "spotlights a control" and "owns
+    /// its own Next button" mutually exclusive. `.spotSheet` was both: it drew
+    /// a ring around "Send to chat" and carried a "Back to the map" button, so
+    /// the ring pointed at something the overlay had deliberately made inert
+    /// and tapping it did nothing at all (device report 2026-10-13). If a step
+    /// has a target, it waits for the user.
     var waitsForUser: Bool { nextTitle == nil }
 
     /// Exactly what to press, shown as a pill pointing at it — "tap the
@@ -120,6 +127,7 @@ enum TourStep: Int, CaseIterable, Equatable {
         case .imIn:       return "Tap I'm in"
         case .coffeeChip: return "Tap Coffee"
         case .openSpot:   return "Tap the top card"
+        case .spotSheet:  return "Tap Send to chat"
         default:          return nil
         }
     }
@@ -498,12 +506,19 @@ struct CoachMarkOverlay: View {
             }
         }
         .padding(Tokens.Spacing.s4)
-        // `elevatedStrong`, not `surface`: the card sits on a 62%-black
-        // scrim over a dark map, and `.systemBackground` in dark mode is
-        // near-black — so the callout read as a hole punched through the
-        // screen, with its own black shadow invisible against it (screenshot
-        // audit 2026-10-13). This is the trap `Tokens.swift` documents.
-        .background(Tokens.Palette.elevatedStrong, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
+        // `surfaceSecondary` — OPAQUE, and distinct from `.systemBackground`.
+        //
+        // Two bugs, one line. It was `surface` (`.systemBackground`), which in
+        // dark mode is near-black on a 62%-black scrim: the callout read as a
+        // hole punched through the screen. I then "fixed" that with
+        // `elevatedStrong`, which is `.secondarySystemFill` — a translucent
+        // FILL, not a background — so the map and the sheet underneath showed
+        // straight through the card and the copy became unreadable. A fill is
+        // for tinting something that already has a surface under it; this card
+        // has nothing under it but a scrim. `.secondarySystemBackground` is
+        // opaque AND lighter than the page, which is what was wanted both
+        // times (device report 2026-10-13).
+        .background(Tokens.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
         .tweenElevation(.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tour step \(step.ordinal) of \(TourStep.count): \(step.title). \(step.body)")

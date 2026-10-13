@@ -106,9 +106,16 @@ extension OnboardingView {
         // presentation.
         .interactiveDismissDisabled(tourStep != nil)
         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
+            // `onTargetTap` — the map and sheet layers always passed it; this
+            // one never did, so its default `{ _ in }` swallowed every tap.
+            // `.spotSheet` is the ONLY step whose spotlight lives in this
+            // layer, which is why the dead highlight went unnoticed: the tour
+            // spotlit "Send to chat", and tapping it did literally nothing
+            // (device report 2026-10-13).
             CoachMarkOverlay(step: tourStep(inside: .spot), layer: .spot,
                              calloutLayer: .spot, edge: sheetEdge,
-                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+                             anchors: anchors, onNext: advanceTour, onSkip: skipTour,
+                             onTargetTap: tourTargetTapped)
         }
     }
 

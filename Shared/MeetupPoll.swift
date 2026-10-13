@@ -515,7 +515,7 @@ struct MeetupPoll: Equatable, Codable {
                                uniquingKeysWith: { first, _ in first })
         return options.compactMap { option -> String? in
             guard let proposerIndex = index[option.proposerID] else { return nil }
-            let name = TweenState.encodeNames([option.name])
+            let name = TweenState.encodePlaceName(option.name)
             return "\(name):\(coordinate(option.latitude)):\(coordinate(option.longitude)):\(proposerIndex)"
         }.joined(separator: ",")
     }
@@ -541,7 +541,8 @@ struct MeetupPoll: Equatable, Codable {
                   participants.indices.contains(proposerIndex)
             else { return nil }
             let raw = String(parts[0])
-            let name = TweenState.boundedName(raw.removingPercentEncoding ?? raw)
+            // `boundedPlaceName`, matching the encoder and `PollOption.init`.
+            let name = TweenState.boundedPlaceName(raw.removingPercentEncoding ?? raw)
             let option = PollOption(name: name, latitude: lat, longitude: lon,
                                     proposerID: participants[proposerIndex].id)
             // Dedupe on the way IN, so a payload carrying the same place twice

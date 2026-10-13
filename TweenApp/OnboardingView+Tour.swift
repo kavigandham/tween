@@ -56,10 +56,20 @@ extension OnboardingView {
             selectCategory(.coffee)
         case .firstResultCard:
             if let first = displayedItems.first { selectedResult = first }
-        case .sendToChat, .friendsButton, .addFriend, .mapToolbar:
-            // Informational, or no longer part of the tour: the card's own
-            // button moves on. The targets themselves stay declared because
-            // the controls still mark themselves — they are simply never
+        case .sendToChat:
+            // The step SPOTLIGHTS "Send to chat", so a tap on it has to do
+            // something — it did nothing at all, which reads as the tutorial
+            // being broken (device report 2026-10-13). It does what the card's
+            // own "Back to the map" button does, which is this file's stated
+            // rule: nobody taps the obvious highlighted thing and gets
+            // nothing. The tour never actually sends — there is no
+            // conversation behind it, and opening a composer mid-tour would
+            // strand the user.
+            activeSheet = nil
+            setTourStep(afterTheDemo)
+        case .friendsButton, .addFriend, .mapToolbar:
+            // No longer part of the tour. The targets stay declared because
+            // the controls still mark themselves; they are simply never
             // spotlit now that the tour ends at the place sheet.
             break
         }

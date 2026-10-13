@@ -1159,9 +1159,14 @@ struct OnboardingView: View {
                         // screen" step) — its own overlay, over the whole
                         // stack including the bar.
                         .overlayPreferenceValue(CoachTargetKey.self) { anchors in
+                            // Same omission as the spot layer, wired for the
+                            // same reason — no step targets this layer today,
+                            // but a default that silently eats taps is how the
+                            // other one hid.
                             CoachMarkOverlay(step: tourStep(inside: .friends), layer: .friends,
                                              calloutLayer: .friends, edge: sheetEdge,
-                                             anchors: anchors, onNext: advanceTour, onSkip: skipTour)
+                                             anchors: anchors, onNext: advanceTour, onSkip: skipTour,
+                                             onTargetTap: tourTargetTapped)
                         }
                         // Children of the FRIENDS sheet — presented from it,
                         // not by swapping `activeSheet` (the swap's dismiss-

@@ -37,6 +37,17 @@ extension OnboardingView {
         guard joiningFrom == nil else { return }
         switch choice {
         case .home:
+            // Pro — the one door the previous pass left open while its own new
+            // doc comment claimed it was shut. A lapsed subscriber keeps the
+            // stored MyPlace, so without this the host still offered "From
+            // Home" as the first row of every "I'm in" while the EXTENSION
+            // hid the same button for the same user (post-push verification
+            // 2026-10-13).
+            guard ProEntitlement.isUnlocked else {
+                activeSheet = nil
+                Task { @MainActor in activeSheet = .paywall }
+                return
+            }
             guard let home = MyPlaceStore.home() else {
                 // Deleted from another surface while the sheet was open.
                 homePlace = nil

@@ -363,6 +363,40 @@ final class HostilePayloadTests: XCTestCase {
         }
     }
 
+    /// A place name must survive the `opts` WIRE, not just `t` — and with the
+    /// same identity at both ends.
+    ///
+    /// This is the test the previous pass should have written. It wrote one
+    /// that round-tripped `PollOption` through `JSONEncoder` and called itself
+    /// "…AndTheWire", and one that encoded a non-Latin `t` with no poll
+    /// attached — so neither touched `encodeOptions`/`decodeOptionSlots`,
+    /// where the name was still being bounded as an identity key on the way
+    /// out (140) and as a roster name on the way in (90). `PollOption.id`
+    /// embeds the name, so sender and receiver computed different ids for the
+    /// same place and every vote pointing at it was dropped.
+    func testANonLatinOptionKeepsItsIdentityAcrossTheWire() throws {
+        let a = Participant(id: "id-a", name: "Ann", latitude: 37.78, longitude: -122.41)
+        let b = Participant(id: "id-b", name: "Bo", latitude: 37.76, longitude: -122.43)
+        let name = "渋谷スクランブルスクエアの展望台カフェ"
+        let option = PollOption(name: name, latitude: 37.770, longitude: -122.420,
+                                proposerID: a.id)
+        var board = MeetupPoll.empty
+        board.pick(option)
+        board.vote(b.id, for: option.id)
+
+        let state = TweenState(text: name, latitude: 37.770, longitude: -122.420,
+                               senderID: a.id, kind: .place, messageType: .pick,
+                               participants: [a, b], poll: board)
+        let decoded = try XCTUnwrap(TweenState(url: try XCTUnwrap(state.encodedURL())))
+
+        let received = try XCTUnwrap(decoded.poll.options.first)
+        XCTAssertEqual(received.name, name, "the place name must arrive whole")
+        XCTAssertEqual(received.id, option.id,
+                       "…and with the SAME id, or every vote for it is dropped")
+        XCTAssertEqual(decoded.poll.votes[b.id], option.id,
+                       "Bo's vote must still point at the place he voted for")
+    }
+
     /// …and an option name follows the same budget, through `Codable` too.
     /// The synthesized decode bypassed the bounding init, so a board persisted
     /// by an older build kept a different `PollOption.id` than the same option

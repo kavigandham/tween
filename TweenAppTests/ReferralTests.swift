@@ -245,6 +245,12 @@ final class ReferralPolicyTests: XCTestCase {
     // MARK: Store hooks
 
     func testBootstrapMarksInstallsAlreadyInUseAsExisting() {
+        // Explicitly nil, not just "the suite was wiped in setUp": the suite is
+        // read through a cached `UserDefaults` instance, so a name written by
+        // an earlier test in the same run could still be served here and make
+        // this clean install look like an existing one. Order-dependent flake,
+        // surfaced 2026-10-13.
+        UserProfile.displayName = nil
         ReferralStore.clear()
         Referrals.bootstrapIfNeeded()
         XCTAssertFalse(ReferralStore.load().existingUser, "a clean install is new")
