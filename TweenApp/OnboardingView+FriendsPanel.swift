@@ -693,13 +693,17 @@ extension OnboardingView {
                         "No Meetup Yet",
                         systemImage: "car.2",
                         description: Text("Tap I'm in or open a Tween iMessage so ride planning has people to work with."))
-                        .frame(maxWidth: .infinity, minHeight: 180)
+                        .frame(maxWidth: .infinity, minHeight: 320)
                 } else if pickupRiders.isEmpty {
                     ContentUnavailableView(
                         "No Pickup Requests",
                         systemImage: "checkmark.circle",
                         description: Text("Everyone in the meetup can get to the spot for now."))
-                        .frame(maxWidth: .infinity, minHeight: 180)
+                        // Centred, not pinned to the top of a full-height
+                        // sheet with ~1000pt of blank below it — that reads as
+                        // a view that failed to load (screenshot audit
+                        // 2026-10-13).
+                        .frame(maxWidth: .infinity, minHeight: 320)
                 } else {
                     rideSection(title: "Needs pickup", participants: pickupRiders, emptyText: nil)
                     rideSection(title: "Can drive or meet there", participants: rideDrivers, emptyText: "No available drivers yet.")

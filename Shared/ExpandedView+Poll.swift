@@ -71,12 +71,16 @@ extension ExpandedView {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(Tokens.Palette.success)
                 } else {
+                    // A FILLED pill: accent text on a 14% accent wash measured
+                    // 2.47:1 in light mode, and this is the primary action in
+                    // a contested vote — the single most important control the
+                    // extension draws (screenshot audit 2026-10-13).
                     Text("Vote")
                         .font(Tokens.Typography.captionBold)
-                        .foregroundStyle(Tokens.Palette.accent)
+                        .foregroundStyle(Tokens.Palette.onBrand)
                         .padding(.horizontal, Tokens.Spacing.s3)
                         .frame(minHeight: 30)
-                        .background(Tokens.Palette.accent.opacity(0.14), in: Capsule())
+                        .background(Tokens.Palette.accent, in: Capsule())
                 }
             }
             .padding(.horizontal, Tokens.Spacing.s3)

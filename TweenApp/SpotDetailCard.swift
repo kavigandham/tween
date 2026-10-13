@@ -508,10 +508,15 @@ struct SpotDetailCard: View {
             VStack(spacing: Tokens.Spacing.s1) {
                 Image(systemName: icon)
                     .font(Tokens.Typography.headline)
+                // Two lines and a deeper scale floor. At accessibility sizes
+                // four equal-width tiles turned "Send to chat" into "Se…" and
+                // the directions tile into "8…" — the place card's primary
+                // actions, unreadable (screenshot audit 2026-10-13).
                 Text(label)
                     .font(Tokens.Typography.caption2Bold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Tokens.Spacing.s3)

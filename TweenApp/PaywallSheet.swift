@@ -582,6 +582,8 @@ struct PaywallSheet: View {
         }
         .font(Tokens.Typography.subheadline)
         .foregroundStyle(Tokens.Palette.accent)
+        .frame(minHeight: Tokens.Layout.minTapTarget)
+        .contentShape(Rectangle())
         .disabled(purchasing)
     }
 
@@ -606,9 +608,16 @@ struct PaywallSheet: View {
                 .foregroundStyle(Tokens.Palette.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            // 44pt minimum. These two and Restore are REQUIRED by 3.1.2 and
+            // were the hardest things on the screen to hit — bare caption-sized
+            // text links (screenshot audit 2026-10-13).
             HStack(spacing: Tokens.Spacing.s3) {
                 Link("Terms of Use", destination: Self.termsURL)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+                    .contentShape(Rectangle())
                 Link("Privacy Policy", destination: Self.privacyURL)
+                    .frame(minHeight: Tokens.Layout.minTapTarget)
+                    .contentShape(Rectangle())
             }
             .font(Tokens.Typography.caption)
             .foregroundStyle(Tokens.Palette.accent)

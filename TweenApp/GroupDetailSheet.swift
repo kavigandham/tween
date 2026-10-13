@@ -175,7 +175,11 @@ struct GroupDetailSheet: View {
                     Label("Rename group", systemImage: "pencil")
                 }
                 Button(role: .destructive) { confirmingDelete = true } label: {
+                    // The role tints the TEXT red, but the Label's symbol
+                    // inherits the List's blue tint — red words, blue trash
+                    // (screenshot audit 2026-10-13).
                     Label("Delete group", systemImage: "trash")
+                        .foregroundStyle(Tokens.Palette.destructive)
                 }
             }
         }
