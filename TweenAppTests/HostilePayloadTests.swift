@@ -171,16 +171,27 @@ final class HostilePayloadTests: XCTestCase {
 
     /// `rev=1000000000` became the conversation's floor, after which every
     /// honest peer bubble was rejected as stale — silently, and permanently,
-    /// since the sync state is deliberately TTL-exempt. The bubble itself is
-    /// still adopted; it just carries no ordering.
-    func testAnAbsurdRevisionCannotPoisonTheFloor() {
+    /// since the sync state is deliberately TTL-exempt, and this device's own
+    /// next mint was out of range for every receiver.
+    ///
+    /// The floor is CLAMPED rather than refused, and the trade-off is
+    /// deliberate. Refusing the advance outright also muted an honest device
+    /// that had simply fallen far behind — a lurker in a busy group kept a
+    /// floor of 0, minted rev 1 forever, and had every send rejected by
+    /// everyone (post-push audit 2026-10-13). Clamping means a conversation
+    /// member CAN still push the floor up by `maxRevisionJump` per bubble and
+    /// cause a temporary ordering desync; that is bounded, recoverable, and
+    /// available only to someone already in the chat, who can forge places and
+    /// votes anyway. A permanent, device-wide mute is not an acceptable price
+    /// for closing it.
+    func testAnAbsurdRevisionIsClampedNotAdopted() {
         ConversationMeetupStore.noteRevision(5, sender: "A", key: key)
         ConversationMeetupStore.noteRevision(1_000_000_000, sender: "attacker", key: key)
-        XCTAssertEqual(ConversationMeetupStore.lastRevision(key: key), 5,
-                       "an implausible jump must not move the floor")
-        XCTAssertTrue(ConversationMeetupStore.shouldAcceptInbound(
-            revision: 6, senderID: "B", messageType: .pick, key: key),
-            "honest peers must keep being heard")
+        let floor = ConversationMeetupStore.lastRevision(key: key)
+        XCTAssertLessThanOrEqual(floor, 5 + ConversationMeetupStore.maxRevisionJump,
+                                 "the absurd value itself must never become the floor")
+        XCTAssertLessThan(floor, TweenState.maxRevision,
+                          "and the floor must stay inside the range receivers accept")
     }
 
     /// A plausible advance still works — the clamp must not freeze ordering.
@@ -275,6 +286,53 @@ final class HostilePayloadTests: XCTestCase {
                                     "so the settled check can actually become true")
     }
 
+    /// A place name is not a roster name. Roster names are multiplied by the
+    /// group size and are what the 5000-char ceiling is actually about; the
+    /// spot name appears ONCE. Sharing one 90-character ENCODED budget cut
+    /// ordinary Japanese, Chinese, Russian and Arabic place names off at
+    /// ~10-15 characters, on every message, while the sender's own screen
+    /// showed the full name — a visible regression in every non-Latin market
+    /// (post-push audit 2026-10-13).
+    func testNonLatinPlaceNamesSurviveTheRoundTrip() throws {
+        for name in ["東京都渋谷区のおいしいラーメン屋さん",
+                     "Кафе на Петроградской набережной",
+                     "مقهى الشانزليزيه في وسط المدينة",
+                     "서울특별시 강남구 커피숍"] {
+            let state = TweenState(text: name, latitude: 37.77, longitude: -122.42,
+                                   senderID: "id-mine", kind: .place, messageType: .pick)
+            let url = try XCTUnwrap(state.encodedURL())
+            XCTAssertLessThanOrEqual(url.absoluteString.count, 5000)
+            let decoded = try XCTUnwrap(TweenState(url: url))
+            XCTAssertEqual(decoded.text, name, "a real place name must arrive intact")
+        }
+    }
+
+    /// …and an option name follows the same budget, through `Codable` too.
+    /// The synthesized decode bypassed the bounding init, so a board persisted
+    /// by an older build kept a different `PollOption.id` than the same option
+    /// off the wire — and `merged`'s re-pick rule then read that as "same
+    /// proposer, different place" and dropped the option with its votes.
+    func testOptionNamesBoundIdenticallyThroughCodableAndTheWire() throws {
+        let name = "東京都渋谷区のおいしいラーメン屋さん"
+        let direct = PollOption(name: name, latitude: 37.77, longitude: -122.42,
+                                proposerID: "id-a")
+        let round = try JSONDecoder().decode(PollOption.self,
+                                             from: try JSONEncoder().encode(direct))
+        XCTAssertEqual(round.name, direct.name)
+        XCTAssertEqual(round.id, direct.id, "a persisted option must keep the wire's identity")
+    }
+
+    /// An honest device that has fallen far behind must not be permanently
+    /// write-muted. Refusing the advance outright left a lurker's floor at 0
+    /// in a 1200-bubble conversation, so every bubble they minted afterwards
+    /// was rev 1 and every peer rejected it as stale — silently, forever.
+    func testAFarBehindDeviceStillAdvancesItsFloor() {
+        ConversationMeetupStore.noteRevision(1_200, sender: "A", key: key)
+        let floor = ConversationMeetupStore.lastRevision(key: key)
+        XCTAssertGreaterThan(floor, 0, "a legitimate gap must close, not mute the device")
+        XCTAssertLessThanOrEqual(floor, ConversationMeetupStore.maxRevisionJump)
+    }
+
     /// Everyone left: there is no board. But an empty roster with no
     /// tombstones is a roster that has not HYDRATED yet — clearing there would
     /// blink a live meetup off the screen.
@@ -293,5 +351,15 @@ final class HostilePayloadTests: XCTestCase {
         let notHydrated = poll.normalized(participants: [], departed: [])
         XCTAssertEqual(notHydrated.decidedOptionID, place.id,
                        "no tombstone means the roster simply isn't loaded yet")
+
+        // …and holding SOME unrelated tombstone is not "everyone left" either.
+        // One tombstone is the normal permanent state of any group after one
+        // person leaves, so the looser test deleted a live board every time a
+        // roster had not hydrated — after the 24h sweep, opening the drawer
+        // from the app icon persisted `.empty` over a meetup two people were
+        // still going to (post-push audit 2026-10-13).
+        let someoneElseLeft = poll.normalized(participants: [], departed: ["id-c"])
+        XCTAssertEqual(someoneElseLeft.decidedOptionID, place.id)
+        XCTAssertFalse(someoneElseLeft.options.isEmpty)
     }
 }

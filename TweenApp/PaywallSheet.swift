@@ -244,7 +244,7 @@ struct PaywallSheet: View {
         .init(title: "Share and agree right in your chat", free: true),
         .init(title: "See everyone's travel time", free: true),
         .init(title: "Say what you're in the mood for", free: false),
-        .init(title: "Saved places — yours and theirs", free: false),
+        .init(title: "Saved places and favourites", free: false),
         .init(title: "Groups", free: false),
         .init(title: "Arrival Sync — when to leave", free: false),
         .init(title: "Pick a day and time", free: false),

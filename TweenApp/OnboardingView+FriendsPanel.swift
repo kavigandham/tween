@@ -163,10 +163,12 @@ extension OnboardingView {
     /// Your own saved places, one row under your name — the Apple-ID-row
     /// pattern the profile header already uses, not a second card.
     ///
-    /// Free, unlike a FRIEND's saved addresses: Home is how you join your own
-    /// Tweens in one tap, and putting a paywall on that would gate the core
-    /// flow rather than the Pro one (which is knowing where OTHER people
-    /// start from).
+    /// Pro, exactly like a FRIEND's saved addresses. Saved places is ONE
+    /// feature, and half of it being free made the split read as arbitrary
+    /// (product decision 2026-10-13). Every door into it is gated — this row,
+    /// the origin picker's Home and Set-Home rows, and the extension's "from
+    /// Home" button — because a paywall row a free user can walk past in one
+    /// tap is an App Review problem, not a feature.
     var savedPlacesRow: some View {
         Button {
             // Pro, for the same reason a FRIEND's saved addresses already are:

@@ -325,7 +325,7 @@ struct TweenState: Equatable {
             // own, and no rung of the size ladder can drop `t`, because it is
             // the message. Found by the emoji regression test, not by either
             // audit (2026-10-13).
-            URLQueryItem(name: "t", value: Self.boundedName(text)),
+            URLQueryItem(name: "t", value: Self.boundedPlaceName(text)),
             URLQueryItem(name: "lat", value: Self.coordinateString(latitude)),
             URLQueryItem(name: "lon", value: Self.coordinateString(longitude)),
             URLQueryItem(name: "kind", value: kind.rawValue)
@@ -521,7 +521,7 @@ struct TweenState: Equatable {
     }
 
     static func decodeParticipants(_ raw: String) -> [Participant] {
-        raw.split(separator: ",", omittingEmptySubsequences: true).prefix(maxParticipants).compactMap { entry in
+        raw.split(separator: ",", omittingEmptySubsequences: true).compactMap { entry -> Participant? in
             let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
             guard (parts.count == 3 || parts.count == 4),
                   let lat = Double(parts[1]),
@@ -533,6 +533,11 @@ struct TweenState: Equatable {
             let needsRide = parts.count == 4 && parts[3] == "ride"
             return Participant(id: name, name: name, latitude: lat, longitude: lon, needsRide: needsRide)
         }
+        // Capped AFTER validation, not before: applied to the raw split, 32
+        // malformed records followed by real ones yielded an empty roster
+        // (post-push audit 2026-10-13).
+        .prefix(maxParticipants)
+        .map { $0 }
     }
 
     static func encodeParticipantJSON(_ participants: [Participant]) -> String? {
@@ -596,10 +601,30 @@ struct TweenState: Equatable {
     /// and silently erases the stored proposal and settled meetup too
     /// (protocol audit 2026-10-13, HIGH). Bound the ENCODED length as well.
     static let maxEncodedNameLength = 90
+
+    /// A PLACE name gets a far wider encoded budget than a roster name, and
+    /// the difference is what each one costs on the wire. A roster name is
+    /// multiplied by the group size — up to 32 of them — which is the budget
+    /// pressure the cap exists for. A place name appears ONCE, as `t` or as
+    /// one option, and 60 graphemes of CJK is ~540 encoded characters: nowhere
+    /// near the 5000 ceiling on its own.
+    ///
+    /// Sharing one 90-character budget cut ordinary Japanese, Chinese, Thai,
+    /// Russian, Greek and Arabic place names off at ~10-15 characters, on
+    /// every message, while the sender's own screen showed the full MapKit
+    /// name. That is a visible regression against 1.0.4 in every non-Latin
+    /// market, not a hardening trade-off (post-push audit 2026-10-13).
+    static let maxEncodedPlaceNameLength = 540
     static let maxEncodedKeyLength = 140
 
+    /// Roster/display names — the ones multiplied by the group size.
     static func boundedName(_ name: String) -> String {
         bounded(name, graphemes: maxNameLength, encoded: maxEncodedNameLength)
+    }
+
+    /// Place names: the spot name `t`, and every `PollOption.name`.
+    static func boundedPlaceName(_ name: String) -> String {
+        bounded(name, graphemes: maxNameLength, encoded: maxEncodedPlaceNameLength)
     }
 
     /// Identity keys get their own, wider bound: an install id is a 36-char
@@ -644,7 +669,11 @@ struct TweenState: Equatable {
     static func decodeAlignedNames(_ raw: String) -> [String] {
         raw.split(separator: ",", omittingEmptySubsequences: false).map { raw in
             let s = String(raw)
-            return s.removingPercentEncoding ?? s
+            // Bounded like `decodeNames`, its sibling. Without this a 64-
+            // grapheme emoji id decoded intact, was stored as the roster id,
+            // and was then truncated on RE-encode — splitting one identity
+            // into two across devices (post-push audit 2026-10-13).
+            return boundedKey(s.removingPercentEncoding ?? s)
         }
     }
 
@@ -779,7 +808,7 @@ struct TweenState: Equatable {
         else { return nil }
         // Bounded on decode too, and with the SAME bound, so a name-equality
         // guard still matches the name this device would have encoded.
-        self.text = Self.boundedName(t)
+        self.text = Self.boundedPlaceName(t)
         self.latitude = lat
         self.longitude = lon
         // Bounded like every sibling: `senderName` was the one wire string

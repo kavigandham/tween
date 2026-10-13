@@ -146,7 +146,6 @@
 		8F427402730433EA14E20166 /* MyPlacesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0FFB5FA749AAEC34626341 /* MyPlacesTests.swift */; };
 		8F509BBD6B7675D1A9308898 /* CalendarExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938AF591BFFD00D6BDB98B24 /* CalendarExport.swift */; };
 		905A80F4A3CCE4E94EE42598 /* AddPointSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7BBDE94751DEE456F83083 /* AddPointSheet.swift */; };
-		90CAB1E62E845AAE2DB75C7C /* TutorialVisuals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1965EF7E72353246EC9921 /* TutorialVisuals.swift */; };
 		9379F8CEA9EBCD204A57D691 /* SearchQueryRewriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB5313DB76EE0C1216F5EF7 /* SearchQueryRewriter.swift */; };
 		95829631C1712C9E5E9064A4 /* OnboardingView+ArrivalSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1ACA1EF6C298D4A0DECAABB /* OnboardingView+ArrivalSync.swift */; };
 		95943D67D47F5F77FE1A8C96 /* GroupStatusBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381612D9C7DEFDA4B7B0A0C6 /* GroupStatusBarTests.swift */; };
@@ -309,7 +308,6 @@
 		49CB07DDC9A48E0BB2BF3C7D /* SearchIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIntentTests.swift; sourceTree = "<group>"; };
 		4A0C2E60F0707C9F7695C939 /* ReferralViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferralViews.swift; sourceTree = "<group>"; };
 		4AD43B944D80A6936C7A19AB /* MapGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapGeometry.swift; sourceTree = "<group>"; };
-		4B1965EF7E72353246EC9921 /* TutorialVisuals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialVisuals.swift; sourceTree = "<group>"; };
 		4C2E0702ADD1F5E4390852C4 /* FriendPlacesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendPlacesSheet.swift; sourceTree = "<group>"; };
 		4CFD51C7FBB6CFEDC510023D /* OnboardingView+Tour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OnboardingView+Tour.swift"; sourceTree = "<group>"; };
 		4DABE7630D89B338603DE226 /* SpotETADisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotETADisplay.swift; sourceTree = "<group>"; };
@@ -669,7 +667,6 @@
 				464A47CED1ACF1F16A35D693 /* SettingsSheet.swift */,
 				534EEEF76ECF53B238A5A460 /* ShotHarness.swift */,
 				1C1E4A3EC369C81D47EC1CB9 /* SpotDetailCard.swift */,
-				4B1965EF7E72353246EC9921 /* TutorialVisuals.swift */,
 				CF724C8BB0EBBAD538E71919 /* TweenAppApp.swift */,
 				1E735993C98521BE56CE8753 /* TweenSurfaces.swift */,
 			);
@@ -1026,7 +1023,6 @@
 				976882A8C236113EC99EDAA7 /* SpotETADisplay.swift in Sources */,
 				7B30B9D47F5BA47094D0F5CB /* SpotVicinity.swift in Sources */,
 				5368911C228CEC0438E76638 /* Tokens.swift in Sources */,
-				90CAB1E62E845AAE2DB75C7C /* TutorialVisuals.swift in Sources */,
 				9CA326F15609FF8064272AE5 /* TweenAppApp.swift in Sources */,
 				71CF2AE74838387266D0A153 /* TweenFriend.swift in Sources */,
 				CDAE0B931818FE63823D2C54 /* TweenMapSnapshotView.swift in Sources */,

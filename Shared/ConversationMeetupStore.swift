@@ -511,15 +511,23 @@ enum ConversationMeetupStore {
         // TTL-exempt by design), and the next mint from this device then
         // carried a revision every receiver's own bound rejected, disabling
         // the stale-bubble guard for the whole thread (pen-test 2026-10-13,
-        // finding 4). An implausible revision simply does not move the floor;
-        // the bubble itself is still adopted, it just carries no ordering.
-        guard revision <= floor + Self.maxRevisionJump,
-              revision < TweenState.maxRevision else { return }
-        if revision > floor {
-            sync.lastRevision = revision
+        // finding 4).
+        //
+        // CLAMPED, not refused. Refusing the advance outright permanently
+        // WRITE-MUTED anyone who had fallen far behind: a lurker in a busy
+        // group whose own floor is still 0 taps a bubble at rev 1200, the
+        // floor refuses to move, and every bubble they mint afterwards is
+        // rev 1 — which every peer rejects as below-floor, silently, forever
+        // (post-push audit 2026-10-13). Advancing by at most `maxRevisionJump`
+        // keeps an absurd value from becoming the floor while letting an
+        // honest gap close over the next few bubbles.
+        guard revision > 0 else { return }
+        let advance = min(revision, floor + Self.maxRevisionJump, TweenState.maxRevision - 1)
+        if advance > floor {
+            sync.lastRevision = advance
             sync.lastRevisionSender = sender
             saveSync(sync, key: key)
-        } else if revision == floor, sync.lastRevisionSender == nil, sender != nil {
+        } else if advance == floor, sync.lastRevisionSender == nil, sender != nil {
             // Backfill the sender on a pre-migration floor so future ties
             // stop falling into the legacy accept-all row.
             sync.lastRevisionSender = sender
@@ -549,9 +557,10 @@ enum ConversationMeetupStore {
     /// invite from a departed sender must still be rejected, because
     /// RosterMerge treats an invite as a rejoin and would lift that sender's
     /// tombstone — so the below-floor reject is what actually blocks
-    /// resurrection here, and must stay strict. `.propose`/`.counter`/
-    /// `.agree`/`.leave` keep the strict tie-break so a concurrent place edit
-    /// can't be laundered by tap order.
+    /// resurrection here, and must stay strict. `.propose`/`.counter`/`.agree`
+    /// keep the strict tie-break so a concurrent place edit can't be laundered
+    /// by tap order; `.leave` and `.decided` joined the additive set on
+    /// 2026-10-13 — see `MessageType.isAdditive` for why each is safe there.
     static func shouldAcceptInbound(revision: Int?, senderID: String?,
                                     messageType: TweenState.MessageType = .propose,
                                     key: String) -> Bool {
@@ -566,9 +575,11 @@ enum ConversationMeetupStore {
         // now includes `.pick` and `.vote`. Two people picking different
         // places before either has seen the other is the NORMAL opening of a
         // vote, not a conflicting edit: rejecting one by tap order is exactly
-        // how a disagreement used to disappear. `.decided` keeps the strict
-        // tie-break — that one IS terminal, and two concurrent lock-ins must
-        // not both stick.
+        // how a disagreement used to disappear. `.decided` and `.leave` are
+        // admitted at a tie too, for two different reasons spelled out at
+        // `MessageType.isAdditive`: a leave is monotone, and a decision has to
+        // REACH the board merge, which settles two of them the same way on
+        // every device.
         return senderID == floorSender || messageType.isAdditive
     }
 

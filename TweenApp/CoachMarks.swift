@@ -124,8 +124,16 @@ enum TourStep: Int, CaseIterable, Equatable {
         }
     }
 
-    var ordinal: Int { rawValue + 1 }
-    static var count: Int { allCases.count }
+    /// Steps this RUN will actually show. `.pro` is skipped entirely when Pro
+    /// is already owned, so counting every case made an unlocked user see
+    /// "1 of 7 … 5 of 7, 7 of 7" — a visibly missing ordinal (post-push audit
+    /// 2026-10-13).
+    private static var visible: [TourStep] {
+        allCases.filter { $0 != .pro || !ProEntitlement.isUnlocked }
+    }
+
+    var ordinal: Int { (Self.visible.firstIndex(of: self) ?? rawValue) + 1 }
+    static var count: Int { visible.count }
 }
 
 /// Which presentation the target lives in. Each is its own UIKit

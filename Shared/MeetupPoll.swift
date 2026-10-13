@@ -16,7 +16,7 @@ struct PollOption: Equatable, Identifiable, Codable {
     let proposerID: String
 
     init(name: String, latitude: Double, longitude: Double, proposerID: String) {
-        self.name = TweenState.boundedName(name)
+        self.name = TweenState.boundedPlaceName(name)
         self.latitude = latitude
         self.longitude = longitude
         self.proposerID = proposerID
@@ -25,6 +25,20 @@ struct PollOption: Equatable, Identifiable, Codable {
     init(name: String, coordinate: CLLocationCoordinate2D, proposerID: String) {
         self.init(name: name, latitude: coordinate.latitude,
                   longitude: coordinate.longitude, proposerID: proposerID)
+    }
+
+    /// Routed through the bounding init, because the SYNTHESIZED decode was
+    /// not. A board persisted by an older build kept its unbounded name and
+    /// therefore a different `id` than the same option decoded from the wire —
+    /// so on upgrade `merged`'s re-pick rule saw "same proposer, different
+    /// place", dropped the stored option and its votes, and nilled the
+    /// decision without bumping `decisionSeq` (post-push audit 2026-10-13).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(name: try c.decode(String.self, forKey: .name),
+                  latitude: try c.decode(Double.self, forKey: .latitude),
+                  longitude: try c.decode(Double.self, forKey: .longitude),
+                  proposerID: try c.decode(String.self, forKey: .proposerID))
     }
 
     var coordinate: CLLocationCoordinate2D {
@@ -303,7 +317,19 @@ struct MeetupPoll: Equatable, Codable {
         //     rejected by the revision guard) reaches here with no
         //     participants and no tombstones. Clearing there would blink the
         //     board out of the UI for a meetup that is perfectly alive.
-        guard !participants.isEmpty else { return departed.isEmpty ? self : .empty }
+        guard !participants.isEmpty else {
+            // "Everyone on this board has left" — NOT "this device holds any
+            // tombstone", which is the normal permanent state of every group
+            // after one person leaves (the sync state is TTL-exempt). The
+            // looser test deleted a live board whenever a roster had simply
+            // not hydrated: after the 24h snapshot sweep, a drawer opened from
+            // the app icon re-merged the restored bubble against an empty
+            // roster and persisted `.empty` over it (post-push audit
+            // 2026-10-13).
+            let onTheBoard = Set(options.map(\.proposerID)).union(votes.keys)
+            let allGone = !onTheBoard.isEmpty && onTheBoard.allSatisfy { departed.contains($0) }
+            return allGone ? .empty : self
+        }
         let live = Self.identityKeys(of: participants)
         // Roster ids VERBATIM, empty string included. An unnamed participant
         // still holds a vote, and `identityKeys` deliberately refuses "" as a

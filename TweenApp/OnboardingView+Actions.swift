@@ -52,10 +52,23 @@ extension OnboardingView {
             joinFromCurrentLocation()
         case .somewhereElse:
             activeSheet = nil
+            // Pro, like the other entry point to this sheet. Gating one of two
+            // doors makes the gate decorative — and the OTHER door is the one
+            // in the origin picker, which opens on every "I'm in" (post-push
+            // audit 2026-10-13).
             // Next runloop: presenting while this sheet is still dismissing
             // drops on iOS (the sheet-item-swap trap).
-            Task { @MainActor in activeSheet = .whereIllBe }
+            Task { @MainActor in
+                activeSheet = ProEntitlement.isUnlocked ? .whereIllBe : .paywall
+            }
         case .setUpHome:
+            // Saving a Home is Pro. Same reason: this picker was the free way
+            // in to the feature the paywall sells.
+            guard ProEntitlement.isUnlocked else {
+                activeSheet = nil
+                Task { @MainActor in activeSheet = .paywall }
+                return
+            }
             joinAfterSavingHome = true
             activeSheet = nil
             Task { @MainActor in activeSheet = .setUpHome }

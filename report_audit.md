@@ -95,3 +95,75 @@ while a sibling site rebuilt the same state.** The test written alongside each
 fix encoded that fix's own assumption, so the suite went green on all three.
 What actually caught them was reading for *every place the board is rebuilt* —
 not running the tests.
+
+---
+
+# Post-push audit — 2026-10-13 (the 1.0.5 submission diff)
+
+Independent read-only audit of `fd58dbf..2afc21d` — the security/protocol
+hardening, the Pro repackaging, the shortened tour, and the lag/UI work. It
+found **two submission blockers, both in the new code**, and four MAJORs worth
+fixing. All six are now fixed; what follows is the record.
+
+## The two blockers
+
+1. **A paywall row a free user could walk past.** `comparisonRows` sold "Saved
+   places — yours and theirs" as Pro while three ungated doors remained: the
+   origin picker's Home row, its Set-Home row, and the extension's "from Home"
+   button (which has `isProUnlocked` in scope and never read it). Gating one of
+   two doors makes a gate decorative; this one had direct App Review exposure.
+   All three are gated now, and the row names what is actually gated.
+
+2. **`maxEncodedNameLength = 90` truncated ordinary non-Latin place names.**
+   `participantNameAllowed` is ASCII-only, so a 90-character ENCODED budget is
+   ~10 CJK graphemes. The bound was introduced to stop a 32-entry roster of
+   emoji names blowing the 5000-char ceiling — but it was applied to `t` and to
+   every `PollOption.name` as well, which appear ONCE. Japanese, Chinese, Thai,
+   Russian, Greek and Arabic place names were being cut mid-name on every
+   message while the sender's own screen showed the full name: a visible
+   regression against 1.0.4 in every non-Latin market. Place names now have
+   their own budget (`maxEncodedPlaceNameLength = 540`); roster names keep 90.
+
+## The others
+
+3. **`normalized`'s empty-roster rule was too loose.** `departed.isEmpty ? self
+   : .empty` does not distinguish "everyone left" from "not hydrated" — it
+   distinguishes "this device holds any tombstone at all", which is the normal
+   PERMANENT state of every group after one person leaves. After the 24h
+   snapshot sweep, opening the drawer from the app icon re-merged against an
+   empty roster and persisted `.empty` over a live meetup. The rule is now
+   "every proposer and voter on this board is tombstoned".
+
+4. **`maxRevisionJump` write-muted anyone far behind.** Refusing to advance the
+   floor past +1000 meant a lurker in a 1200-bubble conversation kept a floor
+   of 0, minted rev 1 forever, and had every send silently rejected by the
+   whole group. The advance is now CLAMPED rather than refused, so an honest
+   gap closes over the next few bubbles and an absurd value still cannot
+   become the floor.
+
+5. **`PollOption`'s synthesized `Codable` decode bypassed its bounding init**,
+   so a board persisted by an older build kept a different `id` than the same
+   option off the wire — and `merged`'s re-pick rule read that as "same
+   proposer, different place" and dropped the option with its votes.
+
+6. **Three doc comments asserted the opposite of their code** after the
+   tie-break and Pro changes. In this codebase that is how the next round of
+   incomplete fixes starts, so they are fixed rather than left.
+
+Also: the roster cap was applied before validation (32 junk records emptied a
+roster), `decodeAlignedNames` had no bound where its sibling did, the tour's
+"N of M" skipped an ordinal for Pro users, and `ChatIllustration` was dead.
+
+## Known and NOT fixed in 1.0.5
+
+**`agreedState` is still last-write-wins.** The board (`MeetupPoll`) is
+CRDT-shaped with deterministic tie-breaks, but every render path prefers
+`snapshot.agreedState` / `LocationCache.agreedMeetup`, which `saveAgreed`
+overwrites wholesale with the inbound state. So two concurrent lock-ins now
+converge in the POLL and still diverge on the terminal screen — the devices
+swap places rather than agreeing. This is not a regression (both devices
+diverged before the change too, by rejecting each other), and
+`report_audit.md` already listed `agreedState` under "Deliberately NOT fixed"
+in September. But until `agreedState` is DERIVED from the merged board rather
+than stored beside it, every convergence fix in `MeetupPoll` is half a fix.
+That is the next piece of protocol work, and it wants its own change.

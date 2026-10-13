@@ -929,7 +929,12 @@ struct ExpandedView: View {
     /// learns nothing.
     @ViewBuilder
     var fromHomeButton: some View {
-        if let savedHome {
+        // Pro, and gated here too. The extension has no paywall to present, so
+        // a locked user simply isn't offered it — rather than the host gating
+        // saved places while the drawer hands them out (post-push audit
+        // 2026-10-13: a paywall row a free user walks past is the App Review
+        // problem, not the feature).
+        if let savedHome, isProUnlocked {
             Button(action: onImInFromHome) {
                 Label("I'm in — from \(savedHome.label)", systemImage: MyPlaceKind.home.symbol)
                     .lineLimit(1)
