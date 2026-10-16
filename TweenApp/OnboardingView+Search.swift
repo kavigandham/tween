@@ -666,6 +666,7 @@ extension OnboardingView {
         // Same progressive fill as the committed search above.
         let routed = await FairnessRanker.rank(
             candidates: candidates, participants: participants, cap: cap) { spot in
+                guard !Task.isCancelled else { return }
                 rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
             }
         // A newer search/re-rank may have superseded this one mid-flight.
@@ -787,6 +788,10 @@ extension OnboardingView {
             // so rows don't shuffle while they're being read.
             let routed = await FairnessRanker.rank(
                 candidates: candidates, participants: participants, cap: cap) { spot in
+                    // Re-checked HERE too: the hop to the main actor is a
+                    // suspension point, and a newer search can supersede this
+                    // one across it.
+                    guard !Task.isCancelled else { return }
                     rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
                 }
             guard !Task.isCancelled else { return }

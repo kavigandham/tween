@@ -167,3 +167,128 @@ diverged before the change too, by rejecting each other), and
 in September. But until `agreedState` is DERIVED from the merged board rather
 than stored beside it, every convergence fix in `MeetupPoll` is half a fix.
 That is the next piece of protocol work, and it wants its own change.
+
+---
+
+# Post-push audit — 2026-10-16 (the three lag commits, 6d49eda..8ced25d)
+
+Read-only audit of the whole tree with the three performance commits called
+out for extra scrutiny, since they were the newest and least-reviewed code.
+42,331 lines across TweenApp/, TweenMessages/, Shared/ and TweenAppTests/.
+
+**Hard constraints verified clean:** no `MKMapView` anywhere (snapshotter only,
+all three extension surfaces); extension `rankCap = min(5, recommendedCap)`; no
+first responder in `Shared/` or `TweenMessages/`; When-In-Use only in both
+Info.plists; zero `ObservableObject`; no API keys; `CLLocationManager`
+retained; `Shared/` globbed into both targets; all four extension Tasks
+cancelled in `willResignActive`; App Group keys have no reader/writer drift;
+`PaywallSheet.comparisonRows` is a truthful mirror of the real `ProEntitlement`
+gates.
+
+## Fixed immediately (it was mine, from 8ced25d)
+
+**`FairnessRanker.rank`'s `onSpot` callback had no cancellation guard, so a
+superseded search wrote into the live list.** My commit message claimed
+`merging` would ignore a stale spot; that was wrong. `RankedSpot.id` is
+content-derived (`name@lat,lon`), so two overlapping searches mint identical
+ids and the stale spot REPLACES a live row. Worse, a cancelled rank does not
+stop producing spots — `eta` resumes its legs with nil and falls back to a
+straight-line estimate, so the dead rank drains faster than the live one.
+Every re-rank trigger cancels and immediately re-ranks the same results, so
+the common case was half-confidence guesses, computed against the OLD
+participant set, landing on top of routed answers with no re-sort to clear
+them.
+
+Verified empirically: with the guard removed, a cancelled rank reported 3
+spots in 0.13 s. `ProgressiveRankCancellationTests` fails without the fix and
+passes with it.
+
+## Everything else from this audit is still open
+
+The full finding list is below, unchanged from the audit. Nothing else here
+has been acted on yet.
+
+## CRITICAL (remaining)
+
+### Wire codec
+- **`fromId` is bounded by grapheme count only, never by encoded length** — `Shared/TweenState.swift:345` (encode), `:847` (decode). `participantNameAllowed` is ASCII-only, so 64 graphemes of emoji is ~4500 encoded chars: it arrives inside the 5000 ceiling, is persisted as the roster/tombstone key, and then every re-encode exceeds 5000 → `encodedURL()` returns nil → sends fail forever and the stored proposal/agreement is silently nil'd. `fromId` is on no rung of the eight-rung size ladder. Same failure class the 2026-10-13 audit closed for `t`/`from`/`p`, one field over.
+  Fix: `Self.boundedKey(senderID)` on encode, `.map(Self.boundedKey)` on decode, add a `fromId` ladder rung.
+
+### Error handling
+- **Every host send dies silently when `encodedURL()` returns nil** — `+HandOff.swift:137`/`:150`, `+Actions.swift:432`/`:639`, `+DeepLinks.swift:441`, `+ArrivalSync.swift:276`, `+FriendsSync.swift:76`. All six are bare `guard … else { return }`: no toast, no log. The extension handles this at a single funnel; the host has no equivalent despite `showToast` being on the same struct. Combined with `fromId`, one emoji-id peer makes every host send button permanently dead with zero feedback.
+  Fix: have `composeTweenMessage` surface the failure and toast at each site.
+
+### Extension state machine
+- **Three send paths broadcast — then persist — an empty roster** — `MessagesViewController+Sending.swift:334`, `:432`, `:567`. `sendPick`, `sendBoardUpdate` and `sendLeavingNow` fall back to the bare `currentParticipants` ivar while every sibling helper uses the snapshot fallback. On an activation where nothing decoded, the bubble ships `p=` empty and the commit writes `saveParticipantSnapshot([])` — the conversation's roster is destroyed on that device.
+  Fix: use `pollParticipants()` at all three sites.
+- **A conversation switch mid-send lands the leave tombstone on the wrong chat** — `+Sending.swift:189`, damage at `:271`/`:281`, `:519`-`:532`, `:671`. `handleImIn` captures `sendKey` before any `await`; `handleImOut`, `sendBoardUpdate` and `sendLeavingNow` do not, and `commitDeliveredLeave` reads the live ivar.
+  Fix: capture the key before the first `await` in all three.
+
+### Consensus
+- **The host's incoming-decided path overwrites the local user's own vote** — `Shared/ConversationMeetupStore.swift:400`. `saveAgreed` merges with no `preservingVoteOf`. The extension escapes only because `mergePoll(…, from: .peer)` rewrites afterwards.
+  Fix: add a `localID:` parameter and thread `TweenIdentity.stableID` from the host call sites.
+- **The host's `tween://` decode never merges the inbound vote board** — `+DeepLinks.swift:~203-221`. The `.propose/.counter/.pick/.vote` branch calls only `saveProposed`, which never touches `snapshot.poll`. A peer's pick or vote opened through the app is dropped, and `sendAgreeReply` then rebroadcasts a board missing everyone else's options.
+  Fix: mirror the extension — `savePoll(MeetupPoll.merged(...).normalized(...))` in that branch.
+
+## MAJOR
+
+- **A tie offers no tie-break control** — `ExpandedView+Poll.swift:145`, `MeetupPoll.swift:146`. `voteActionRow` gates the only `onLockIn` call site on `board.leader`, which is nil on a tie. In the 1-1 two-person tie the panel says "someone has to break it" and renders no button.
+- **`modesChanged` is a self-comparison and can never be true** — `PlanMeetupSheet.swift:207`, `:230`. Switching travel mode then Save does not cancel the old leave-by reminder.
+- **Two `Button`s in one `List` row — the documented dead-tap trap** — `GroupEditorSheet.swift:95`, `:143`. Needs a sim check; if it reproduces, group creation is unusable.
+- **The progressive fill costs ~8 whole-screen passes during the wait** — `+Search.swift:669`/`787`. Each merge writes `rankedSpots`, which `mapLayer`, the group bar and `resultsList` all read. Measured in release a pass is cheap, but this is the same pattern 6d49eda removed, reintroduced.
+  Fix: give `rankedSpots` the `SearchFieldText` treatment, or coalesce merges behind one frame.
+- **A stale `suppressNextQueryChange` latch can swallow the next keystroke** — `+FriendsPanel.swift:997-1014`, `+Search.swift:163`. When the search row is unmounted (`meetupPeek`), the programmatic write lands before `onChange` installs its baseline, leaving the latch armed. Pre-existing, now a file away from the latch.
+- **`clearDraft` resurrects the draft it just deleted** — `ConversationMeetupStore.swift:427`, `:437`.
+- **`.enroute` missing from the staged-delivery deferral list** — `+Delivery.swift:85-89`, `+Sending.swift:661-682`. A rejected departure still runs `noteEnRoute` and cancels its own reminder.
+- **"From Home" persists the declared location before the send succeeds** — `+Sending.swift:76-78`.
+- **The `.leave` bubble embeds a raw `loadSelf()` coordinate** — `+Sending.swift:196`. No freshness gate, no `isActive` gate.
+- **Arrival Sync origins bypass the freshness window at four sites** — `+Sending.swift:562`, `+Decoding.swift:318`, `+ArrivalSync.swift:62`, `:87`. That origin drives `tt`/`arr` on the wire and the armed reminder.
+- **`proposerName` mis-attributes any name-keyed option to the bubble sender** — `ExpandedView.swift:344-352`.
+- **Unconditional display-name fallback can hand a peer's vote to the local user and block them from voting** — `ExpandedView.swift:345`, `:356`, `+Poll.swift:92`.
+- **`Participant.matches` false-matches two empty ids** — `Participant.swift:88`.
+- **The board has no option cap and no one-option-per-proposer enforcement** — `MeetupPoll.swift:532`, `:413-421`. One crafted `opts=` persists a 500-row board.
+- **`pids` identity restoration is skipped wholesale for an over-length roster** — `TweenState.swift:907`. A 33+ record `p=` collapses the roster to name-keyed identity while the board stays id-keyed.
+
+Abbreviated for the cap: the locked travel-mode paywall never presents (`+GroupBar.swift:136`/`153`/`180`); `presentSpot` from `handleIncomingURL` swaps `activeSheet` while another sheet is up; `.sheet(item: $planSheet)` sits at the same level as `.sheet(item: $activeSheet)`; host-composed bubbles omit `localID` so the sender's own pin is never "You"; `sendAgreeReply`'s legacy name-namespace guard is dead code; `AddPointSheet`'s resolve task outlives Cancel; `board` is recomputed on 20+ reads per render pass.
+
+## MINOR
+
+Full list retained from the audit: `agreed` budget mismatch across the wire (`TweenState.swift:688` vs `:944`); `departedKeys` has no cumulative cap; `activeConversationBoard()` reads the poll without the TTL gate; `DriveTimePreference` falls back to `UserDefaults.standard`; `sortedByFairness` uses an unstable sort while the progressive fill rests on one re-sort; `RankedSpot.stableID` is weaker than `SearchResultMerger.identity`; `SpotETADisplay` ignores `fromRoute` so a guess looks like a routed answer; peers' Arrival Sync legs carry no provenance; `receive` seeds empty-id participants; three `TweenMapSnapshotView` issues (retry budget, unstructured deadline Task, stale image); a `sensoryFeedback` that can never fire; `groupProgress` can read "3 of 2 agreed"; the tour is 7 cards not 5+1; `SpotCategoryMark` bypasses Tokens; `"userName"` has two owners; the App Group publisher filter degrades to "any object" if the suite is nil; overlapping toasts clobber each other; four App Group mutators never post `MeetupSync`; Contacts permission state is never re-read; three force-unwrapped URLs on the App Review-critical Terms/Privacy links; every force-expanding extension activation runs the MapKit search twice; `didReceive` doesn't clear `rankedSpots`; `sendReferralReply` returns silently and doesn't cancel first; `decodeAndCache` mixes two keys for one conversation; `LocationProvider` mutates state off-main at three sites; `SpotDetailCard.votes` is computed and never read; pervasive unused imports; `ExpandedView+SpotCards`/`+SpotList` file names are swapped.
+
+## ARCHITECTURE NOTES
+
+**The three god methods.** `refreshFromAppGroup` ~317 lines (`+Sync.swift:79`), `handleIncomingURL` ~299 (`+DeepLinks.swift:30` — the dropped-board CRITICAL hides inside it), `TweenState.encodedURL` 200 / `init?(url:)` 195. `OnboardingView.body` is 626 lines. Also over 80: `sendAgreeReply` 122, `sendToChat` 119, `meetupSetView` 118, `presentSearchResults` 111, `initials(for:)` 111, `decodeAndCache` 230, `willBecomeActive` 175, `handleImIn` 145, `sendLeavingNow` 142, `GroupEditorSheet.body` 155, `SettingsSheet.body` 132.
+
+**The pattern behind four of the CRITICALs: a fix applied at one site and not its siblings.** `handleImIn` captures `sendKey`, three siblings don't. Three helpers use the snapshot fallback, three senders don't. The extension merges every decode through `mergePoll`, the host doesn't. The extension handles `encodedURL() == nil` at one funnel, the host nowhere. This is the project's own "sanitize every name path" lesson recurring structurally — a shared funnel for each would make the asymmetry impossible rather than reviewable.
+
+**Cross-process read-modify-write.** Every `save*` wrapper plus `ReferralStore.mutate`, `GroupStore`, `FriendRoster`, `MyPlaceStore`, `EngagementStore` does load → mutate → set. The single-key JSON convention prevents a torn read, not a lost update. Highest stakes: the referral ledger gates Pro and is written by both processes.
+
+## LEGACY DEBT INVENTORY
+
+Dead: `FairnessRanker.rank(candidates:from:and:cap:)` (doc claims callers that don't exist), `FriendGroup.hasSameMembers(as:)`, `MyPlaceStore.place(id:)`, `CompactView.markers(for:)` + its `localParticipantID` param, `ExpandedView.spotCardWidth`/`spotCardHeight`, `TweenPin.animated`, `PaywallSheet.supportURL`, `MoodFamily.symbol`, `MoodIntent.energyLevel`/`foodPreference`, `MoodEnergy`, `sendAgreeReply`'s `agreed`/`agreedIDs` locals, two `_ = x` statements silencing their own locals. Test-only: `RankedSpot.worseETA`/`fairnessGap`, `UserName.loadOrFallback()`. Live but wrong: `ABDistanceLabel`'s two-of-N "A"/"B" capsule shows only participants[0] and [1] in a 3+ group. Inert: `ArrivalSyncService.reapply(event:)` (`_ = event`, three call sites thread it). Out of date: CLAUDE.md constraint 6's exception list omits `ArrivalSyncStore` (names + destination) and `EnRouteLog.Mark` (name).
+
+## TEST COVERAGE GAPS
+
+**The structural gap:** `project.yml:103-115` — `TweenAppTests` depends only on `TweenApp`, so **2,628 lines of the extension state machine are compiled into no test target**, and four of the CRITICALs live there. `MeetupPollCodecTests.swift:599-611` admits it: "Every defect in this seven-round sequence was found by reading; none by a test." Extracting the activation sequence and the send funnel into `Shared/` is the highest-leverage test investment in the repo.
+
+The recent work: `shouldMoveLiveDot` is well covered (7 tests). `merging` has 4 tests, now joined by the cancellation pair. `SearchFieldText`/`SearchFieldRow`/`suppressNextQueryChange` have **zero** — including the W15 latch rule, one character from regressing. `rankedLookup`/`soloLookup`/`rankedTable`/`displayedItems`/`ResultCard.==` have **zero**, and two are static and pure.
+
+Beyond that, in priority order: `encodedURL()` returning nil is never asserted anywhere and ladder rungs 3-7 are unpinned; snapshot-TTL expiry is untestable (five sites read `Date()` with no injectable clock); `isFullyAgreed` with duplicate or blank names; no test ties `comparisonRows` to `ProEntitlement` despite the CLAUDE.md rule; `Participant.matches` with `id == name` and with two empty ids; hostile `votes=`/`pids` indices; the gossip cap at the wire; the 5:00 freshness boundary; the tour's step count.
+
+**Defects in the tests themselves:** two tautologies (`MoodIntentTests.swift:233`, `:447`); an unbounded `while` that already hung the suite once (`ReferralTests.swift:171-173`); `BoardIdentityRegressionTests` has no `setUp` yet writes TTL-exempt tombstones; two incompatible App Group reset idioms across 18 classes, one of which the suite itself documents as unreliable; **23 uses of `try! XCTUnwrap`**; wall-clock dependence in `EnRouteTests`, `PingLogTests`, `ArrivalSyncServiceTests`; tests that assert the memberwise initializer or `UserDefaults` overwrite semantics rather than production behaviour; a UI test that asserts nothing.
+
+## FIX-FIRST PRIORITY LIST
+
+1. ~~Cancellation guard on `onSpot`~~ — **done, with a regression test verified to fail without it.**
+2. Bound `fromId` by encoded length and add its ladder rung.
+3. Give the host a send-failure channel (without it, #2 is an invisible dead button).
+4. Use `pollParticipants()` in the three extension senders.
+5. Capture `sendKey` before the first `await` in `handleImOut`/`sendBoardUpdate`/`sendLeavingNow`.
+6. Thread `localID` into `saveAgreed`, and merge the board in the host's `.pick`/`.vote` decode.
+7. Offer tie-break lock-in on `standings.first`.
+8. Fix `modesChanged`; sim-check the `GroupEditorSheet` two-button row.
+9. Move `rankedSpots` out of `OnboardingView`'s `@State` read path.
+10. Add `.enroute` to the staged-delivery deferral list; move the "From Home" write inside `if didSend`.
+11. Route the four Arrival Sync origins and the `.leave` coordinate through `freshSelfCoordinate()`.
+12. Test hygiene sweep.
+13. Structural: extract the extension's activation sequence and send funnel into `Shared/`.

@@ -296,3 +296,61 @@ final class ProgressiveRankMergeTests: XCTestCase {
         XCTAssertTrue(published.allSatisfy { $0.etas.first?.fromRoute == true })
     }
 }
+
+/// The progressive fill's cancellation contract (post-push audit 2026-10-16).
+///
+/// A superseded rank keeps producing spots — a cancelled `eta` resumes with
+/// nil and falls back to a straight-line estimate, so the dead rank drains
+/// FASTER than the live one. `RankedSpot.id` is content-derived, so those
+/// stale spots share ids with the new ranking's rows and `merging` happily
+/// replaces them. Every re-rank trigger (add/remove a person, change a travel
+/// mode, Open Now, Search here, a new query) cancels and immediately re-ranks
+/// the same results, so without the guard the common case is ETAs computed
+/// against the OLD participant set sitting on top of routed answers.
+final class ProgressiveRankCancellationTests: XCTestCase {
+
+    @MainActor final class Counter { var reported = 0 }
+
+    private func item(_ name: String, lat: Double, lon: Double) -> MKMapItem {
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon)))
+        item.name = name
+        return item
+    }
+
+    private var participants: [Participant] {
+        [Participant(id: "a", name: "A", latitude: 37.3382, longitude: -121.8863),
+         Participant(id: "b", name: "B", latitude: 37.7749, longitude: -122.4194)]
+    }
+
+    @MainActor
+    func testACancelledRankReportsNoSpots() async {
+        let counter = Counter()
+        let candidates = [item("One", lat: 37.5, lon: -122.1),
+                          item("Two", lat: 37.55, lon: -122.15),
+                          item("Three", lat: 37.6, lon: -122.2)]
+        let people = participants
+        let task = Task { @MainActor in
+            await FairnessRanker.rank(candidates: candidates, participants: people, cap: 3) { _ in
+                counter.reported += 1
+            }
+        }
+        task.cancel()
+        _ = await task.value
+        XCTAssertEqual(counter.reported, 0,
+                       "a superseded rank reported \(counter.reported) spots into the live list")
+    }
+
+    @MainActor
+    func testAnUncancelledRankStillReportsEverySpot() async {
+        let counter = Counter()
+        let candidates = [item("One", lat: 37.5, lon: -122.1),
+                          item("Two", lat: 37.55, lon: -122.15)]
+        let routed = await FairnessRanker.rank(
+            candidates: candidates, participants: participants, cap: 2) { _ in
+                counter.reported += 1
+            }
+        XCTAssertEqual(counter.reported, routed.count)
+        XCTAssertEqual(routed.count, 2)
+    }
+}

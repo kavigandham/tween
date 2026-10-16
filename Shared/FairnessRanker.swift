@@ -255,7 +255,18 @@ enum FairnessRanker {
             var results: [RankedSpot] = []
             for await spot in group {
                 results.append(spot)
-                if let onSpot { await onSpot(spot) }
+                // NOT reported once this rank has been superseded. A cancelled
+                // rank does not stop producing spots — `eta` resumes its legs
+                // with nil and falls back to a straight-line estimate, so a
+                // cancelled rank actually drains FASTER than a live one. Its
+                // ids are content-derived (`name@lat,lon`), so they collide
+                // with the new ranking's rows exactly when the two searches
+                // overlap — which is every re-rank trigger there is: adding or
+                // removing a person, changing a travel mode, Open Now, Search
+                // here. Without this guard those stale half-confidence guesses
+                // land ON TOP of routed answers, computed against the OLD
+                // participant set, and nothing re-sorts them away.
+                if let onSpot, !Task.isCancelled { await onSpot(spot) }
             }
             return results
         }
