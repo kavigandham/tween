@@ -119,6 +119,70 @@ struct SuggestionRow: View {
     }
 }
 
+/// The completer-driven suggestion rows, as their own view.
+///
+/// It owns the read of `completer.results`/`completer.phase` so a republish
+/// re-renders six rows instead of the whole home screen — the same split as
+/// `SearchFieldText` and `SheetEdgeTracker`: whatever changes while the user
+/// is interacting is read only by the small view that draws it.
+struct SuggestionsList: View {
+    let completer: SearchCompleter
+    let onSelect: (MKLocalSearchCompletion) -> Void
+
+    var body: some View {
+        ScrollView {
+            // Plain VStack, not Lazy: at most six rows, and a LazyVStack
+            // recomputes its visible window against the scroll viewport —
+            // which changes on EVERY frame while the sheet is being dragged.
+            // That was the drag feeling choppy only once the field had text
+            // (device report 2026-08-06); with no text this subtree isn't in
+            // the hierarchy at all, which is why an empty bar felt fine.
+            VStack(spacing: 0) {
+                if completer.results.isEmpty {
+                    // Phase-aware empty state (audit W16): the spinner was
+                    // shown for EVERY empty result set, so a completer
+                    // failure or a no-match query spun forever.
+                    HStack(spacing: Tokens.Spacing.s2) {
+                        switch completer.phase {
+                        case .failed:
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                            Text("Search unavailable — check your connection")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        case .resolved:
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                            Text("No nearby matches — try a different name")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        case .idle, .searching:
+                            ProgressView()
+                            Text("Searching nearby...")
+                                .font(Tokens.Typography.footnote)
+                                .foregroundStyle(Tokens.Palette.textSecondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Tokens.Spacing.s3)
+                }
+                // Stable string identity: `\.self` on a completion object made
+                // SwiftUI re-diff all six rows whenever the completer republished.
+                ForEach(Array(completer.results.prefix(6).enumerated()),
+                        id: \.offset) { _, completion in
+                    Button { onSelect(completion) } label: {
+                        SuggestionRow(completion: completion)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Searches for \(completion.title)")
+                    Divider()
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
 /// A rich result card shown in the *committed* search results list (after the
 /// user presses Enter or taps a suggestion) — visually distinct from the compact
 /// `SuggestionRow`. Surfaces the place name, category, distance, address, an

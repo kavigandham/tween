@@ -814,20 +814,14 @@ extension OnboardingView {
     /// the component family Maps itself uses) plus the circular Friends
     /// button in their avatar slot. One persistent row, every detent.
     var searchBar: some View {
-        HStack(spacing: Tokens.Spacing.s2) {
-            NativeSearchBar(
-                text: $searchText,
-                isEditing: $searchFocused,
-                placeholder: "Search for a spot...",
-                onSubmit: commitSearch)
-                .frame(minHeight: Tokens.Layout.searchBarHeight)
-                .onChange(of: searchText) { _, query in
-                    if query != selectedCategory?.searchQuery { selectedCategory = nil }
-                    // A new query invalidates any pin/card from the old result set.
-                    selectedResult = nil
-                    handleQueryChange(query)
-                }
-
+        // The row is its OWN view, and the text lives in `searchField` rather
+        // than in a `@State` string: a keystroke must re-render the field, not
+        // the map behind it (lag audit 2026-10-15 — see `SearchFieldText`).
+        SearchFieldRow(field: searchField,
+                       isEditing: $searchFocused,
+                       placeholder: "Search for a spot...",
+                       onSubmit: commitSearch,
+                       onQueryChange: queryChanged) {
             friendsButton
         }
         .padding(.leading, Tokens.Spacing.s2)
@@ -843,6 +837,15 @@ extension OnboardingView {
                 focusSearchPanel()
             }
         }
+    }
+
+    /// What a keystroke means. Called BY the search row (which owns the
+    /// `onChange`), never from this view's body.
+    func queryChanged(_ query: String) {
+        if query != selectedCategory?.searchQuery { selectedCategory = nil }
+        // A new query invalidates any pin/card from the old result set.
+        selectedResult = nil
+        handleQueryChange(query)
     }
 
     /// The Friends surface lives behind this circle (where Apple Maps puts

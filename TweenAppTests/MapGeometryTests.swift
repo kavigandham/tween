@@ -95,3 +95,65 @@ final class CameraReframeTests: XCTestCase {
             forFix: ashburn, previous: blacksburg, hasLiveFix: true, awaitingImIn: false))
     }
 }
+
+/// The jitter floor on the live dot (lag audit 2026-10-15). The host stream is
+/// filter-NONE on purpose, so a stationary phone delivers a fix a second; each
+/// one used to write `savedCoordinate` inside a spring and re-run the entire
+/// home screen. These pin the rule that decides which deliveries are movement.
+final class LiveDotJitterTests: XCTestCase {
+    private let ashburn = CLLocationCoordinate2D(latitude: 39.0438, longitude: -77.4874)
+
+    /// ~1.1 m per 0.00001° of latitude.
+    private func north(_ metres: Double, of coord: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: coord.latitude + metres / 111_320.0,
+                               longitude: coord.longitude)
+    }
+
+    func testStationaryJitterDoesNotMoveTheDot() {
+        // Three metres of GPS noise under a ten-metre accuracy request.
+        XCTAssertFalse(OnboardingView.shouldMoveLiveDot(
+            toFix: north(3, of: ashburn), previous: ashburn,
+            hasLiveFix: true, awaitingImIn: false))
+    }
+
+    func testIdenticalFixDoesNotMoveTheDot() {
+        XCTAssertFalse(OnboardingView.shouldMoveLiveDot(
+            toFix: ashburn, previous: ashburn, hasLiveFix: true, awaitingImIn: false))
+    }
+
+    func testRealMovementMovesTheDot() {
+        // A few paces — past the floor, well under the reframe jump.
+        XCTAssertTrue(OnboardingView.shouldMoveLiveDot(
+            toFix: north(12, of: ashburn), previous: ashburn,
+            hasLiveFix: true, awaitingImIn: false))
+    }
+
+    func testFirstLiveFixAlwaysMovesTheDot() {
+        // Restored-from-disk coordinate, first live fix of the session: the
+        // dot must land on the real one even if it is a metre away.
+        XCTAssertTrue(OnboardingView.shouldMoveLiveDot(
+            toFix: north(1, of: ashburn), previous: ashburn,
+            hasLiveFix: false, awaitingImIn: false))
+    }
+
+    func testImInTakesTheExactFix() {
+        // An explicit join must use the fix it was granted, not the one eight
+        // metres of silence ago — "I'm in" writes that coordinate to the cache
+        // and sends it.
+        XCTAssertTrue(OnboardingView.shouldMoveLiveDot(
+            toFix: north(1, of: ashburn), previous: ashburn,
+            hasLiveFix: true, awaitingImIn: true))
+    }
+
+    func testNoPreviousCoordinateMovesTheDot() {
+        XCTAssertTrue(OnboardingView.shouldMoveLiveDot(
+            toFix: ashburn, previous: nil, hasLiveFix: true, awaitingImIn: false))
+    }
+
+    /// The floor must stay under the accuracy the stream asks for, or the dot
+    /// would lag behind movement the hardware can actually resolve.
+    func testFloorIsBelowRequestedAccuracy() {
+        XCTAssertLessThanOrEqual(OnboardingView.liveFixJitterFloor, 10)
+        XCTAssertLessThan(OnboardingView.liveFixJitterFloor, OnboardingView.reframeJumpDistance)
+    }
+}

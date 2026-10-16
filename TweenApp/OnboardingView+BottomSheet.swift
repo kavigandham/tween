@@ -134,57 +134,14 @@ extension OnboardingView {
 
     /// Compact completer-driven suggestion rows shown while the user types.
     /// Tapping a row commits that suggestion as a full search.
+    ///
+    /// A thin wrapper: the rows live in `SuggestionsList`, which reads the
+    /// completer itself. Reading `completer.results` HERE made every
+    /// republish — and MapKit republishes several times per query as results
+    /// refine — a full home-screen pass, map and annotations included (lag
+    /// audit 2026-10-15, same shape as the search field's text).
     var suggestionsList: some View {
-        ScrollView {
-            // Plain VStack, not Lazy: at most six rows, and a LazyVStack
-            // recomputes its visible window against the scroll viewport —
-            // which changes on EVERY frame while the sheet is being dragged.
-            // That was the drag feeling choppy only once the field had text
-            // (device report 2026-08-06); with no text this subtree isn't in
-            // the hierarchy at all, which is why an empty bar felt fine.
-            VStack(spacing: 0) {
-                if completer.results.isEmpty {
-                    // Phase-aware empty state (audit W16): the spinner was
-                    // shown for EVERY empty result set, so a completer
-                    // failure or a no-match query spun forever.
-                    HStack(spacing: Tokens.Spacing.s2) {
-                        switch completer.phase {
-                        case .failed:
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                            Text("Search unavailable — check your connection")
-                                .font(Tokens.Typography.footnote)
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                        case .resolved:
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                            Text("No nearby matches — try a different name")
-                                .font(Tokens.Typography.footnote)
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                        case .idle, .searching:
-                            ProgressView()
-                            Text("Searching nearby...")
-                                .font(Tokens.Typography.footnote)
-                                .foregroundStyle(Tokens.Palette.textSecondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Tokens.Spacing.s3)
-                }
-                // Stable string identity: `\.self` on a completion object made
-                // SwiftUI re-diff all six rows whenever the completer republished.
-                ForEach(Array(completer.results.prefix(6).enumerated()),
-                        id: \.offset) { _, completion in
-                    Button { selectSuggestion(completion) } label: {
-                        SuggestionRow(completion: completion)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Searches for \(completion.title)")
-                    Divider()
-                }
-            }
-            .padding(.horizontal)
-        }
+        SuggestionsList(completer: completer, onSelect: selectSuggestion)
     }
 
     /// The map's compact utility cluster. Recenter stays one tap away; lower-

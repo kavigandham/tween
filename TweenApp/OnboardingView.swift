@@ -8,6 +8,17 @@ import Combine
 import os
 import StoreKit
 
+/// The measurement time of the in-memory live fix.
+///
+/// A plain box rather than `@State`: it is re-stamped on every delivery of the
+/// host's filter-NONE stream (about once a second on device) and NOTHING
+/// renders it — only action paths read it (a pending send's freshness check,
+/// the hand-off). Mutating a property of a reference held in `@State` doesn't
+/// invalidate the view, which is the whole point.
+final class LiveFixStamp {
+    var value: Date?
+}
+
 /// The host app's primary surface: a full-screen map with an "I'm in" flow and
 /// a draggable bottom sheet. Capturing your location drops a self pin; once a
 /// peer coordinate arrives via the shared cache, the camera reframes to fit both
@@ -57,6 +68,38 @@ struct OnboardingView: View {
         let to = CLLocation(latitude: fix.latitude, longitude: fix.longitude)
         return from.distance(from: to) > reframeJumpDistance
     }
+    /// A live fix closer than this to the last one is GPS noise, not the user
+    /// moving, and must not move the dot.
+    ///
+    /// The host stream is deliberately filter-NONE so the dot glides the way
+    /// Maps' does (`LocationProvider.startContinuousAskingIfNeeded`), which
+    /// means a phone lying still delivers a fix roughly every second, each one
+    /// a few metres from the last. Every one of those used to write
+    /// `savedCoordinate` — a `@State` write, inside a spring animation, that
+    /// re-ran this whole screen (map, every annotation, the group bar, the
+    /// banners, the result cards) once a second for as long as the app was
+    /// open. Eight metres is below the accuracy the stream even asks for
+    /// (`kCLLocationAccuracyNearestTenMeters`), so nothing the dot could
+    /// honestly show is lost; a walk crosses it in a few steps.
+    static let liveFixJitterFloor: CLLocationDistance = 8
+
+    /// Whether a fresh fix should move the on-screen dot. Pure, so the rule is
+    /// testable without a device. The first live fix of a session and an
+    /// explicit "I'm in" always move it — those are the moments the user is
+    /// waiting on an answer, and an "I'm in" must join from the exact fix it
+    /// was granted.
+    static func shouldMoveLiveDot(
+        toFix fix: CLLocationCoordinate2D,
+        previous: CLLocationCoordinate2D?,
+        hasLiveFix: Bool,
+        awaitingImIn: Bool
+    ) -> Bool {
+        guard let previous, hasLiveFix, !awaitingImIn else { return true }
+        let from = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+        let to = CLLocation(latitude: fix.latitude, longitude: fix.longitude)
+        return from.distance(from: to) >= liveFixJitterFloor
+    }
+
     static var isHostTabHarness: Bool {
         CommandLine.arguments.contains("-HARNESS_HOST_RIDES")
         || CommandLine.arguments.contains("-HARNESS_HOST_FRIENDS")
@@ -91,7 +134,20 @@ struct OnboardingView: View {
     /// pending send knows that in-memory coordinate is current. Nil for a
     /// coordinate restored from disk at launch, whose age is unknown — those
     /// fall through to the cache's own freshness check.
-    @State var savedCoordinateAt: Date?
+    ///
+    /// Held in a BOX, not in `@State`: the host's live stream is deliberately
+    /// filter-NONE (`LocationProvider.startContinuousAskingIfNeeded`), so this
+    /// is re-stamped about once a second on device — and as `@State` every one
+    /// of those stamps invalidated this whole screen. Nothing renders it; only
+    /// action paths read it (a pending send, the hand-off freshness check), so
+    /// it has no business driving a view update. Same rule as
+    /// `SearchFieldText`: a value written on every tick of an interaction does
+    /// not live in `@State` on the screen that draws everything.
+    @State var liveFixStamp = LiveFixStamp()
+    var savedCoordinateAt: Date? {
+        get { liveFixStamp.value }
+        nonmutating set { liveFixStamp.value = newValue }
+    }
     /// True once THIS session has received a live fix. A coordinate restored
     /// from disk at launch is not one — and the old "reframe only when there
     /// is no pin yet" rule counted it as one, so opening the app in Ashburn
@@ -217,7 +273,21 @@ struct OnboardingView: View {
     @ScaledMetric(relativeTo: .caption) var friendsCircleSize: CGFloat = Tokens.Layout.searchBarHeight
 
     // Search
-    @State var searchText = ""
+    /// The field's text. A reference type read only by the search row — see
+    /// `SearchFieldText` for why a `@State` string here was a full
+    /// home-screen invalidation per keystroke.
+    @State var searchField = SearchFieldText()
+    /// The query, for the ACTION paths (commitSearch, clearSearch, the
+    /// Search-here pill, the Open Now re-run). Those run outside body
+    /// evaluation, so reading through here registers no dependency.
+    ///
+    /// NEVER read this from a view body: that re-registers the whole screen
+    /// on the field's text and restores the per-keystroke lag this replaced.
+    /// The search row reads `searchField` directly instead.
+    var searchText: String {
+        get { searchField.value }
+        nonmutating set { searchField.value = newValue }
+    }
     @State var searchResults: [MKMapItem] = []
     @State var rankedSpots: [RankedSpot] = []
     @State var isSearchActive = false
@@ -1378,40 +1448,56 @@ struct OnboardingView: View {
                     let shouldReframe = Self.shouldReframe(
                         forFix: coord, previous: savedCoordinate,
                         hasLiveFix: hasLiveFix, awaitingImIn: awaitingImIn)
+                    // Is this delivery the dot MOVING, or the stream breathing?
+                    // Filter-NONE means a phone on a table still delivers a fix
+                    // a second, each a few metres from the last — and each one
+                    // re-ran this entire screen inside a spring (lag audit
+                    // 2026-10-15). Below the jitter floor only the stamp moves.
+                    let moved = Self.shouldMoveLiveDot(
+                        toFix: coord, previous: savedCoordinate,
+                        hasLiveFix: hasLiveFix, awaitingImIn: awaitingImIn)
                     hasLiveFix = true
-                    withAnimation(Tokens.Motion.spring) {
-                        savedCoordinate = coord
-                        // Stamp the freshness of this in-memory fix so a pending
-                        // send (which resumes right below) knows it's current even
-                        // though the silent branch doesn't touch the cache.
-                        // MEASUREMENT time, not receipt: on the grant-race path
-                        // (permission alert drops the stream, the grant runs a
-                        // one-shot) the delivery can be CoreLocation's cached
-                        // pre-drive fix, and Date() vouched for it as current
-                        // (audit 2026-08-06).
-                        savedCoordinateAt = provider.lastFixAt ?? Date()
-                        // The explicit "I'm in" gesture flips presence on; after
-                        // that, every movement tick keeps the shared coordinate
-                        // current too — so the extension, rankings, and the next
-                        // outgoing bubble see where the user IS, not where they
-                        // joined from (device feedback: "location doesn't update
-                        // while I'm moving").
-                        if awaitingImIn {
-                            LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
-                                               isActive: true)
-                            saveLocalParticipant(coord)
-                            lastPersistedCoordinate = coord
-                            isUserIn = true
-                        } else if isUserIn && !selfIsManual {
-                            let moved = lastPersistedCoordinate.map {
-                                CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-                                    .distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) > 20
-                            } ?? true
-                            if moved {
+                    // Stamp the freshness of this in-memory fix so a pending
+                    // send (which resumes below) knows it's current even though
+                    // the silent branch doesn't touch the cache — and stamp it
+                    // on EVERY delivery, jitter included, because freshness is
+                    // exactly what a stationary user's repeat fixes prove.
+                    // MEASUREMENT time, not receipt: on the grant-race path
+                    // (permission alert drops the stream, the grant runs a
+                    // one-shot) the delivery can be CoreLocation's cached
+                    // pre-drive fix, and Date() vouched for it as current
+                    // (audit 2026-08-06).
+                    savedCoordinateAt = provider.lastFixAt ?? Date()
+                    if moved {
+                        withAnimation(Tokens.Motion.spring) {
+                            savedCoordinate = coord
+                            // The explicit "I'm in" gesture flips presence on;
+                            // after that, every movement tick keeps the shared
+                            // coordinate current too — so the extension, the
+                            // rankings, and the next outgoing bubble see where
+                            // the user IS, not where they joined from (device
+                            // feedback: "location doesn't update while I'm
+                            // moving").
+                            if awaitingImIn {
                                 LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
                                                    isActive: true)
                                 saveLocalParticipant(coord)
                                 lastPersistedCoordinate = coord
+                                isUserIn = true
+                            } else if isUserIn && !selfIsManual {
+                                // A SECOND, larger gate: the dot may move for
+                                // free, but every persist wakes the extension
+                                // and the App Group observers.
+                                let worthPersisting = lastPersistedCoordinate.map {
+                                    CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                                        .distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) > 20
+                                } ?? true
+                                if worthPersisting {
+                                    LocationCache.save(coord, at: provider.lastFixAt ?? Date(),
+                                                       isActive: true)
+                                    saveLocalParticipant(coord)
+                                    lastPersistedCoordinate = coord
+                                }
                             }
                         }
                     }

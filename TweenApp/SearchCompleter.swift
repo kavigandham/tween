@@ -4,6 +4,56 @@ import CoreLocation
 import SwiftUI
 import UIKit
 
+/// The live text in the search field.
+///
+/// A reference type, NOT a `@State` on `OnboardingView`: every keystroke
+/// writes it, and a `@State` write invalidates that view's WHOLE body — the
+/// Map and every annotation, the group bar, the banners, the result cards and
+/// both tour overlay layers — once per character (measured: 6 keystrokes = 6
+/// full home-screen passes, lag audit 2026-10-15). `@Observable` tracks reads
+/// per property, so only the small view that actually renders the text
+/// re-renders. Same rule and same reason as `SheetEdgeTracker`: a value
+/// written on every frame of an interaction lives in a reference type read
+/// ONLY by the view that needs it.
+///
+/// Never read `value` from a view body that isn't the search row itself —
+/// doing so re-registers the whole screen as a dependency and puts the lag
+/// straight back. The action paths (`commitSearch`, `clearSearch`, …) read it
+/// through `OnboardingView.searchText`, which is safe because those run
+/// outside body evaluation.
+@Observable final class SearchFieldText {
+    var value: String = ""
+}
+
+/// The Apple-Maps search row: the native field plus whatever sits in the
+/// avatar slot beside it (the Friends circle).
+///
+/// Its own view so a keystroke re-renders THIS and nothing else. The
+/// query-change handler lives here rather than on the home screen for the
+/// same reason: `onChange(of:)` reads the value it watches, and reading it up
+/// there is exactly the dependency this split exists to remove.
+struct SearchFieldRow<Trailing: View>: View {
+    @Bindable var field: SearchFieldText
+    @Binding var isEditing: Bool
+    var placeholder: String
+    var onSubmit: () -> Void
+    var onQueryChange: (String) -> Void
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s2) {
+            NativeSearchBar(text: $field.value,
+                            isEditing: $isEditing,
+                            placeholder: placeholder,
+                            onSubmit: onSubmit)
+                .frame(minHeight: Tokens.Layout.searchBarHeight)
+                .onChange(of: field.value) { _, query in onQueryChange(query) }
+
+            trailing
+        }
+    }
+}
+
 /// The real UIKit `UISearchBar` bridged into SwiftUI.
 ///
 /// Same technique as the community "missing UISearchBar" wrappers on the
