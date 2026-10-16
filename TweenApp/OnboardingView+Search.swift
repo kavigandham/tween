@@ -663,8 +663,11 @@ extension OnboardingView {
         // Same hard between-people cut as runSearch — adding/removing a point
         // reshapes the corridor, so re-filter against the NEW participant set.
         let candidates = SpotVicinity.filter(searchResults, participants: participants, minimumCount: 3)
+        // Same progressive fill as the committed search above.
         let routed = await FairnessRanker.rank(
-            candidates: candidates, participants: participants, cap: cap)
+            candidates: candidates, participants: participants, cap: cap) { spot in
+                rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
+            }
         // A newer search/re-rank may have superseded this one mid-flight.
         guard !Task.isCancelled else { return }
         rankedSpots = FairnessRanker.completeRankings(
@@ -776,8 +779,16 @@ extension OnboardingView {
             // passes through unfiltered rather than emptying the list
             // (SpotVicinity relaxes ×1.5/×2.5, then gives up).
             let candidates = SpotVicinity.filter(items, participants: participants, minimumCount: 3)
+            // Swap each row's estimate for its routed time AS IT LANDS, in
+            // place. The whole rank is seconds of MapKit round-trips; waiting
+            // for all of it left every row showing a straight-line guess until
+            // they all changed at once (lag audit 2026-10-16). Order is
+            // untouched here — `completeRankings` below does the one re-sort,
+            // so rows don't shuffle while they're being read.
             let routed = await FairnessRanker.rank(
-                candidates: candidates, participants: participants, cap: cap)
+                candidates: candidates, participants: participants, cap: cap) { spot in
+                    rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
+                }
             guard !Task.isCancelled else { return }
             rankedSpots = FairnessRanker.completeRankings(
                 routed: routed,

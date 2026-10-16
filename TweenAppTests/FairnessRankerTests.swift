@@ -236,3 +236,63 @@ final class FairnessRankerTests: XCTestCase {
 // MapGeometry is in the host app target via the Shared/ source folder; XCTest
 // needs CoreLocation for CLLocationCoordinate2D.
 import CoreLocation
+
+/// Progressive fill (lag audit 2026-10-16): a rank is seconds of MapKit
+/// round-trips, so each routed answer replaces its row's estimate as it lands
+/// rather than all of them changing at the end. The one rule that makes it
+/// safe is that merging must not MOVE a row — the single re-sort stays in
+/// `completeRankings`, or rows would shuffle under the user's finger.
+final class ProgressiveRankMergeTests: XCTestCase {
+    private func spot(_ name: String, eta: TimeInterval, confidence: Double = 0.5) -> RankedSpot {
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: 37.3 + eta / 100_000, longitude: -121.9)))
+        item.name = name
+        return RankedSpot(
+            item: item,
+            etas: [ParticipantETA(id: "me", name: "You", eta: eta, fromRoute: confidence > 0.5)],
+            confidence: confidence)
+    }
+
+    func testMergeReplacesInPlaceAndKeepsOrder() {
+        let a = spot("A", eta: 600), b = spot("B", eta: 900), c = spot("C", eta: 1200)
+        let published = [a, b, c]
+        // B's routed answer lands first and is much slower than its estimate.
+        let routedB = RankedSpot(item: b.item, etas: [
+            ParticipantETA(id: "me", name: "You", eta: 2400, fromRoute: true)
+        ], confidence: 1.0)
+        let merged = FairnessRanker.merging(routedB, into: published)
+        XCTAssertEqual(merged.map(\.id), published.map(\.id), "a merge must not reorder rows")
+        XCTAssertEqual(merged[1].etas.first?.eta, 2400)
+        XCTAssertTrue(merged[1].etas.first?.fromRoute == true)
+        // Its neighbours are untouched.
+        XCTAssertEqual(merged[0].etas.first?.eta, 600)
+        XCTAssertEqual(merged[2].etas.first?.eta, 1200)
+    }
+
+    func testMergeOfAnUnknownSpotIsIgnored() {
+        let published = [spot("A", eta: 600), spot("B", eta: 900)]
+        let stray = spot("Somewhere else", eta: 60)
+        let merged = FairnessRanker.merging(stray, into: published)
+        XCTAssertEqual(merged.map(\.id), published.map(\.id))
+        XCTAssertEqual(merged.count, 2, "a superseded search's spot must not be appended")
+    }
+
+    func testMergeIntoEmptyIsEmpty() {
+        XCTAssertTrue(FairnessRanker.merging(spot("A", eta: 600), into: []).isEmpty)
+    }
+
+    func testEveryArrivingSpotEventuallyLands() {
+        // Spots arrive in an arbitrary order; after all of them the published
+        // list carries every routed number, still in the original order.
+        let a = spot("A", eta: 600), b = spot("B", eta: 900), c = spot("C", eta: 1200)
+        var published = [a, b, c]
+        for arriving in [c, a, b] {
+            let routed = RankedSpot(item: arriving.item, etas: [
+                ParticipantETA(id: "me", name: "You", eta: 111, fromRoute: true)
+            ], confidence: 1.0)
+            published = FairnessRanker.merging(routed, into: published)
+        }
+        XCTAssertEqual(published.map(\.id), [a, b, c].map(\.id))
+        XCTAssertTrue(published.allSatisfy { $0.etas.first?.fromRoute == true })
+    }
+}

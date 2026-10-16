@@ -227,10 +227,21 @@ enum FairnessRanker {
             .prefix(cap))
     }
 
+    /// Ranks `candidates` against `participants`, resolving real routes.
+    ///
+    /// `onSpot` is called as each candidate's legs land, before the whole set
+    /// is done. A full rank is a few seconds of MapKit round-trips (measured
+    /// 2.5-3 s for 8 places and 2 people), and publishing only at the end
+    /// meant every row sat on its straight-line estimate for that whole time
+    /// and then changed at once. Callers that pass it can fill the real times
+    /// in one row at a time; the ORDER is deliberately left to the caller's
+    /// final `completeRankings`, so nothing jumps around under the user's
+    /// finger while they read it (lag audit 2026-10-16).
     static func rank(
         candidates: [MKMapItem],
         participants: [Participant],
-        cap: Int
+        cap: Int,
+        onSpot: (@MainActor (RankedSpot) -> Void)? = nil
     ) async -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
         let capped = mostCentral(candidates, participants: participants, cap: cap)
@@ -244,11 +255,24 @@ enum FairnessRanker {
             var results: [RankedSpot] = []
             for await spot in group {
                 results.append(spot)
+                if let onSpot { await onSpot(spot) }
             }
             return results
         }
 
         return sortedByFairness(spots, participants: participants)
+    }
+
+    /// Replaces the entry for `spot`'s place with `spot`, IN PLACE — same
+    /// index, same neighbours. Used to swap a straight-line estimate for its
+    /// routed answer without moving the row. A spot with no match is ignored:
+    /// the published set is built from the same candidates, so a miss means
+    /// the list has already moved on.
+    static func merging(_ spot: RankedSpot, into spots: [RankedSpot]) -> [RankedSpot] {
+        guard let index = spots.firstIndex(where: { $0.id == spot.id }) else { return spots }
+        var merged = spots
+        merged[index] = spot
+        return merged
     }
 
     /// Legacy 2-person adapter. Existing callers (kickOffRanking, autoRank)
