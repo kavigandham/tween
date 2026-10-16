@@ -276,9 +276,15 @@ enum FairnessRanker {
 
     /// Replaces the entry for `spot`'s place with `spot`, IN PLACE — same
     /// index, same neighbours. Used to swap a straight-line estimate for its
-    /// routed answer without moving the row. A spot with no match is ignored:
-    /// the published set is built from the same candidates, so a miss means
-    /// the list has already moved on.
+    /// routed answer without moving the row. A spot with no match is ignored.
+    ///
+    /// That miss is NOT what makes this safe, and reading it that way is what
+    /// shipped the bug in 8ced25d. `RankedSpot.id` is content-derived
+    /// (`name@lat,lon`), so a superseded search produces ids that MATCH the
+    /// new list's rows whenever the two searches overlap — which is every
+    /// re-rank trigger there is. A stale spot reaching here replaces a live
+    /// row; it does not bounce off. What keeps stale spots out is the
+    /// cancellation guard in `rank` and the one in each caller's closure.
     static func merging(_ spot: RankedSpot, into spots: [RankedSpot]) -> [RankedSpot] {
         guard let index = spots.firstIndex(where: { $0.id == spot.id }) else { return spots }
         var merged = spots
