@@ -394,7 +394,7 @@ extension ResultCard: Equatable {
             && a.rankedSpot?.id == b.rankedSpot?.id
             && a.rankedSpot?.etas == b.rankedSpot?.etas
             && a.rankedSpot?.confidence == b.rankedSpot?.confidence
-            && coarse(a.userCoord) == coarse(b.userCoord)
+            && sameCoarse(a.userCoord, b.userCoord)
             && a.isBest == b.isBest
             && a.bestWorstETA == b.bestWorstETA
             && a.soloETA == b.soloETA
@@ -407,8 +407,19 @@ extension ResultCard: Equatable {
     /// The user's coordinate at ~100 m: the card shows a 0.1 mi distance and a
     /// "~N min" estimate, neither of which GPS jitter can change — comparing
     /// the raw fix would re-render every card on every tick anyway.
-    private static func coarse(_ c: CLLocationCoordinate2D?) -> [Double]? {
-        c.map { [($0.latitude * 1_000).rounded(), ($0.longitude * 1_000).rounded()] }
+    ///
+    /// Compared as scalars. The old form built TWO `[Double]` arrays per
+    /// comparison, and SwiftUI runs this once per card per update — two heap
+    /// allocations per row, inside the equality check whose entire job is to
+    /// be cheaper than re-rendering the row (lag audit 2026-10-16).
+    private static func sameCoarse(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?):
+            return (a.latitude * 1_000).rounded() == (b.latitude * 1_000).rounded()
+                && (a.longitude * 1_000).rounded() == (b.longitude * 1_000).rounded()
+        default: return false
+        }
     }
 }
 

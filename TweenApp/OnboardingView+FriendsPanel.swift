@@ -1325,7 +1325,11 @@ extension OnboardingView {
 
     @ViewBuilder
     var resultsList: some View {
-        if displayedItems.isEmpty, isSearchLoading {
+        // ONE evaluation of `displayedItems` for the whole surface. Each read
+        // rebuilds an array AND a Set of MKMapItem, and the branch chain below
+        // read it four more times before the rows did (lag audit 2026-10-16).
+        let shown = displayedItems
+        if shown.isEmpty, isSearchLoading {
             HStack(spacing: Tokens.Spacing.s2) {
                 ProgressView()
                 Text("Finding places near you...")
@@ -1334,18 +1338,18 @@ extension OnboardingView {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, Tokens.Spacing.s3)
-        } else if displayedItems.isEmpty, let mood = activeMood {
+        } else if shown.isEmpty, let mood = activeMood {
             // A mood that found nothing has ALREADY been retried over the
             // wider metro box (see resolveMoodPlaces) — so the honest next
             // move is a neighbouring vibe, not "No results" (spec §11).
             moodEmptyState(mood)
-        } else if displayedItems.isEmpty, openNowOnly {
+        } else if shown.isEmpty, openNowOnly {
             ContentUnavailableView(
                 "Nothing Open Right Now",
                 systemImage: "clock",
                 description: Text("Turn off Open Now to see every place near your meetup area."))
                 .frame(maxWidth: .infinity, minHeight: 180)
-        } else if displayedItems.isEmpty {
+        } else if shown.isEmpty {
             ContentUnavailableView(
                 "No Places Nearby",
                 systemImage: "magnifyingglass",
@@ -1358,21 +1362,35 @@ extension OnboardingView {
         } else {
             // One plan read for the whole list, not one per card body.
             let soloMode = MeetupPlanStore.current.mode(for: TweenIdentity.stableID)
-            // …and one of each of these, for the same reason. `displayedItems`
-            // rebuilds an array AND a Set of MKMapItem every time it is read,
-            // and `bestWorstETA` allocated a fresh [TimeInterval] PER ROW to
-            // compute a value identical for every row (lag audit 2026-10-13).
-            let items = displayedItems
+            // …and one of each of these, for the same reason. `bestWorstETA`
+            // allocated a fresh [TimeInterval] PER ROW to compute a value
+            // identical for every row (lag audit 2026-10-13).
+            let items = shown
             let bestWorst = rankedSpots.map(\.worstETA).min()
             let firstItem = items.first
+            // Two LOOKUP TABLES, built once for the list.
+            //
+            // `rankedMatch(for:)` is a linear scan that, on a MISS, runs a
+            // fresh `FairnessRanker.estimatedRankings` for that one place —
+            // real distance work against every participant. Called once per
+            // card, that was N scans per pass plus a geo computation per
+            // unranked row, and both grow with the number of people.
+            //
+            // Honest about the size: with 8 places and 2 people this measured
+            // as noise against the ~25 ms a whole-screen pass costs (lag audit
+            // 2026-10-16). It is kept because it is strictly less work and it
+            // stops scaling badly with a bigger group — not because it was the
+            // lag anyone felt.
+            let rankedByItem = rankedTable(for: items)
+            let soloByItem = Self.soloLookup(soloRanked)
             ForEach(items, id: \.self) { item in
                 ResultCard(
                     item: item,
-                    rankedSpot: rankedMatch(for: item),
+                    rankedSpot: rankedByItem[ObjectIdentifier(item)],
                     userCoord: savedCoordinate,
                     isBest: !rankedSpots.isEmpty && rankedSpots.first?.item == item,
                     bestWorstETA: bestWorst,
-                    soloETA: soloRanked.first(where: { $0.item == item })?.etas.first?.eta,
+                    soloETA: soloByItem[ObjectIdentifier(item)],
                     soloMode: soloMode,
                     // One short line derived from the place's POI category
                     // within the active mood ("Competitive, good for a
@@ -1381,6 +1399,10 @@ extension OnboardingView {
                     moodNote: activeMood?.note(for: item),
                     onDirections: { openDirections(to: item) },
                     onSendToChat: {
+                        // The closure body runs on TAP, not per pass — the
+                        // table would be stale by then, so this keeps the
+                        // live lookup (which also fills in an estimate for a
+                        // row the ranking never covered).
                         sendToChat(SpotSelection(item: item, ranked: rankedMatch(for: item)))
                     })
                     // Body runs only when the card's DATA changes — see the
@@ -1522,6 +1544,50 @@ extension OnboardingView {
     /// transient gap where a user can tap a pin before route-backed rankings
     /// finish. List rows and rich MapKit detail sheets both call this boundary,
     /// so neither can silently lose participant times.
+    /// Ranked spots keyed by the identity of the map item they rank, so a
+    /// list of N rows costs one pass over the rankings instead of N scans.
+    /// Keyed on `ObjectIdentifier` because that is the identity `ResultCard`
+    /// itself compares on (`a.item === b.item`) and the one `displayedItems`
+    /// dedupes with.
+    static func rankedLookup(_ spots: [RankedSpot]) -> [ObjectIdentifier: RankedSpot] {
+        var table: [ObjectIdentifier: RankedSpot] = [:]
+        table.reserveCapacity(spots.count)
+        for spot in spots {
+            guard let item = spot.item else { continue }
+            // FIRST wins: `rankedSpots` is in rank order, and a duplicate
+            // would otherwise overwrite the better-ranked entry.
+            if table[ObjectIdentifier(item)] == nil { table[ObjectIdentifier(item)] = spot }
+        }
+        return table
+    }
+
+    /// The table the list renders from: every ranked spot, plus a SINGLE
+    /// batched estimate for any row the ranking hasn't reached yet (the gap
+    /// between results landing and the first ranking publishing). The old
+    /// per-card `rankedMatch` did that estimate one row at a time, every
+    /// pass, so the chips cost a geo computation per unranked row per pass.
+    func rankedTable(for items: [MKMapItem]) -> [ObjectIdentifier: RankedSpot] {
+        var table = Self.rankedLookup(rankedSpots)
+        let missing = items.filter { table[ObjectIdentifier($0)] == nil }
+        guard !missing.isEmpty, let participants = searchRankingParticipants else { return table }
+        for spot in FairnessRanker.estimatedRankings(candidates: missing, participants: participants) {
+            guard let item = spot.item else { continue }
+            table[ObjectIdentifier(item)] = spot
+        }
+        return table
+    }
+
+    /// The solo (just-me) ETA per item, same shape and same reason.
+    static func soloLookup(_ spots: [RankedSpot]) -> [ObjectIdentifier: TimeInterval] {
+        var table: [ObjectIdentifier: TimeInterval] = [:]
+        table.reserveCapacity(spots.count)
+        for spot in spots {
+            guard let item = spot.item, let eta = spot.etas.first?.eta else { continue }
+            if table[ObjectIdentifier(item)] == nil { table[ObjectIdentifier(item)] = eta }
+        }
+        return table
+    }
+
     func rankedMatch(for item: MKMapItem) -> RankedSpot? {
         if let ranked = rankedSpots.first(where: { $0.item == item }) {
             return ranked
