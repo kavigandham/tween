@@ -309,7 +309,10 @@ final class ProgressiveRankMergeTests: XCTestCase {
 /// against the OLD participant set sitting on top of routed answers.
 final class ProgressiveRankCancellationTests: XCTestCase {
 
-    @MainActor final class Counter { var reported = 0 }
+    /// Records WHICH spots were reported, not just how many — a count cannot
+    /// express "every reported spot is one of the returned ones" or "none was
+    /// reported twice", which are the two things that actually matter.
+    @MainActor final class Counter { var reported: [String] = [] }
 
     private func item(_ name: String, lat: Double, lon: Double) -> MKMapItem {
         let item = MKMapItem(placemark: MKPlacemark(
@@ -331,14 +334,19 @@ final class ProgressiveRankCancellationTests: XCTestCase {
                           item("Three", lat: 37.6, lon: -122.2)]
         let people = participants
         let task = Task { @MainActor in
-            await FairnessRanker.rank(candidates: candidates, participants: people, cap: 3) { batch in
-                counter.reported += batch.count
+            // reportInterval 0: report every spot as it lands. At the shipping
+            // 0.4 s this test cannot fail — a cancelled rank drains in ~0.13 s,
+            // entirely inside the first window, so zero batches go out whether
+            // the guard is there or not (follow-up audit 2026-10-17).
+            await FairnessRanker.rank(candidates: candidates, participants: people,
+                                      cap: 3, reportInterval: 0) { batch in
+                counter.reported += batch.map(\.id)
             }
         }
         task.cancel()
         _ = await task.value
-        XCTAssertEqual(counter.reported, 0,
-                       "a superseded rank reported \(counter.reported) spots into the live list")
+        XCTAssertTrue(counter.reported.isEmpty,
+                      "a superseded rank reported \(counter.reported.count) spots into the live list")
     }
 
     @MainActor
@@ -347,15 +355,20 @@ final class ProgressiveRankCancellationTests: XCTestCase {
         let candidates = [item("One", lat: 37.5, lon: -122.1),
                           item("Two", lat: 37.55, lon: -122.15)]
         let routed = await FairnessRanker.rank(
-            candidates: candidates, participants: participants, cap: 2) { batch in
-                counter.reported += batch.count
+            candidates: candidates, participants: participants, cap: 2,
+            reportInterval: 0) { batch in
+                counter.reported += batch.map(\.id)
             }
-        // Batched: the callback fires at most once per window, and anything
-        // still pending when the ranking finishes is left to
-        // `completeRankings`. So every REPORTED spot must be one of the
-        // returned ones, and no spot may be reported twice.
-        XCTAssertLessThanOrEqual(counter.reported, routed.count)
         XCTAssertEqual(routed.count, 2)
+        // Reporting every spot (interval 0), the fill must actually fire…
+        XCTAssertFalse(counter.reported.isEmpty, "the progressive fill never reported")
+        // …only ever name spots the ranking returns…
+        XCTAssertTrue(Set(counter.reported).isSubset(of: Set(routed.map(\.id))),
+                      "reported a spot the ranking did not return")
+        // …and never name one twice, which would mean a row re-rendered for
+        // an answer it already had.
+        XCTAssertEqual(counter.reported.count, Set(counter.reported).count,
+                       "a spot was reported more than once")
     }
 }
 

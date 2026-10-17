@@ -292,3 +292,54 @@ Beyond that, in priority order: `encodedURL()` returning nil is never asserted a
 11. Route the four Arrival Sync origins and the `.leave` coordinate through `freshSelfCoordinate()`.
 12. Test hygiene sweep.
 13. Structural: extract the extension's activation sequence and send funnel into `Shared/`.
+
+
+---
+
+# Follow-up audit — 2026-10-17 (788848c..c41c811, the batched progressive fill)
+
+Scoped to the two newest commits. Verdict: the batching itself is correct —
+it cannot lose a spot (`rank` returns the complete set regardless of what was
+reported, and `completeRankings` republishes everything), cannot reorder or
+duplicate rows, and both cancellation guards survived the refactor. What it
+lost was COVERAGE, and that was the real finding.
+
+## Fixed immediately
+
+**Batching silently disarmed the regression test protecting bedaa12's
+cancellation guard.** The 0.4 s report window is longer than a cancelled rank
+takes to drain (measured 0.13 s), so a cancelled rank finished entirely inside
+the first window and reported nothing whether or not the guard existed.
+Verified: with the guard deleted, both cancellation tests passed. The CRITICAL
+fixed the day before was protected by two tests that could not fail — the
+project's own documented trap, where the test written alongside a fix encodes
+that fix's assumption.
+
+`rank` now takes an injectable `reportInterval` (tests pass 0, restoring
+per-spot reporting), and with that the test fails again without the guard —
+"a superseded rank reported 3 spots into the live list" — and passes with it.
+
+Also fixed in the same pass:
+- `testAnUncancelledRankStillReportsEverySpot` asserted `reported <= count`,
+  which `0` satisfies — it no longer asserted its own name. It now records
+  spot IDS and asserts the fill actually fired, that every reported id is one
+  the ranking returned, and that none was reported twice.
+- `lastReport` started at `Date()`, delaying the first answer by a whole
+  window and discarding a window's worth of landed spots on the two paths that
+  cancel WITHOUT re-ranking (typing over a live result list; backgrounding).
+  It now starts at `.distantPast`, so the first arrival reports immediately.
+- `rank`'s doc comment still described the removed per-spot `onSpot` shape and
+  promised "one row at a time" — the exact drift 788848c was written to stop.
+- The single-spot `merging` had become production-dead, carrying the invariant
+  paragraph on an overload nothing called. The batch form now folds through
+  it, so one definition of "in place" serves both and the documented rule sits
+  on code that runs.
+
+## Still open from this audit
+
+- `testTheReportIntervalIsShortEnoughToSeeButLongEnoughToBatch` asserts
+  literals against literals — it pins policy but exercises no behaviour. Not a
+  defect; noted so nobody mistakes it for coverage.
+
+Everything in the 2026-10-16 audit above remains open and unactioned, with its
+own prioritised list.

@@ -229,18 +229,29 @@ enum FairnessRanker {
 
     /// Ranks `candidates` against `participants`, resolving real routes.
     ///
-    /// `onSpot` is called as each candidate's legs land, before the whole set
-    /// is done. A full rank is a few seconds of MapKit round-trips (measured
-    /// 2.5-3 s for 8 places and 2 people), and publishing only at the end
-    /// meant every row sat on its straight-line estimate for that whole time
-    /// and then changed at once. Callers that pass it can fill the real times
-    /// in one row at a time; the ORDER is deliberately left to the caller's
-    /// final `completeRankings`, so nothing jumps around under the user's
-    /// finger while they read it (lag audit 2026-10-16).
+    /// `onSpots` is called with the answers that have landed so far — a BATCH
+    /// at most every `reportInterval`, starting with the first arrival. A full
+    /// rank is a few seconds of MapKit round-trips (measured 2.5-3 s for 8
+    /// places and 2 people), and publishing only at the end meant every row
+    /// sat on its straight-line estimate for that whole time and then changed
+    /// at once. The ORDER is deliberately left to the caller's final
+    /// `completeRankings`, so nothing jumps around under the user's finger
+    /// while they read it (lag audit 2026-10-16).
+    ///
+    /// Whatever is still pending when the loop ends is NOT reported: the
+    /// caller publishes the complete set immediately afterwards, so a final
+    /// report would only buy an extra whole-screen pass.
+    ///
+    /// `reportInterval` is injectable for tests ONLY. At 0 this reports every
+    /// spot as it lands, which is what makes the cancellation guard below
+    /// observable — at the shipping 0.4 s a cancelled rank drains (measured:
+    /// 0.13 s) entirely inside the first window, so a test written against the
+    /// default passes whether the guard is there or not.
     static func rank(
         candidates: [MKMapItem],
         participants: [Participant],
         cap: Int,
+        reportInterval: TimeInterval = progressiveReportInterval,
         onSpots: (@MainActor ([RankedSpot]) -> Void)? = nil
     ) async -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
@@ -254,7 +265,12 @@ enum FairnessRanker {
             }
             var results: [RankedSpot] = []
             var pending: [RankedSpot] = []
-            var lastReport = Date()
+            // `.distantPast`, not `Date()`: the FIRST answer to land reports
+            // straight away. Starting the clock at the loop head delayed it by
+            // a whole window for no gain, and on the two paths that cancel
+            // without re-ranking (typing over a live list, backgrounding) a
+            // window's worth of landed spots was simply discarded.
+            var lastReport = Date.distantPast
             for await spot in group {
                 results.append(spot)
                 pending.append(spot)
@@ -280,7 +296,7 @@ enum FairnessRanker {
                 // or three passes instead of eight.
                 let now = Date()
                 if let onSpots, !Task.isCancelled,
-                   now.timeIntervalSince(lastReport) >= progressiveReportInterval {
+                   now.timeIntervalSince(lastReport) >= reportInterval {
                     lastReport = now
                     let batch = pending
                     pending = []
@@ -316,14 +332,12 @@ enum FairnessRanker {
 
     /// The batch form: every spot applied in place, for ONE published write.
     /// See `progressiveReportInterval` for why the batching exists.
+    ///
+    /// Folds through the single-spot form above so both shapes share one
+    /// definition of "in place" — and so the invariant documented there is
+    /// carried by code that actually runs, not by an overload nothing calls.
     static func merging(_ spots: [RankedSpot], into published: [RankedSpot]) -> [RankedSpot] {
-        guard !spots.isEmpty else { return published }
-        var merged = published
-        for spot in spots {
-            guard let index = merged.firstIndex(where: { $0.id == spot.id }) else { continue }
-            merged[index] = spot
-        }
-        return merged
+        spots.reduce(published) { merging($1, into: $0) }
     }
 
     /// How often a ranking in flight may publish what has landed so far.
