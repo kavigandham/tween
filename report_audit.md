@@ -343,3 +343,42 @@ Also fixed in the same pass:
 
 Everything in the 2026-10-16 audit above remains open and unactioned, with its
 own prioritised list.
+
+
+# Follow-up audit — 2026-10-17 (010ce48)
+
+Functionally clean: `reportInterval` leaks into no production call site (all
+seven use the default), `.distantPast` can add at most one report and never
+reports an empty batch, and the `reduce` fold is behaviour-preserving at
+immaterial cost. One real finding, fixed, plus one coverage gap, closed.
+
+**The rewritten doc comment contradicted its own commit.** It said "at the
+shipping 0.4 s a cancelled rank drains entirely inside the first window, so a
+test written against the default passes whether the guard is there or not" —
+true of the `Date()` anchor it replaced, false the moment `.distantPast`
+landed in the same commit, because the first arrival clears any finite window.
+Measured both ways: guard deleted at the default interval reports 1 spot (the
+test fails); guard deleted at interval 0 reports 3. So `.distantPast` is what
+makes the guard observable, and the injected interval only sharpens the
+signal. Both comments now say that. Same doc-drift class as the commit before
+it, against a sibling hunk of itself.
+
+Also: `onSpots` is a DELTA since the last report, not a running total — the
+wording invited a future caller to assign rather than merge.
+
+**Coverage gap closed.** Both callback tests pass `reportInterval: 0`, which
+bypasses the gate entirely, so the accumulate-then-flush behaviour had no test
+at all. The gate is now a pure `batchIsDue(now:lastReport:interval:)` with
+`ProgressiveBatchGateTests`: the first arrival always reports, an answer
+inside the window waits, past the window reports, interval 0 always reports,
+and a run of six arrivals collapses to batches [1, 3, 2] with every arrival
+either reported or still pending.
+
+One lesson from writing those: the first version asserted the EXACT window
+boundary and failed — `Date` is a `Double`, so `addingTimeInterval(-0.4)`
+round-trips to 0.39999999999999997 and `>=` is false. The test was asserting
+floating-point luck; it now tests past the boundary and says why.
+
+Still open: `testTheReportIntervalIsShortEnoughToSeeButLongEnoughToBatch`
+asserts literals against literals (noted, not a defect). Everything in the two
+audits above remains open and unactioned.

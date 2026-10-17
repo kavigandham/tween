@@ -229,8 +229,10 @@ enum FairnessRanker {
 
     /// Ranks `candidates` against `participants`, resolving real routes.
     ///
-    /// `onSpots` is called with the answers that have landed so far — a BATCH
-    /// at most every `reportInterval`, starting with the first arrival. A full
+    /// `onSpots` is called with the answers that landed SINCE THE LAST REPORT
+    /// — a delta, not a running total — at most once every `reportInterval`,
+    /// starting with the first arrival. Callers merge it into what they have
+    /// already published; assigning it would wipe every earlier answer. A full
     /// rank is a few seconds of MapKit round-trips (measured 2.5-3 s for 8
     /// places and 2 people), and publishing only at the end meant every row
     /// sat on its straight-line estimate for that whole time and then changed
@@ -242,11 +244,19 @@ enum FairnessRanker {
     /// caller publishes the complete set immediately afterwards, so a final
     /// report would only buy an extra whole-screen pass.
     ///
-    /// `reportInterval` is injectable for tests ONLY. At 0 this reports every
-    /// spot as it lands, which is what makes the cancellation guard below
-    /// observable — at the shipping 0.4 s a cancelled rank drains (measured:
-    /// 0.13 s) entirely inside the first window, so a test written against the
-    /// default passes whether the guard is there or not.
+    /// `reportInterval` is injectable for tests ONLY; no shipping caller
+    /// passes it. At 0 every spot reports as it lands, which sharpens what a
+    /// test can see: with the guard below deleted, a cancelled 3-candidate
+    /// rank reports all 3 rather than just the first.
+    ///
+    /// It is the `.distantPast` anchor, NOT this parameter, that makes the
+    /// guard observable at all — because the first arrival clears any finite
+    /// window, a cancelled rank reports its first batch even at 0.4 s. Both
+    /// were measured: guard deleted, default interval → 1 spot reported;
+    /// guard deleted, interval 0 → 3. (An earlier version of this comment
+    /// claimed the default could not fail, which was true of the `Date()`
+    /// anchor it replaced and false the moment `.distantPast` landed in the
+    /// same commit.)
     static func rank(
         candidates: [MKMapItem],
         participants: [Participant],
@@ -296,7 +306,7 @@ enum FairnessRanker {
                 // or three passes instead of eight.
                 let now = Date()
                 if let onSpots, !Task.isCancelled,
-                   now.timeIntervalSince(lastReport) >= reportInterval {
+                   batchIsDue(now: now, lastReport: lastReport, interval: reportInterval) {
                     lastReport = now
                     let batch = pending
                     pending = []
@@ -338,6 +348,17 @@ enum FairnessRanker {
     /// carried by code that actually runs, not by an overload nothing calls.
     static func merging(_ spots: [RankedSpot], into published: [RankedSpot]) -> [RankedSpot] {
         spots.reduce(published) { merging($1, into: $0) }
+    }
+
+    /// Whether a ranking in flight may publish now. Pure so the rule is
+    /// testable: the shipping path (accumulate, then one write per window) is
+    /// otherwise exercised by no test, because both callback tests pass
+    /// `reportInterval: 0` and so never let `pending` accumulate at all
+    /// (follow-up audit 2026-10-17).
+    ///
+    /// The `.distantPast` anchor is deliberate and load-bearing — see `rank`.
+    static func batchIsDue(now: Date, lastReport: Date, interval: TimeInterval) -> Bool {
+        now.timeIntervalSince(lastReport) >= interval
     }
 
     /// How often a ranking in flight may publish what has landed so far.

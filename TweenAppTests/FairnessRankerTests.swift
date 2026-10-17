@@ -334,10 +334,12 @@ final class ProgressiveRankCancellationTests: XCTestCase {
                           item("Three", lat: 37.6, lon: -122.2)]
         let people = participants
         let task = Task { @MainActor in
-            // reportInterval 0: report every spot as it lands. At the shipping
-            // 0.4 s this test cannot fail — a cancelled rank drains in ~0.13 s,
-            // entirely inside the first window, so zero batches go out whether
-            // the guard is there or not (follow-up audit 2026-10-17).
+            // reportInterval 0 reports every spot as it lands, which sharpens
+            // the signal: guard deleted, this sees all 3 rather than just the
+            // first. The test still fails without the guard at the shipping
+            // 0.4 s (it reports 1) — the `.distantPast` anchor is what makes
+            // the guard observable, not this parameter. Both measured,
+            // follow-up audit 2026-10-17.
             await FairnessRanker.rank(candidates: candidates, participants: people,
                                       cap: 3, reportInterval: 0) { batch in
                 counter.reported += batch.map(\.id)
@@ -424,5 +426,75 @@ final class ProgressiveBatchMergeTests: XCTestCase {
         // short that an 8-candidate rank is back to a pass per candidate.
         XCTAssertGreaterThanOrEqual(FairnessRanker.progressiveReportInterval, 0.25)
         XCTAssertLessThanOrEqual(FairnessRanker.progressiveReportInterval, 1.0)
+    }
+}
+
+/// The batching gate itself (follow-up audit 2026-10-17). Both callback tests
+/// run at `reportInterval: 0`, which bypasses the gate entirely — `pending`
+/// never accumulates — so without these the shipping behaviour c41c811 was
+/// written to add has no coverage at all.
+final class ProgressiveBatchGateTests: XCTestCase {
+
+    func testTheFirstArrivalAlwaysReports() {
+        // The `.distantPast` anchor. This is what keeps the cancellation guard
+        // observable at the SHIPPING interval, so it is not a detail.
+        XCTAssertTrue(FairnessRanker.batchIsDue(
+            now: Date(), lastReport: .distantPast,
+            interval: FairnessRanker.progressiveReportInterval))
+    }
+
+    func testASecondAnswerInsideTheWindowWaits() {
+        let now = Date()
+        XCTAssertFalse(FairnessRanker.batchIsDue(
+            now: now, lastReport: now.addingTimeInterval(-0.1), interval: 0.4))
+    }
+
+    func testPastTheWindowReports() {
+        let now = Date()
+        XCTAssertTrue(FairnessRanker.batchIsDue(
+            now: now, lastReport: now.addingTimeInterval(-0.41), interval: 0.4))
+        XCTAssertTrue(FairnessRanker.batchIsDue(
+            now: now, lastReport: now.addingTimeInterval(-5), interval: 0.4))
+        // The EXACT boundary is deliberately not asserted: `Date` is a
+        // `Double` of seconds, so `now.addingTimeInterval(-0.4)` comes back as
+        // 0.39999999999999997 and `>=` is false. Asserting it would be testing
+        // floating-point luck, and nothing in the product cares — missing a
+        // window boundary by a nanosecond defers one batch by one arrival.
+    }
+
+    func testZeroIntervalAlwaysReports() {
+        // What the cancellation tests rely on to see every spot.
+        let now = Date()
+        XCTAssertTrue(FairnessRanker.batchIsDue(now: now, lastReport: now, interval: 0))
+    }
+
+    /// The shape the gate produces over a run of arrivals: the first reports,
+    /// everything inside that window accumulates, and the next arrival past
+    /// the window carries all of it in ONE batch. That is the whole point —
+    /// one whole-screen pass per window instead of one per answer.
+    func testAWindowOfArrivalsCollapsesToOneReport() {
+        let interval: TimeInterval = 0.4
+        let start = Date()
+        // Arrival times, in seconds from start.
+        let arrivals: [TimeInterval] = [0.05, 0.10, 0.22, 0.51, 0.55, 1.30]
+        var lastReport = Date.distantPast
+        var pending = 0
+        var batches: [Int] = []
+        for offset in arrivals {
+            pending += 1
+            let now = start.addingTimeInterval(offset)
+            if FairnessRanker.batchIsDue(now: now, lastReport: lastReport, interval: interval) {
+                lastReport = now
+                batches.append(pending)
+                pending = 0
+            }
+        }
+        // First arrival alone; then 0.10/0.22 wait and ride out with 0.51;
+        // 0.55 waits and rides out with 1.30.
+        XCTAssertEqual(batches, [1, 3, 2])
+        XCTAssertEqual(batches.reduce(0, +) + pending, arrivals.count,
+                       "every arrival is either reported or still pending")
+        XCTAssertLessThan(batches.count, arrivals.count,
+                          "batching must mean fewer writes than answers")
     }
 }
