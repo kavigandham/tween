@@ -241,7 +241,7 @@ enum FairnessRanker {
         candidates: [MKMapItem],
         participants: [Participant],
         cap: Int,
-        onSpot: (@MainActor (RankedSpot) -> Void)? = nil
+        onSpots: (@MainActor ([RankedSpot]) -> Void)? = nil
     ) async -> [RankedSpot] {
         guard !participants.isEmpty else { return [] }
         let capped = mostCentral(candidates, participants: participants, cap: cap)
@@ -253,8 +253,11 @@ enum FairnessRanker {
                 }
             }
             var results: [RankedSpot] = []
+            var pending: [RankedSpot] = []
+            var lastReport = Date()
             for await spot in group {
                 results.append(spot)
+                pending.append(spot)
                 // NOT reported once this rank has been superseded. A cancelled
                 // rank does not stop producing spots — `eta` resumes its legs
                 // with nil and falls back to a straight-line estimate, so a
@@ -266,8 +269,27 @@ enum FairnessRanker {
                 // here. Without this guard those stale half-confidence guesses
                 // land ON TOP of routed answers, computed against the OLD
                 // participant set, and nothing re-sorts them away.
-                if let onSpot, !Task.isCancelled { await onSpot(spot) }
+                // Reported in BATCHES, not one at a time. Each report is a
+                // `rankedSpots` write, and that is a whole-screen pass — Map,
+                // every annotation, the group bar, the cards (~26 ms of
+                // main-thread work, measured in an optimised build). Spot by
+                // spot, a full ranking spent eight of them inside the 2.5-3 s
+                // the user is staring at the list, which is the cost the two
+                // commits before this one existed to remove. One write per
+                // window keeps the rows filling in visibly while costing two
+                // or three passes instead of eight.
+                let now = Date()
+                if let onSpots, !Task.isCancelled,
+                   now.timeIntervalSince(lastReport) >= progressiveReportInterval {
+                    lastReport = now
+                    let batch = pending
+                    pending = []
+                    await onSpots(batch)
+                }
             }
+            // Whatever is still pending needs no final report: the caller's
+            // `completeRankings` publishes the whole set a moment later, and
+            // an extra write here would just be a ninth pass.
             return results
         }
 
@@ -291,6 +313,24 @@ enum FairnessRanker {
         merged[index] = spot
         return merged
     }
+
+    /// The batch form: every spot applied in place, for ONE published write.
+    /// See `progressiveReportInterval` for why the batching exists.
+    static func merging(_ spots: [RankedSpot], into published: [RankedSpot]) -> [RankedSpot] {
+        guard !spots.isEmpty else { return published }
+        var merged = published
+        for spot in spots {
+            guard let index = merged.firstIndex(where: { $0.id == spot.id }) else { continue }
+            merged[index] = spot
+        }
+        return merged
+    }
+
+    /// How often a ranking in flight may publish what has landed so far.
+    /// Short enough that rows visibly fill in, long enough that a full
+    /// ranking costs two or three whole-screen passes rather than one per
+    /// candidate (lag audit 2026-10-17).
+    static let progressiveReportInterval: TimeInterval = 0.4
 
     /// Legacy 2-person adapter. Existing callers (kickOffRanking, autoRank)
     /// invoke this until Slice 3/6 migrates them to pass real participant

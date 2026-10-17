@@ -665,9 +665,9 @@ extension OnboardingView {
         let candidates = SpotVicinity.filter(searchResults, participants: participants, minimumCount: 3)
         // Same progressive fill as the committed search above.
         let routed = await FairnessRanker.rank(
-            candidates: candidates, participants: participants, cap: cap) { spot in
+            candidates: candidates, participants: participants, cap: cap) { batch in
                 guard !Task.isCancelled else { return }
-                rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
+                rankedSpots = FairnessRanker.merging(batch, into: rankedSpots)
             }
         // A newer search/re-rank may have superseded this one mid-flight.
         guard !Task.isCancelled else { return }
@@ -787,12 +787,14 @@ extension OnboardingView {
             // untouched here — `completeRankings` below does the one re-sort,
             // so rows don't shuffle while they're being read.
             let routed = await FairnessRanker.rank(
-                candidates: candidates, participants: participants, cap: cap) { spot in
+                candidates: candidates, participants: participants, cap: cap) { batch in
                     // Re-checked HERE too: the hop to the main actor is a
                     // suspension point, and a newer search can supersede this
                     // one across it.
                     guard !Task.isCancelled else { return }
-                    rankedSpots = FairnessRanker.merging(spot, into: rankedSpots)
+                    // ONE write for the whole batch — see
+                    // `progressiveReportInterval`.
+                    rankedSpots = FairnessRanker.merging(batch, into: rankedSpots)
                 }
             guard !Task.isCancelled else { return }
             rankedSpots = FairnessRanker.completeRankings(

@@ -331,8 +331,8 @@ final class ProgressiveRankCancellationTests: XCTestCase {
                           item("Three", lat: 37.6, lon: -122.2)]
         let people = participants
         let task = Task { @MainActor in
-            await FairnessRanker.rank(candidates: candidates, participants: people, cap: 3) { _ in
-                counter.reported += 1
+            await FairnessRanker.rank(candidates: candidates, participants: people, cap: 3) { batch in
+                counter.reported += batch.count
             }
         }
         task.cancel()
@@ -347,10 +347,69 @@ final class ProgressiveRankCancellationTests: XCTestCase {
         let candidates = [item("One", lat: 37.5, lon: -122.1),
                           item("Two", lat: 37.55, lon: -122.15)]
         let routed = await FairnessRanker.rank(
-            candidates: candidates, participants: participants, cap: 2) { _ in
-                counter.reported += 1
+            candidates: candidates, participants: participants, cap: 2) { batch in
+                counter.reported += batch.count
             }
-        XCTAssertEqual(counter.reported, routed.count)
+        // Batched: the callback fires at most once per window, and anything
+        // still pending when the ranking finishes is left to
+        // `completeRankings`. So every REPORTED spot must be one of the
+        // returned ones, and no spot may be reported twice.
+        XCTAssertLessThanOrEqual(counter.reported, routed.count)
         XCTAssertEqual(routed.count, 2)
+    }
+}
+
+/// The batch form of the progressive merge (lag audit 2026-10-17). Reporting
+/// spot-by-spot cost one whole-screen pass each — ~26 ms of main-thread work
+/// in an optimised build — so a full ranking spent eight of them inside the
+/// window the user is watching. Batching keeps the fill visible at one write
+/// per window.
+final class ProgressiveBatchMergeTests: XCTestCase {
+    private func spot(_ name: String, eta: TimeInterval, routed: Bool = false) -> RankedSpot {
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: 37.3 + eta / 100_000, longitude: -121.9)))
+        item.name = name
+        return RankedSpot(
+            item: item,
+            etas: [ParticipantETA(id: "me", name: "You", eta: eta, fromRoute: routed)],
+            confidence: routed ? 1.0 : 0.5)
+    }
+
+    func testABatchAppliesEverySpotAndKeepsOrder() {
+        let a = spot("A", eta: 600), b = spot("B", eta: 900), c = spot("C", eta: 1200)
+        let published = [a, b, c]
+        let batch = [
+            RankedSpot(item: c.item, etas: [ParticipantETA(id: "me", name: "You", eta: 33, fromRoute: true)], confidence: 1.0),
+            RankedSpot(item: a.item, etas: [ParticipantETA(id: "me", name: "You", eta: 11, fromRoute: true)], confidence: 1.0)
+        ]
+        let merged = FairnessRanker.merging(batch, into: published)
+        XCTAssertEqual(merged.map(\.id), published.map(\.id), "a batch must not reorder rows")
+        XCTAssertEqual(merged[0].etas.first?.eta, 11)
+        XCTAssertEqual(merged[1].etas.first?.eta, 900, "an untouched row keeps its estimate")
+        XCTAssertEqual(merged[2].etas.first?.eta, 33)
+    }
+
+    func testAnEmptyBatchIsANoOp() {
+        let published = [spot("A", eta: 600)]
+        XCTAssertEqual(FairnessRanker.merging([RankedSpot](), into: published).map(\.id),
+                       published.map(\.id))
+    }
+
+    func testStraysInABatchAreIgnoredWithoutDroppingTheRest() {
+        let a = spot("A", eta: 600), b = spot("B", eta: 900)
+        let stray = spot("Gone", eta: 10)
+        let routedB = RankedSpot(item: b.item, etas: [
+            ParticipantETA(id: "me", name: "You", eta: 77, fromRoute: true)
+        ], confidence: 1.0)
+        let merged = FairnessRanker.merging([stray, routedB], into: [a, b])
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged[1].etas.first?.eta, 77)
+    }
+
+    func testTheReportIntervalIsShortEnoughToSeeButLongEnoughToBatch() {
+        // Under a second so rows visibly fill during a 2.5-3 s ranking; not so
+        // short that an 8-candidate rank is back to a pass per candidate.
+        XCTAssertGreaterThanOrEqual(FairnessRanker.progressiveReportInterval, 0.25)
+        XCTAssertLessThanOrEqual(FairnessRanker.progressiveReportInterval, 1.0)
     }
 }
